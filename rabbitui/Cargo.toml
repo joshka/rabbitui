@@ -1,0 +1,16 @@
+[package]
+name = "rabbitui"
+description = "A terminal user interface framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rabbitui-core.workspace = true
+qwertty.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

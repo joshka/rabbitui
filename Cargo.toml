@@ -1,8 +1,21 @@
-[package]
-name = "rabbitui"
+[workspace]
+resolver = "3"
+members = ["rabbitui", "rabbitui-core", "rabbitui-testing"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "A terminal user interface framework"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/joshka/rabbitui"
 
-[dependencies]
+[workspace.dependencies]
+rabbitui-core = { path = "rabbitui-core", version = "0.1.0" }
+# Path dependency during development; switches to a git (then crates.io) dependency
+# when qwertty publishes. See docs/adr/0012-terminal-substrate.md.
+qwertty = { path = "../../../qwertty", features = ["tokio"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
