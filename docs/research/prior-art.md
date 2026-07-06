@@ -4,6 +4,10 @@
 
 Date: 2026-07-06
 
+> **See also:** [recent-rust-tui-wave.md](recent-rust-tui-wave.md) — a follow-up sweep of the
+> 2024–2026 wave (63 frameworks, ~⅓ AI-generated) that stress-tests this memo's conclusions
+> against fresh demand data and revises several (inline mode, AI-agent workloads, theming).
+
 Sources:
 
 - https://github.com/veeso/tui-realm (repo + `gh api`: 969 stars, pushed 2026-07-01, v4.1.0 2026-05-02; issues #21, #173, #180, #185)
