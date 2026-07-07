@@ -3,14 +3,96 @@
 Status of qwertty as rabbitui's terminal substrate. Maintained from the qwertty side; updated as
 qwertty evolves.
 
-- Reflects qwertty commit: `c3554fdc` (main), 2026-07-06
-- qwertty is **unpublished** (`version 0.0.0`, `publish = false`). ADR 0017/0018 target `0.1.0` with
-  the current narrow surface, but the project is entering a design-review push in which all existing
-  ADRs are explicitly up for re-litigation — treat "planned" entries below as direction, not
-  commitments, until that review lands.
-- Division of responsibility (agreed): qwertty owns bytes, terminal protocol, session lifecycle, and
-  input decoding. rabbitui owns cell buffers, diffing, widgets, layout, and the app model. Nothing
-  widget- or buffer-shaped will be accepted into qwertty.
+- Reflects qwertty change `sopwxwrn` (local jj, 2026-07-07). This is **ahead of the pushed `main`**
+  (still `c3554fdc` on GitHub): qwertty is deep in Phase 4 implementation, 23 sealed local changes,
+  none pushed yet. The design review referenced below **landed and passed its gate**; the ADRs were
+  dispositioned (12 affirmed / 4 revised / 2 superseded).
+- qwertty is still **unpublished** (`version 0.0.0`, `publish = false`); first publish is milestone
+  **M8**, after the input protocols, screen/styling, capabilities, and suspend/handoff milestones
+  complete. Keep the git/path dependency; do not expect crates.io before then.
+- **Build-stability action for rabbitui (do this):** your `Cargo.toml` pins
+  `qwertty = { path = "../../../qwertty" }`, which resolves to qwertty's **dev checkout** — the
+  actively-churning working tree that is often mid-slice and may not compile between seals. **Repoint
+  it to `../../../qwertty/work/default`**, the jj workspace qwertty keeps pinned to the last *sealed,
+  green* change. You then build against a tree that always compiles and passes the full gate, and you
+  advance deliberately (qwertty moves `work/default` forward only at each seal). This is the intended
+  consumption path for a downstream during active development.
+- Division of responsibility (unchanged, reaffirmed at the gate): qwertty owns bytes, terminal
+  protocol, session lifecycle, and input decoding. rabbitui owns cell buffers, diffing, widgets,
+  layout, and the app model. **One boundary moved at the gate:** grapheme *width measurement* is now
+  qwertty's (terminal-behaviour-keyed, conformance-measured) — see the churn map. rabbitui still owns
+  segmentation-for-editing and layout.
+
+## 0. Phase 4 progress and churn map (2026-07-07) — READ THIS FIRST
+
+The sections below (1–8) were written against `c3554fdc` and are **substantially superseded**; this
+section is the current truth. qwertty rebuilt its input/output stack from first principles after the
+design review. What that means for rabbitui, framed as: **what is stable to build on now** vs **what
+will still churn**, so you can plan.
+
+### Landed and stable to build on now (at `work/default`)
+
+- **Encode layer — stable, device-free, no-tokio, buildable anywhere.** `Command`/`CommandBuffer`
+  plus `commands::{cursor, screen, style, osc, terminal}`: full SGR (16/256/truecolor, all
+  attributes + resets, underline styles + colour), alternate screen, cursor show/hide/shape, window
+  title (sanitized), OSC 8 hyperlinks, OSC 52 clipboard write, OSC 133 semantic prompts, synchronized
+  output (2026), scroll regions (DECSTBM/SU/SD/IL/DL). **This is your P0 render surface — emit-ready
+  today.** These types are the least likely to churn.
+- **Session lifecycle — stable shape.** `TerminalSession<D: TerminalDevice>` and
+  `TokioTerminalSession<D>`: mode ledger that undoes exactly what it enabled on `leave`/drop, a
+  panic-safe `RestoreHandle` obtainable without `&mut` (your P0-7, delivered), re-entrant
+  `enter`/`leave` for per-frame or per-prompt cycling, and every mode (alt screen, mouse, focus,
+  paste, kitty, in-band-resize) enabled through the same ledger so teardown is automatic.
+- **`FakeDevice` / `TerminalDevice` seam — delivered (your P1-15, highest-value ask).** A
+  socketpair-backed in-memory device drives the *real* `TokioTerminalSession` in a plain unit test:
+  scripted input bytes in, emitted bytes out, no PTY. Your headless integration tests can use this
+  today.
+- **Decode + events — landed, but see churn note.** Total lossless syntax layer (all of
+  CSI/OSC/DCS/APC/PM/SOS preserved byte-exact — the old "OSC/DCS input not preserved" gap is closed),
+  a semantic layer, and the `Event` vocabulary: `KeyEvent` (kitty-shaped: key, modifiers,
+  press/repeat/release, multi-codepoint text, shifted/base-layout alternates), `MouseEvent`,
+  `FocusEvent`, `PasteEvent` (aggregated, lossless, `\r`-normalized), `ResizeEvent` (in-band 2048 +
+  SIGWINCH helper, storm-coalesced to one final-geometry event), and `Event::Syntax` passthrough for
+  anything unmapped. Kitty keyboard has the full push/verify-granted/pop lifecycle.
+- **Race-free queries — proven.** Cursor-position and terminal-status queries with the twelve
+  documented contracts (preserved-unrelated-input, timeout, late-reply, wrong-report, cancellation,
+  …), a sans-io correlator, verified against tmux and headless ghostty (betamax).
+
+### Still to come (the remaining churn, in likely order)
+
+- **Capability probe + policy (M3, in progress now).** A DA1-fenced `probe_capabilities()` returning
+  a typed capability struct (your P1-10, batched single-timeout probe — the exact shape you specified)
+  is landing. After it: synchronized-output emission and OSC 52 will become **capability-/policy-
+  gated** — i.e. the encode commands stay, but the *session* helpers that emit 2026 wraps or clipboard
+  writes will consult probed support and a `Policy` (secure-by-default: clipboard read off, etc.).
+  Plan for a policy argument/handle appearing on those session paths.
+- **Suspend / resume / handoff (M6, not yet started).** Your P1-14 ($EDITOR handoff, Ctrl-Z). The API
+  shape (`suspend`/`resume`, a `run_detached`-style handoff) is designed but not built — treat as
+  not-yet-available.
+- **First publish (M8).** Version → 0.1.0, `publish=false` removed. At that point sequence-database
+  IDs become citable and a crates.io dependency becomes possible.
+
+### The one churn pivot that matters most for rabbitui
+
+**The `Event` / `KeyEvent` / `command` vocabulary is deliberately NOT frozen yet** — it freezes at
+**milestone M4-S4** (a dedicated review pass, maintainer-gated, not yet run). Until then qwertty will
+break these types freely if a better shape emerges (your own contract ask: "break `InputEvent` freely
+before 0.1 rather than freeze it wrong"). **Concrete guidance:**
+
+- If you build your event-handling against `Event`/`KeyEvent` now, expect field/variant changes until
+  the freeze. Keep the coupling behind your single-file seam (as you planned) so a re-pin is a
+  one-file update.
+- The kitty-shaped `KeyEvent` carries text as an **optional multi-codepoint payload on the key event**
+  (not one-char-per-event, and not a separate composed-text event). If your composer assumed
+  char-granularity typed input, this is the change to plan for — it exists specifically so IME/compose
+  and ZWJ-cluster text arrive as one associated event, not split.
+- **Width measurement moved to qwertty** (gate decision). A `width_of(&str, &Capabilities)`-shaped API
+  is a named future design item (needs a spike); it will be terminal-behaviour-aware, not a static
+  unicode-width table. If you currently measure width yourself, know that a substrate-provided,
+  terminal-accurate path is coming — you can keep yours until it lands, then decide.
+
+When M4-S4 freezes the vocabulary, this doc will say so explicitly and that becomes the safe pin for
+building durable event code.
 
 ## 1. Capability matrix
 
@@ -122,6 +204,15 @@ cleanup errors reported rather than swallowed; encode layer usable standalone; n
 state.
 
 ## 6. Incoming requirements from rabbitui
+
+**Landed status (2026-07-07):** the table below records *dispositions*; §0's churn map records what
+is actually *available now*. Summary: items 1, 2, 4, 5, 6, 7, 8, 9, 11 (SGR, alt screen, kitty
+keyboard, resize, paste, panic-restore, OSC/DCS preservation, mouse, focus), 13 (cursor shape,
+title), 15 (in-memory device), and 19 (OSC 8) are **landed and available at `work/default`**. Item 3
+(sync output) and 12 (OSC 52) have their **commands landed**; their capability-/policy-gated *session
+emission* lands with item 10 (the probe, in progress now). Items 14 (suspend/handoff) and 17
+(Windows) are **not yet started**. Item 16 (mode 2027) and 20 (mode 2031) land with the probe/caps
+work. Nothing declined.
 
 | #   | Item                                                                                                 | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -251,3 +342,16 @@ correlator). Adoption order on our side:
   work landing tonight, which is green in isolation. If the resize refactor was not
   meant to alter the mouse-event shape, this may be an unintended regression worth
   a look on your side.
+
+- **2026-07-07 (BLOCKER, qwertty lib does not compile):** `src/correlate.rs` is
+  mid-refactor and fails to build standalone — `Reply::DecPrivateMode` and
+  `Reply::XtVersion` variants and the `dcs_string`/`osc_string` functions are
+  referenced but not defined (`correlate.rs:105,209,213,...`). Because qwertty is
+  our path dependency, **this blocks the entire rabbitui workspace from
+  compiling** — we cannot build or test anything while it stands. Our committed
+  work (through the SSE decoder + Arc 2A spacing/audit) landed while qwertty still
+  compiled and is fine; but new work (the Arc 2A gallery example + tapes) is
+  authored and staged, unverifiable and uncommitted until this clears. No action
+  from us (we never edit qwertty); flagging because it's almost certainly an
+  incomplete in-flight commit on your side — a `cargo build -p qwertty --features
+  tokio` on main will show it. We'll re-verify and commit the moment it builds.
