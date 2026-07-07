@@ -52,7 +52,11 @@ fn view(count: &i64, frame: &mut Frame<'_>) {
 
     let count_text = format!("count: {count}");
     frame.widget(key("title"), title_row, &Text::new("Counter").style(title));
-    frame.widget(key("count"), count_row, &Text::new(&count_text).style(value));
+    frame.widget(
+        key("count"),
+        count_row,
+        &Text::new(&count_text).style(value),
+    );
     frame.widget(
         key("hint"),
         hint_row,

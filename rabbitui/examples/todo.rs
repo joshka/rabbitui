@@ -120,13 +120,25 @@ fn view(app: &App0, frame: &mut Frame<'_>) {
 
     // A stable key: the field is cleared on submit by a widget command, not by
     // re-keying, so its identity (and thus focus) survives across submits.
-    frame.widget(key("input"), input_row, &TextInput::new().placeholder("Add a todo…"));
+    frame.widget(
+        key("input"),
+        input_row,
+        &TextInput::new().placeholder("Add a todo…"),
+    );
 
     // The list borrows the app's todos as its source.
-    frame.widget(key("list"), list_area, &SelectionList::new(app.todos.clone()));
+    frame.widget(
+        key("list"),
+        list_area,
+        &SelectionList::new(app.todos.clone()),
+    );
 
     let status = format!("{} todo(s)", app.todos.len());
-    frame.widget(key("status"), status_row, &Text::new(&status).role(Role::Accent));
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status).role(Role::Accent),
+    );
 
     frame.widget(
         key("hint"),

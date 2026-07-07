@@ -148,7 +148,10 @@ impl<M: Send + 'static> Cmd<M> {
     /// The single effect primitive (ADR 0005): all other constructors are sugar
     /// over this or over [`stream`](Self::stream).
     pub fn future(future: impl Future<Output = M> + Send + 'static) -> Self {
-        Self { kind: Kind::Future(Box::pin(future)), group: None }
+        Self {
+            kind: Kind::Future(Box::pin(future)),
+            group: None,
+        }
     }
 
     /// A command that yields every message `stream` produces, ending when the
@@ -159,7 +162,10 @@ impl<M: Send + 'static> Cmd<M> {
     /// [`futures_core::Stream`] so any stream type composes without pulling in a
     /// stream-combinator dependency.
     pub fn stream(stream: impl Stream<Item = M> + Send + 'static) -> Self {
-        Self { kind: Kind::Stream(Box::pin(stream)), group: None }
+        Self {
+            kind: Kind::Stream(Box::pin(stream)),
+            group: None,
+        }
     }
 
     /// A command that waits `duration`, then delivers `f()`'s message.
@@ -194,7 +200,10 @@ impl<M: Send + 'static> Cmd<M> {
     /// let _ = stop;
     /// ```
     pub fn cancel_group(name: impl Into<String>) -> Self {
-        Self { kind: Kind::Cancel, group: Some(name.into()) }
+        Self {
+            kind: Kind::Cancel,
+            group: Some(name.into()),
+        }
     }
 
     /// Tags this command with a **cancel-previous** group.
@@ -251,7 +260,11 @@ impl<M: Send + 'static> Effects<M> {
     #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        Self { tx, rx, groups: HashMap::new() }
+        Self {
+            tx,
+            rx,
+            groups: HashMap::new(),
+        }
     }
 
     /// Spawns `cmd` onto the runtime, applying cancel-previous for a grouped one.
@@ -418,7 +431,9 @@ mod tests {
 
     impl<M> VecStream<M> {
         fn new(items: impl IntoIterator<Item = M>) -> Self {
-            Self { items: items.into_iter().collect() }
+            Self {
+                items: items.into_iter().collect(),
+            }
         }
     }
 

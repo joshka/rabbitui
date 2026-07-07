@@ -125,8 +125,7 @@ impl Run {
         let Some(start) = self.start else {
             return;
         };
-        let position =
-            ProtocolPosition::new(start.y.saturating_add(1), start.x.saturating_add(1));
+        let position = ProtocolPosition::new(start.y.saturating_add(1), start.x.saturating_add(1));
         frame.command(commands::cursor::move_to(position));
         frame.bytes(encode::sgr(self.style));
         frame.text(&self.text);

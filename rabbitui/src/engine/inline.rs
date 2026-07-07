@@ -377,7 +377,10 @@ fn row_cells(buffer: &Buffer, y: u16) -> Vec<CellChange> {
             if cell.is_continuation() {
                 return None;
             }
-            Some(CellChange { position: Position::new(x, y), cell: cell.clone() })
+            Some(CellChange {
+                position: Position::new(x, y),
+                cell: cell.clone(),
+            })
         })
         .collect()
 }
@@ -482,7 +485,10 @@ mod tests {
         let bold_at = text.find("warn:").expect("first span text present");
         let red_at = text.find(" boom").expect("second span text present");
         assert!(bold_at < red_at, "spans emit in order");
-        assert!(text.contains(";1m") || text.contains("[0;1m"), "bold SGR present: {text:?}");
+        assert!(
+            text.contains(";1m") || text.contains("[0;1m"),
+            "bold SGR present: {text:?}"
+        );
         assert!(text.contains("31m"), "red SGR present: {text:?}");
     }
 }

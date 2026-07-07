@@ -66,7 +66,10 @@ impl Span {
     /// ```
     #[must_use]
     pub fn raw(text: impl Into<String>) -> Self {
-        Self { text: text.into(), style: Style::new() }
+        Self {
+            text: text.into(),
+            style: Style::new(),
+        }
     }
 
     /// A span of `text` in `style`.
@@ -82,7 +85,10 @@ impl Span {
     /// ```
     #[must_use]
     pub fn styled(text: impl Into<String>, style: Style) -> Self {
-        Self { text: text.into(), style }
+        Self {
+            text: text.into(),
+            style,
+        }
     }
 }
 
@@ -134,6 +140,9 @@ mod tests {
         assert_eq!(Span::from(String::from("b")), Span::raw("b"));
         let style = Style::new().fg(Color::RED);
         assert_eq!(Span::from(("c", style)), Span::styled("c", style));
-        assert_eq!(Span::from((String::from("d"), style)), Span::styled("d", style));
+        assert_eq!(
+            Span::from((String::from("d"), style)),
+            Span::styled("d", style)
+        );
     }
 }

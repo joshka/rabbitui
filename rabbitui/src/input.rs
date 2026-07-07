@@ -175,7 +175,12 @@ fn mouse_from_csi(csi: &CsiInput) -> Option<MouseEvent> {
         (kind, button)
     };
 
-    Some(MouseEvent { kind, button, position, modifiers })
+    Some(MouseEvent {
+        kind,
+        button,
+        position,
+        modifiers,
+    })
 }
 
 /// Parses an ASCII decimal byte slice as a `u32`, or `None` if empty or
@@ -230,7 +235,10 @@ mod tests {
 
     #[test]
     fn text_maps_to_char() {
-        assert_eq!(from_qwertty(&QwerttyEvent::Text('z')), Some(InputEvent::key(Key::Char('z'))));
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Text('z')),
+            Some(InputEvent::key(Key::Char('z')))
+        );
     }
 
     #[test]
@@ -267,7 +275,10 @@ mod tests {
 
     #[test]
     fn arrows_map() {
-        assert_eq!(from_qwertty(&QwerttyEvent::Key(KeyInput::Up)), Some(InputEvent::key(Key::Up)));
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Key(KeyInput::Up)),
+            Some(InputEvent::key(Key::Up))
+        );
         assert_eq!(
             from_qwertty(&QwerttyEvent::Key(KeyInput::Down)),
             Some(InputEvent::key(Key::Down)),
@@ -284,9 +295,15 @@ mod tests {
 
     #[test]
     fn unmapped_input_is_dropped() {
-        assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Null)), None);
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Control(ControlInput::Null)),
+            None
+        );
         // A C0 byte outside the Ctrl-letter range (0x01..=0x1A) has no key.
-        assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x1c))), None);
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x1c))),
+            None
+        );
     }
 
     fn csi(bytes: &[u8]) -> QwerttyEvent {

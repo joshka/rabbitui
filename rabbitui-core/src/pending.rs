@@ -128,7 +128,10 @@ impl Pending {
     /// Creates an empty pending set.
     #[must_use]
     pub fn new() -> Self {
-        Self { commands: Vec::new(), focus: None }
+        Self {
+            commands: Vec::new(),
+            focus: None,
+        }
     }
 
     /// True if no widget command and no focus request are buffered.
@@ -397,7 +400,10 @@ mod tests {
         let mut pending = Pending::new();
         pending.request_focus(input_id());
         pending.request_focus(WidgetId::ROOT.child(key("other")));
-        assert_eq!(pending.focus_request(), Some(WidgetId::ROOT.child(key("other"))));
+        assert_eq!(
+            pending.focus_request(),
+            Some(WidgetId::ROOT.child(key("other")))
+        );
     }
 
     #[test]
@@ -441,7 +447,11 @@ mod tests {
         let mut next = Pending::new();
         next.extend(remainder);
         next.apply(&mut store2, &facts, &mut focus);
-        assert_eq!(focus.current(), Some(input_id()), "the retry frame honored the focus");
+        assert_eq!(
+            focus.current(),
+            Some(input_id()),
+            "the retry frame honored the focus"
+        );
     }
 
     #[cfg(debug_assertions)]

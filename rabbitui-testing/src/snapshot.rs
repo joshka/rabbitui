@@ -103,7 +103,11 @@ fn snapshot_path(manifest_dir: &Path, name: &str) -> PathBuf {
 /// the file does not exist.
 fn read_snapshot(path: &Path) -> Option<String> {
     let contents = std::fs::read_to_string(path).ok()?;
-    Some(contents.strip_suffix('\n').map_or(contents.clone(), str::to_string))
+    Some(
+        contents
+            .strip_suffix('\n')
+            .map_or(contents.clone(), str::to_string),
+    )
 }
 
 /// Writes `actual` to `path` as the accepted snapshot, creating parent
@@ -149,7 +153,11 @@ mod tests {
     #[test]
     fn snapshot_path_is_under_tests_snapshots() {
         let path = snapshot_path(Path::new("/crate"), "counter");
-        assert!(path.ends_with("tests/snapshots/counter.txt"), "{}", path.display());
+        assert!(
+            path.ends_with("tests/snapshots/counter.txt"),
+            "{}",
+            path.display()
+        );
     }
 
     #[test]

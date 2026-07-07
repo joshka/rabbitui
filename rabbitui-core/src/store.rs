@@ -57,7 +57,9 @@ struct Entry {
 
 impl std::fmt::Debug for Entry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Entry").field("last_seen", &self.last_seen).finish_non_exhaustive()
+        f.debug_struct("Entry")
+            .field("last_seen", &self.last_seen)
+            .finish_non_exhaustive()
     }
 }
 
@@ -65,7 +67,11 @@ impl StateStore {
     /// Creates an empty store.
     #[must_use]
     pub fn new() -> Self {
-        Self { entries: HashMap::new(), frame: 0, grace_frames: DEFAULT_GRACE_FRAMES }
+        Self {
+            entries: HashMap::new(),
+            frame: 0,
+            grace_frames: DEFAULT_GRACE_FRAMES,
+        }
     }
 
     /// Marks the start of a frame. Called by the runtime, once per frame,
@@ -98,8 +104,14 @@ impl StateStore {
                     entry.state = Box::new(S::default());
                 }
             })
-            .or_insert_with(|| Entry { state: Box::new(S::default()), last_seen: frame });
-        entry.state.downcast_mut::<S>().expect("state type ensured above")
+            .or_insert_with(|| Entry {
+                state: Box::new(S::default()),
+                last_seen: frame,
+            });
+        entry
+            .state
+            .downcast_mut::<S>()
+            .expect("state type ensured above")
     }
 
     /// Lends type-erased `&mut` access to the state already stored for `id`.

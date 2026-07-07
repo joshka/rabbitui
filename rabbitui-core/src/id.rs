@@ -91,13 +91,19 @@ mod tests {
 
     #[test]
     fn same_path_same_id() {
-        assert_eq!(WidgetId::ROOT.child(key("a")), WidgetId::ROOT.child(key("a")));
+        assert_eq!(
+            WidgetId::ROOT.child(key("a")),
+            WidgetId::ROOT.child(key("a"))
+        );
     }
 
     #[test]
     fn different_names_differ() {
         assert_ne!(key("a"), key("b"));
-        assert_ne!(WidgetId::ROOT.child(key("a")), WidgetId::ROOT.child(key("b")));
+        assert_ne!(
+            WidgetId::ROOT.child(key("a")),
+            WidgetId::ROOT.child(key("b"))
+        );
     }
 
     #[test]

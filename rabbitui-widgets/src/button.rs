@@ -135,7 +135,9 @@ impl Widget for Button<'_> {
             }
             return Handled::No;
         }
-        let Some(key) = event.as_key() else { return Handled::No };
+        let Some(key) = event.as_key() else {
+            return Handled::No;
+        };
         match key.key {
             Key::Enter | Key::Char(' ') => {
                 ctx.emit(Outcome::Activated);
@@ -184,7 +186,10 @@ mod tests {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
         Button::new("Go").render(&mut (), &mut ctx);
-        assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Highlight));
+        assert_eq!(
+            cell_style(&buffer, 0),
+            Theme::default().style(Role::Highlight)
+        );
     }
 
     #[test]
@@ -199,15 +204,22 @@ mod tests {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
         Button::new("Go").style(base).render(&mut (), &mut ctx);
-        assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Highlight));
+        assert_eq!(
+            cell_style(&buffer, 0),
+            Theme::default().style(Role::Highlight)
+        );
     }
 
     fn dispatch(event: InputEvent) -> (Handled, Vec<Outcome>) {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx =
-                HandleCtx::new(Phase::Bubble, Rect::default(), &mut outcomes, &mut request_focus);
+            let mut ctx = HandleCtx::new(
+                Phase::Bubble,
+                Rect::default(),
+                &mut outcomes,
+                &mut request_focus,
+            );
             Button::handle(&mut (), &event, &mut ctx)
         };
         (handled, outcomes)

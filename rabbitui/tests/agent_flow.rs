@@ -17,6 +17,7 @@
 //!   expands it (body shown) — the alt affordance the immutable inline scrollback
 //!   cannot offer.
 
+use rabbitui::engine::InlineEngine;
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::commit::CommitLine;
 use rabbitui_core::frame::Frame;
@@ -26,9 +27,8 @@ use rabbitui_core::input::Key as InputKey;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::style::{Attrs, Color, Style};
 use rabbitui_core::text::Span;
-use rabbitui_testing::vt::{VtColor, VtScreen};
 use rabbitui_testing::TestApp;
-use rabbitui::engine::InlineEngine;
+use rabbitui_testing::vt::{VtColor, VtScreen};
 use rabbitui_widgets::{Collapsible, Text, TextInput};
 
 use pulldown_cmark::{CodeBlockKind, Event as MdEvent, Parser, Tag, TagEnd};
@@ -46,8 +46,15 @@ enum ToolStatus {
 #[derive(Debug, Clone)]
 enum TranscriptCell {
     User(String),
-    Assistant { source: String },
-    Tool { name: String, summary: String, output: String, status: ToolStatus },
+    Assistant {
+        source: String,
+    },
+    Tool {
+        name: String,
+        summary: String,
+        output: String,
+        status: ToolStatus,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -65,11 +72,17 @@ struct Agent {
 
 impl Agent {
     fn inline() -> Self {
-        Self { inline: true, ..Default::default() }
+        Self {
+            inline: true,
+            ..Default::default()
+        }
     }
 
     fn alt() -> Self {
-        Self { inline: false, ..Default::default() }
+        Self {
+            inline: false,
+            ..Default::default()
+        }
     }
 
     fn is_streaming(&self) -> bool {
@@ -88,12 +101,17 @@ fn commit_lines_for(cell: &TranscriptCell) -> Vec<CommitLine> {
             Span::styled(prompt.clone(), Style::new().bold()),
         ])],
         TranscriptCell::Assistant { source } => markdown_to_commit_lines(source),
-        TranscriptCell::Tool { summary, status, .. } => {
+        TranscriptCell::Tool {
+            summary, status, ..
+        } => {
             let role = match status {
                 ToolStatus::Ok => Style::new().fg(Color::GREEN),
                 ToolStatus::Failed => Style::new().fg(Color::RED),
             };
-            vec![CommitLine::from_spans([Span::styled(summary.clone(), role)])]
+            vec![CommitLine::from_spans([Span::styled(
+                summary.clone(),
+                role,
+            )])]
         }
     }
 }
@@ -124,8 +142,10 @@ impl MarkdownRender {
             MdEvent::Text(text) => self.text(&text),
             MdEvent::Code(code) => {
                 self.push_bullet();
-                self.current
-                    .push(Span::styled(code.to_string(), Style::new().fg(Color::Ansi(8)).dim()));
+                self.current.push(Span::styled(
+                    code.to_string(),
+                    Style::new().fg(Color::Ansi(8)).dim(),
+                ));
             }
             MdEvent::SoftBreak | MdEvent::HardBreak => self.break_line(),
             _ => {}
@@ -179,23 +199,30 @@ impl MarkdownRender {
                 }
                 first = false;
                 if !line.is_empty() {
-                    self.current.push(Span::styled(line.to_string(), self.style()));
+                    self.current
+                        .push(Span::styled(line.to_string(), self.style()));
                 }
             }
         } else {
-            self.current.push(Span::styled(text.to_string(), self.style()));
+            self.current
+                .push(Span::styled(text.to_string(), self.style()));
         }
     }
 
     fn push_bullet(&mut self) {
         if self.bullet_pending {
-            self.current.push(Span::styled("• ", Style::new().fg(Color::CYAN)));
+            self.current
+                .push(Span::styled("• ", Style::new().fg(Color::CYAN)));
             self.bullet_pending = false;
         }
     }
 
     fn style(&self) -> Style {
-        let mut style = Style { fg: self.fg, bg: None, attrs: self.attrs };
+        let mut style = Style {
+            fg: self.fg,
+            bg: None,
+            attrs: self.attrs,
+        };
         if self.in_code_block {
             style = style.dim();
         }
@@ -216,7 +243,13 @@ impl MarkdownRender {
 
 fn remove(attrs: Attrs, remove: Attrs) -> Attrs {
     let mut result = Attrs::NONE;
-    for flag in [Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSED] {
+    for flag in [
+        Attrs::BOLD,
+        Attrs::DIM,
+        Attrs::ITALIC,
+        Attrs::UNDERLINE,
+        Attrs::REVERSED,
+    ] {
         if attrs.contains(flag) && !remove.contains(flag) {
             result |= flag;
         }
@@ -241,13 +274,31 @@ fn inline_view(app: &Agent, frame: &mut Frame<'_>) {
         Constraint::Length(1),
         Constraint::Length(1),
     ]);
-    let preview_text =
-        app.streaming.as_ref().map_or_else(String::new, |s| s.source.clone());
-    frame.widget(key("preview"), preview, &Text::new(&preview_text).wrap(true));
+    let preview_text = app
+        .streaming
+        .as_ref()
+        .map_or_else(String::new, |s| s.source.clone());
+    frame.widget(
+        key("preview"),
+        preview,
+        &Text::new(&preview_text).wrap(true),
+    );
     let status = status_line(app);
-    frame.widget(key("status"), status_row, &Text::new(&status).style(Style::new().fg(Color::CYAN)));
-    frame.widget(composer_key(app), composer_row, &TextInput::new().placeholder("Tab, type…"));
-    frame.widget(key("hint"), hint_row, &Text::new("q: quit").style(Style::new().dim()));
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status).style(Style::new().fg(Color::CYAN)),
+    );
+    frame.widget(
+        composer_key(app),
+        composer_row,
+        &TextInput::new().placeholder("Tab, type…"),
+    );
+    frame.widget(
+        key("hint"),
+        hint_row,
+        &Text::new("q: quit").style(Style::new().dim()),
+    );
 }
 
 fn alt_view(app: &Agent, frame: &mut Frame<'_>) {
@@ -277,18 +328,31 @@ fn render_transcript(app: &Agent, frame: &mut Frame<'_>, area: Rect) {
         match cell {
             TranscriptCell::User(prompt) => {
                 let text = format!("❯ {prompt}");
-                frame.widget(cell_key, slot, &Text::new(&text).style(Style::new().fg(Color::CYAN).bold()));
+                frame.widget(
+                    cell_key,
+                    slot,
+                    &Text::new(&text).style(Style::new().fg(Color::CYAN).bold()),
+                );
             }
             TranscriptCell::Assistant { source } => {
                 frame.widget(cell_key, slot, &Text::new(source).wrap(true));
             }
-            TranscriptCell::Tool { name, summary, output, .. } => {
+            TranscriptCell::Tool {
+                name,
+                summary,
+                output,
+                ..
+            } => {
                 let header = if summary.contains(name.as_str()) {
                     summary.clone()
                 } else {
                     format!("{summary} ({name})")
                 };
-                frame.widget(cell_key, slot, &Collapsible::new(&header, output).default_collapsed(true));
+                frame.widget(
+                    cell_key,
+                    slot,
+                    &Collapsible::new(&header, output).default_collapsed(true),
+                );
             }
         }
         y += height;
@@ -368,9 +432,15 @@ fn live_tail_shows_accumulated_source_before_commit() {
     // The preview region (top rows) shows the wrapped prose. Width 24 wraps the
     // sentence across rows; the first row starts the sentence.
     let text = app.buffer_text();
-    assert!(text.contains("the quick brown fox"), "live tail shows accumulated source: {text:?}");
+    assert!(
+        text.contains("the quick brown fox"),
+        "live tail shows accumulated source: {text:?}"
+    );
     // The status line reports streaming.
-    assert!(text.contains("streaming"), "status shows streaming while the tail fills");
+    assert!(
+        text.contains("streaming"),
+        "status shows streaming while the tail fills"
+    );
 }
 
 #[test]
@@ -380,7 +450,9 @@ fn completion_commits_markdown_as_per_span_scrollback_via_vt100() {
     // bullets land in native scrollback, and the heading carries its per-span
     // (cyan/bold) color — buffer equality could never see this.
     let mut app = Agent::inline();
-    app.streaming = Some(Streaming { source: assistant_source() });
+    app.streaming = Some(Streaming {
+        source: assistant_source(),
+    });
     let mut committed = Vec::new();
     complete(&mut app, &mut committed);
 
@@ -400,9 +472,15 @@ fn completion_commits_markdown_as_per_span_scrollback_via_vt100() {
 
     let lines = screen.all_lines();
     let joined = lines.join("\n");
-    assert!(joined.contains("Working on: refactor"), "heading committed: {lines:?}");
+    assert!(
+        joined.contains("Working on: refactor"),
+        "heading committed: {lines:?}"
+    );
     assert!(joined.contains("test suite"), "prose committed: {lines:?}");
-    assert!(joined.contains("• the"), "bullets committed with a marker: {lines:?}");
+    assert!(
+        joined.contains("• the"),
+        "bullets committed with a marker: {lines:?}"
+    );
 
     // The heading's first cell is cyan (its per-span SGR reached the terminal).
     // Find the heading row and inspect its first painted cell on the live screen.
@@ -412,7 +490,10 @@ fn completion_commits_markdown_as_per_span_scrollback_via_vt100() {
     let heading_only = markdown_to_commit_lines("## Heading");
     heading_screen.feed(&heading_engine.render(&buffer_row("tail", 40), &heading_only));
     let cells = heading_screen.row_cells(0);
-    assert_eq!(cells.iter().map(|(s, _)| s.as_str()).collect::<String>(), "Heading");
+    assert_eq!(
+        cells.iter().map(|(s, _)| s.as_str()).collect::<String>(),
+        "Heading"
+    );
     assert_eq!(cells[0].1, VtColor::Ansi(6), "the heading is cyan (ANSI 6)");
 }
 
@@ -433,8 +514,12 @@ fn tool_cell_is_collapsed_by_default_then_expands_on_enter() {
     let mut committed = Vec::new(); // unused in alt mode; commits are inline-only.
     {
         let state = app.state_mut();
-        state.cells.push(TranscriptCell::User("refactor the engine".to_string()));
-        state.cells.push(TranscriptCell::Assistant { source: "On it.".to_string() });
+        state
+            .cells
+            .push(TranscriptCell::User("refactor the engine".to_string()));
+        state.cells.push(TranscriptCell::Assistant {
+            source: "On it.".to_string(),
+        });
     }
     // The tool finishes: alt mode records the cell but commits nothing.
     finish_tool(
@@ -447,25 +532,40 @@ fn tool_cell_is_collapsed_by_default_then_expands_on_enter() {
         },
         &mut committed,
     );
-    assert!(committed.is_empty(), "alt mode commits nothing (no scrollback)");
+    assert!(
+        committed.is_empty(),
+        "alt mode commits nothing (no scrollback)"
+    );
 
     app.render(alt_view);
     // Collapsed by default: the header shows, the body (the tool output) is hidden.
     let before = app.buffer_text();
-    assert!(before.contains("ran cargo test"), "tool header shows collapsed");
-    assert!(!before.contains("running 396 tests"), "tool body is hidden while collapsed");
+    assert!(
+        before.contains("ran cargo test"),
+        "tool header shows collapsed"
+    );
+    assert!(
+        !before.contains("running 396 tests"),
+        "tool body is hidden while collapsed"
+    );
 
     // Focus the tool cell (it is the third cell) and press Enter to expand it.
     let tool_id = WidgetId::ROOT.child(key("cell").index(2));
     app.set_focus(Some(tool_id));
     app.render(alt_view);
     let result = app.send_key(InputKey::Enter);
-    assert!(result.consumed, "Enter is consumed by the focused collapsible");
+    assert!(
+        result.consumed,
+        "Enter is consumed by the focused collapsible"
+    );
     app.render(alt_view);
 
     // Expanded: the body (full output) is now visible.
     let after = app.buffer_text();
-    assert!(after.contains("running 396 tests"), "tool body shows after Enter expands it: {after:?}");
+    assert!(
+        after.contains("running 396 tests"),
+        "tool body shows after Enter expands it: {after:?}"
+    );
 }
 
 #[test]
@@ -477,7 +577,10 @@ fn assistant_cell_is_expanded_by_default_in_alt() {
         source: "the visible reply body".to_string(),
     });
     app.render(alt_view);
-    assert!(app.buffer_text().contains("the visible reply body"), "assistant body shows by default");
+    assert!(
+        app.buffer_text().contains("the visible reply body"),
+        "assistant body shows by default"
+    );
 }
 
 #[test]
@@ -490,7 +593,11 @@ fn tool_summary_commit_is_styled_by_status() {
         output: String::new(),
         status: ToolStatus::Ok,
     });
-    assert_eq!(ok[0].spans()[0].style.fg, Some(Color::GREEN), "passed summary is green");
+    assert_eq!(
+        ok[0].spans()[0].style.fg,
+        Some(Color::GREEN),
+        "passed summary is green"
+    );
 
     let failed = commit_lines_for(&TranscriptCell::Tool {
         name: "cargo build".to_string(),
@@ -498,7 +605,11 @@ fn tool_summary_commit_is_styled_by_status() {
         output: "error[E0308]".to_string(),
         status: ToolStatus::Failed,
     });
-    assert_eq!(failed[0].spans()[0].style.fg, Some(Color::RED), "failed summary is red");
+    assert_eq!(
+        failed[0].spans()[0].style.fg,
+        Some(Color::RED),
+        "failed summary is red"
+    );
 }
 
 #[test]
@@ -519,18 +630,27 @@ fn markdown_renders_heading_bullets_and_inline_code_with_styles() {
     // The heading line is bold + cyan (one bold span).
     let heading = &lines[0];
     assert!(
-        heading.spans().iter().any(|s| s.style.attrs.contains(Attrs::BOLD) && s.style.fg == Some(Color::CYAN)),
+        heading
+            .spans()
+            .iter()
+            .any(|s| s.style.attrs.contains(Attrs::BOLD) && s.style.fg == Some(Color::CYAN)),
         "heading span is bold cyan: {:?}",
         heading.spans(),
     );
     // A bold run exists somewhere with the BOLD attribute set on just that span.
     assert!(
-        lines.iter().any(|line| line.spans().iter().any(|s| s.text == "bold" && s.style.attrs.contains(Attrs::BOLD))),
+        lines.iter().any(|line| line
+            .spans()
+            .iter()
+            .any(|s| s.text == "bold" && s.style.attrs.contains(Attrs::BOLD))),
         "the word 'bold' is its own bold span",
     );
     // The inline code span is dim.
     assert!(
-        lines.iter().any(|line| line.spans().iter().any(|s| s.text == "code" && s.style.attrs.contains(Attrs::DIM))),
+        lines.iter().any(|line| line
+            .spans()
+            .iter()
+            .any(|s| s.text == "code" && s.style.attrs.contains(Attrs::DIM))),
         "inline code is a dim span",
     );
 }

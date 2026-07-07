@@ -66,7 +66,11 @@ impl<'a> Collapsible<'a> {
     /// ```
     #[must_use]
     pub const fn new(header: &'a str, body: &'a str) -> Self {
-        Self { header, body, default_collapsed: false }
+        Self {
+            header,
+            body,
+            default_collapsed: false,
+        }
     }
 
     /// Sets the collapsed state the cell has the first frame it appears.
@@ -198,7 +202,9 @@ impl Widget for Collapsible<'_> {
             let body_style = ctx.style(Role::Muted);
             let height = ctx.area().size.height;
             for (index, line) in self.body.split('\n').enumerate() {
-                let Ok(row) = u16::try_from(index + 1) else { break };
+                let Ok(row) = u16::try_from(index + 1) else {
+                    break;
+                };
                 if row >= height {
                     break;
                 }
@@ -207,7 +213,11 @@ impl Widget for Collapsible<'_> {
         }
     }
 
-    fn handle(state: &mut CollapsibleState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(
+        state: &mut CollapsibleState,
+        event: &InputEvent,
+        ctx: &mut HandleCtx<'_>,
+    ) -> Handled {
         // A left click on the header row toggles the cell (row 0 of the area).
         if let Some(mouse) = event.as_mouse() {
             let on_header = mouse.button == MouseButton::Left
@@ -220,7 +230,9 @@ impl Widget for Collapsible<'_> {
             }
             return Handled::No;
         }
-        let Some(key) = event.as_key() else { return Handled::No };
+        let Some(key) = event.as_key() else {
+            return Handled::No;
+        };
         if key.modifiers.ctrl || key.modifiers.alt {
             return Handled::No;
         }
@@ -245,7 +257,11 @@ mod tests {
 
     use super::{Collapsible, CollapsibleState};
 
-    fn dispatch(state: &mut CollapsibleState, event: InputEvent, area: Rect) -> (Handled, Vec<Outcome>) {
+    fn dispatch(
+        state: &mut CollapsibleState,
+        event: InputEvent,
+        area: Rect,
+    ) -> (Handled, Vec<Outcome>) {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
@@ -255,7 +271,12 @@ mod tests {
         (handled, outcomes)
     }
 
-    fn render(cell: &Collapsible<'_>, state: &mut CollapsibleState, size: Size, focused: bool) -> Buffer {
+    fn render(
+        cell: &Collapsible<'_>,
+        state: &mut CollapsibleState,
+        size: Size,
+        focused: bool,
+    ) -> Buffer {
         let mut buffer = Buffer::new(size);
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(size), focused);
         cell.render(state, &mut ctx);

@@ -28,8 +28,7 @@ fn soft_wrap_text_snapshot() {
     // the snapshot pins word-boundary wrapping and wide-grapheme handling.
     let mut app = TestApp::new(Size::new(12, 6), ());
     app.render(|(), frame| {
-        let content =
-            "the quick brown fox jumps over\n世界語のテスト";
+        let content = "the quick brown fox jumps over\n世界語のテスト";
         let text = Text::new(content).wrap(true);
         frame.widget(key("wrapped"), frame.area(), &text);
     });

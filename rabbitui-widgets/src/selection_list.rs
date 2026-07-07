@@ -60,7 +60,8 @@ impl ListSource for Vec<String> {
     }
 
     fn item(&self, i: usize) -> Cow<'_, str> {
-        self.get(i).map_or(Cow::Borrowed(""), |s| Cow::Borrowed(s.as_str()))
+        self.get(i)
+            .map_or(Cow::Borrowed(""), |s| Cow::Borrowed(s.as_str()))
     }
 }
 
@@ -70,7 +71,8 @@ impl ListSource for &[String] {
     }
 
     fn item(&self, i: usize) -> Cow<'_, str> {
-        self.get(i).map_or(Cow::Borrowed(""), |s| Cow::Borrowed(s.as_str()))
+        self.get(i)
+            .map_or(Cow::Borrowed(""), |s| Cow::Borrowed(s.as_str()))
     }
 }
 
@@ -234,26 +236,39 @@ impl<S: ListSource> Widget for SelectionList<S> {
         state.scroll_into_view(height, len);
 
         let text_style = ctx.style(Role::Text);
-        let selected_style =
-            if ctx.is_focused() { ctx.style(Role::Highlight) } else { ctx.style(Role::Muted) };
+        let selected_style = if ctx.is_focused() {
+            ctx.style(Role::Highlight)
+        } else {
+            ctx.style(Role::Muted)
+        };
 
         // Paint only the visible window: offset .. offset + height, clamped to len.
         let end = (state.offset + height).min(len);
         for (row, index) in (state.offset..end).enumerate() {
             let Ok(y) = u16::try_from(row) else { break };
-            let style = if index == state.selected { selected_style } else { text_style };
+            let style = if index == state.selected {
+                selected_style
+            } else {
+                text_style
+            };
             ctx.set_string(Position::new(0, y), &self.source.item(index), style);
         }
     }
 
-    fn handle(state: &mut SelectionListState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(
+        state: &mut SelectionListState,
+        event: &InputEvent,
+        ctx: &mut HandleCtx<'_>,
+    ) -> Handled {
         // Mouse: a left press on a visible row selects it; the wheel moves the
         // selection one row per notch (the natural list gestures). The row is the
         // click's offset from the widget's area top, plus the scroll offset.
         if let Some(mouse) = event.as_mouse() {
             return handle_mouse(state, ctx, mouse);
         }
-        let Some(key) = event.as_key() else { return Handled::No };
+        let Some(key) = event.as_key() else {
+            return Handled::No;
+        };
         if key.modifiers.ctrl || key.modifiers.alt {
             return Handled::No;
         }
@@ -305,9 +320,13 @@ fn handle_mouse(
             let before = state.selected;
             if lines > 0 {
                 // Scroll down: advance the selection, re-clamped at render.
-                state.selected = state.selected.saturating_add(usize::from(lines.unsigned_abs()));
+                state.selected = state
+                    .selected
+                    .saturating_add(usize::from(lines.unsigned_abs()));
             } else if lines < 0 {
-                state.selected = state.selected.saturating_sub(usize::from(lines.unsigned_abs()));
+                state.selected = state
+                    .selected
+                    .saturating_sub(usize::from(lines.unsigned_abs()));
             }
             if state.selected != before {
                 ctx.emit(Outcome::Selected(state.selected));
@@ -374,8 +393,12 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx =
-                HandleCtx::new(Phase::Bubble, Rect::default(), &mut outcomes, &mut request_focus);
+            let mut ctx = HandleCtx::new(
+                Phase::Bubble,
+                Rect::default(),
+                &mut outcomes,
+                &mut request_focus,
+            );
             <SelectionList<Vec<String>>>::handle(state, &InputEvent::key(key), &mut ctx)
         };
         (handled, outcomes)
@@ -390,8 +413,7 @@ mod tests {
         focused: bool,
     ) -> Buffer {
         let mut buffer = Buffer::new(Size::new(8, height));
-        let mut ctx =
-            RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, height)), focused);
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, height)), focused);
         list.render(state, &mut ctx);
         buffer
     }
@@ -460,7 +482,10 @@ mod tests {
 
     #[test]
     fn home_selects_first() {
-        let mut state = SelectionListState { selected: 5, offset: 3 };
+        let mut state = SelectionListState {
+            selected: 5,
+            offset: 3,
+        };
         let (_h, outcomes) = dispatch(&mut state, Key::Home);
         assert_eq!(state.selected(), 0);
         assert_eq!(outcomes, vec![Outcome::Selected(0)]);
@@ -512,7 +537,10 @@ mod tests {
         let area = Rect::new(Position::new(0, 0), Size::new(8, 3));
         // Offset 5: the top visible row is item 5. Clicking the second visible row
         // selects item 6.
-        let mut state = SelectionListState { selected: 5, offset: 5 };
+        let mut state = SelectionListState {
+            selected: 5,
+            offset: 5,
+        };
         let click = InputEvent::Mouse(MouseEvent::new(
             MouseKind::Down,
             MouseButton::Left,
@@ -527,7 +555,10 @@ mod tests {
     fn wheel_moves_selection() {
         use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
         let area = Rect::new(Position::ORIGIN, Size::new(8, 5));
-        let mut state = SelectionListState { selected: 3, offset: 0 };
+        let mut state = SelectionListState {
+            selected: 3,
+            offset: 0,
+        };
         // Wheel down advances the selection.
         let down = InputEvent::Mouse(MouseEvent::new(
             MouseKind::Scroll(1),
@@ -553,7 +584,10 @@ mod tests {
     fn scroll_into_view_math() {
         // 10 rows, window of 3.
         // Selecting row 5 while offset 0: window must move so 5 is the bottom row.
-        let mut state = SelectionListState { selected: 5, ..Default::default() };
+        let mut state = SelectionListState {
+            selected: 5,
+            ..Default::default()
+        };
         state.scroll_into_view(3, 10);
         assert_eq!(state.offset(), 3); // rows 3,4,5 visible
         // Selecting row 2 (above the window): window moves up to top at 2.
@@ -569,7 +603,10 @@ mod tests {
     #[test]
     fn renders_only_visible_rows_and_highlights_selection() {
         let list = SelectionList::new(items());
-        let mut state = SelectionListState { selected: 5, offset: 0 };
+        let mut state = SelectionListState {
+            selected: 5,
+            offset: 0,
+        };
         // Height 3: scroll-into-view brings rows 3,4,5 into view.
         let buffer = render(&list, &mut state, 3, true);
         assert_eq!(state.offset(), 3);
@@ -587,7 +624,10 @@ mod tests {
     #[test]
     fn selected_row_is_muted_when_unfocused() {
         let list = SelectionList::new(items());
-        let mut state = SelectionListState { selected: 1, offset: 0 };
+        let mut state = SelectionListState {
+            selected: 1,
+            offset: 0,
+        };
         let buffer = render(&list, &mut state, 5, false);
         let selected_style = buffer.get(Position::new(0, 1)).unwrap().style;
         assert_eq!(selected_style, Theme::default().style(Role::Muted));
@@ -613,7 +653,10 @@ mod tests {
     #[test]
     fn empty_source_renders_nothing_and_clamps_to_zero() {
         let list = SelectionList::new(Vec::<String>::new());
-        let mut state = SelectionListState { selected: 3, offset: 2 };
+        let mut state = SelectionListState {
+            selected: 3,
+            offset: 2,
+        };
         let buffer = render(&list, &mut state, 4, true);
         assert_eq!(state.selected(), 0);
         assert_eq!(state.offset(), 0);

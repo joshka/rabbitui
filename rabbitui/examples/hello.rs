@@ -35,7 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Constraint::Length(1),
                 Constraint::Fill(1),
             ]);
-            frame.widget(key("title"), title_row, &Text::new("Hello, rabbitui!").style(title));
+            frame.widget(
+                key("title"),
+                title_row,
+                &Text::new("Hello, rabbitui!").style(title),
+            );
             frame.widget(
                 key("hint"),
                 hint_row,
@@ -56,5 +60,8 @@ fn quit_requested(update: &Update<'_>) -> bool {
     let Event::Input(input) = update.event() else {
         return false;
     };
-    matches!(input.as_key().map(|k| k.key), Some(Key::Char('q') | Key::Escape))
+    matches!(
+        input.as_key().map(|k| k.key),
+        Some(Key::Char('q') | Key::Escape)
+    )
 }

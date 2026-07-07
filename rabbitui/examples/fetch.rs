@@ -122,7 +122,9 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                     if app.ticking {
                         // Start the ticker under the "clock" group so it can be
                         // aborted on demand.
-                        update.spawn(Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"));
+                        update.spawn(
+                            Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"),
+                        );
                     } else {
                         // Stop it for good: cancel_group aborts the stream task
                         // without replacing it (the stream-stop primitive).
@@ -148,15 +150,27 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
         Constraint::Length(1),
     ]);
 
-    frame.widget(key("input"), input_row, &TextInput::new().placeholder("Tab, then search…"));
-    frame.widget(key("results"), list_area, &SelectionList::new(app.results.clone()));
+    frame.widget(
+        key("input"),
+        input_row,
+        &TextInput::new().placeholder("Tab, then search…"),
+    );
+    frame.widget(
+        key("results"),
+        list_area,
+        &SelectionList::new(app.results.clone()),
+    );
 
     let clock = if app.ticking {
         format!("clock: tick {}", app.ticks)
     } else {
         "clock: off (press t)".to_string()
     };
-    frame.widget(key("clock"), clock_row, &Text::new(&clock).style(Style::new().fg(Color::CYAN)));
+    frame.widget(
+        key("clock"),
+        clock_row,
+        &Text::new(&clock).style(Style::new().fg(Color::CYAN)),
+    );
 
     let status = match &app.last_error {
         Some(error) => format!("error: {error}"),
@@ -207,7 +221,10 @@ struct Ticker {
 impl Ticker {
     /// A ticker firing every `period`.
     fn every(period: Duration) -> Self {
-        Self { interval: tokio::time::interval(period), count: 0 }
+        Self {
+            interval: tokio::time::interval(period),
+            count: 0,
+        }
     }
 }
 

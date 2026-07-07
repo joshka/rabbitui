@@ -55,7 +55,12 @@ struct Stream {
 
 impl Default for Stream {
     fn default() -> Self {
-        Self { committed: 0, inline: true, draft: String::new(), input_generation: 0 }
+        Self {
+            committed: 0,
+            inline: true,
+            draft: String::new(),
+            input_generation: 0,
+        }
     }
 }
 
@@ -126,7 +131,11 @@ fn view(app: &Stream, frame: &mut Frame<'_>) {
         Constraint::Fill(1),
     ]);
 
-    frame.widget(input_key(app), input_row, &TextInput::new().placeholder("Tab, type, Enter…"));
+    frame.widget(
+        input_key(app),
+        input_row,
+        &TextInput::new().placeholder("Tab, type, Enter…"),
+    );
 
     let mode = if app.inline { "inline" } else { "alt-screen" };
     let status = format!("[{mode}]  {} committed", app.committed);

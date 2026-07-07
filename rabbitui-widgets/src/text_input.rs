@@ -198,7 +198,9 @@ impl TextInputState {
     ///
     /// Returns true if something was removed.
     fn delete_backward(&mut self) -> bool {
-        let Some(prev) = self.prev_boundary(self.cursor) else { return false };
+        let Some(prev) = self.prev_boundary(self.cursor) else {
+            return false;
+        };
         self.value.replace_range(prev..self.cursor, "");
         self.cursor = prev;
         true
@@ -208,7 +210,9 @@ impl TextInputState {
     ///
     /// Returns true if something was removed.
     fn delete_forward(&mut self) -> bool {
-        let Some(next) = self.next_boundary(self.cursor) else { return false };
+        let Some(next) = self.next_boundary(self.cursor) else {
+            return false;
+        };
         self.value.replace_range(self.cursor..next, "");
         true
     }
@@ -253,13 +257,19 @@ impl TextInputState {
     /// The byte offset of the grapheme boundary just before `at`, or `None` if
     /// `at` is at the start.
     fn prev_boundary(&self, at: usize) -> Option<usize> {
-        self.value[..at].grapheme_indices(true).next_back().map(|(index, _)| index)
+        self.value[..at]
+            .grapheme_indices(true)
+            .next_back()
+            .map(|(index, _)| index)
     }
 
     /// The byte offset of the grapheme boundary just after `at`, or `None` if
     /// `at` is at the end.
     fn next_boundary(&self, at: usize) -> Option<usize> {
-        self.value[at..].graphemes(true).next().map(|first| at + first.len())
+        self.value[at..]
+            .graphemes(true)
+            .next()
+            .map(|first| at + first.len())
     }
 
     /// The display width, in cells, of the value up to the cursor — the cursor's
@@ -320,7 +330,9 @@ impl Widget for TextInput<'_> {
         // "TextInput Down → focus"). Placing the cursor at the clicked column is a
         // recorded later refinement; for now a click only focuses, and the cursor
         // stays where it was.
-        let Some(key) = event.as_key() else { return Handled::No };
+        let Some(key) = event.as_key() else {
+            return Handled::No;
+        };
         // Modifiers other than Shift are not text editing here; leave them for
         // the app (e.g. Ctrl-C to quit).
         if key.modifiers.ctrl || key.modifiers.alt {
@@ -376,7 +388,9 @@ fn move_cursor(state: &mut TextInputState, op: fn(&mut TextInputState) -> bool) 
 fn paint_scrolled(ctx: &mut RenderCtx<'_>, value: &str, scroll: u16, style: Style) {
     let mut column: u16 = 0;
     for grapheme in value.graphemes(true) {
-        let advance = u16::try_from(UnicodeWidthStr::width(grapheme)).unwrap_or(1).max(1);
+        let advance = u16::try_from(UnicodeWidthStr::width(grapheme))
+            .unwrap_or(1)
+            .max(1);
         // Only paint graphemes whose start is at or past the scroll offset; a
         // wide grapheme half-scrolled off the left edge is dropped rather than
         // shown clipped.
@@ -419,8 +433,12 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx =
-                HandleCtx::new(Phase::Bubble, Rect::default(), &mut outcomes, &mut request_focus);
+            let mut ctx = HandleCtx::new(
+                Phase::Bubble,
+                Rect::default(),
+                &mut outcomes,
+                &mut request_focus,
+            );
             TextInput::handle(state, &event, &mut ctx)
         };
         (handled, outcomes)
@@ -556,7 +574,9 @@ mod tests {
         assert!(outcomes.is_empty());
         assert_eq!(state.value(), "");
         // A plain shift-char still types.
-        let shift_a = InputEvent::Key(KeyEvent::new(Key::Char('A')).with_modifiers(Modifiers::NONE.with_shift()));
+        let shift_a = InputEvent::Key(
+            KeyEvent::new(Key::Char('A')).with_modifiers(Modifiers::NONE.with_shift()),
+        );
         let (handled, _o) = dispatch(&mut state, shift_a);
         assert_eq!(handled, Handled::Yes);
         assert_eq!(state.value(), "A");
@@ -585,9 +605,23 @@ mod tests {
         state.cursor = 0;
         let buffer = render_state(&mut state, 5, true);
         // The cursor sits on 'a' at column 0, painted reversed.
-        assert!(buffer.get(Position::new(0, 0)).unwrap().style.attrs.contains(Attrs::REVERSED));
+        assert!(
+            buffer
+                .get(Position::new(0, 0))
+                .unwrap()
+                .style
+                .attrs
+                .contains(Attrs::REVERSED)
+        );
         // A non-cursor cell is not reversed.
-        assert!(!buffer.get(Position::new(1, 0)).unwrap().style.attrs.contains(Attrs::REVERSED));
+        assert!(
+            !buffer
+                .get(Position::new(1, 0))
+                .unwrap()
+                .style
+                .attrs
+                .contains(Attrs::REVERSED)
+        );
     }
 
     #[test]
@@ -596,7 +630,14 @@ mod tests {
         type_str(&mut state, "ab");
         let buffer = render_state(&mut state, 5, false);
         for x in 0..2 {
-            assert!(!buffer.get(Position::new(x, 0)).unwrap().style.attrs.contains(Attrs::REVERSED));
+            assert!(
+                !buffer
+                    .get(Position::new(x, 0))
+                    .unwrap()
+                    .style
+                    .attrs
+                    .contains(Attrs::REVERSED)
+            );
         }
     }
 
@@ -605,7 +646,9 @@ mod tests {
         let mut empty = TextInputState::default();
         let mut buffer = Buffer::new(Size::new(10, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
-        TextInput::new().placeholder("type…").render(&mut empty, &mut ctx);
+        TextInput::new()
+            .placeholder("type…")
+            .render(&mut empty, &mut ctx);
         assert_eq!(row(&buffer), "type…");
     }
 

@@ -20,7 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let title = Style::new().fg(Color::GREEN).bold();
     let hint = Style::new().fg(Color::Indexed(245)).italic();
 
-    terminal.print_styled(Position::new(2, 1), "rabbitui smoke test", title).await?;
+    terminal
+        .print_styled(Position::new(2, 1), "rabbitui smoke test", title)
+        .await?;
     terminal
         .print_styled(
             Position::new(2, 2),

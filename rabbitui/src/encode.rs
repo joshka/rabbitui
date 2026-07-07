@@ -203,7 +203,11 @@ mod tests {
         // RESTORE must start by disabling mouse (unconditionally safe), then leave
         // the alt screen, reset, and show the cursor.
         assert!(RESTORE.starts_with(DISABLE_MOUSE));
-        assert!(RESTORE.windows(LEAVE_ALT_SCREEN.len()).any(|w| w == LEAVE_ALT_SCREEN));
+        assert!(
+            RESTORE
+                .windows(LEAVE_ALT_SCREEN.len())
+                .any(|w| w == LEAVE_ALT_SCREEN)
+        );
         assert!(RESTORE.ends_with(SHOW_CURSOR));
     }
 

@@ -205,15 +205,17 @@ impl<'a> RenderCtx<'a> {
     /// assert_eq!(ctx.style(Role::Accent), theme.style(Role::Accent));
     /// ```
     #[must_use]
-    pub fn new_themed(
-        buffer: &'a mut Buffer,
-        area: Rect,
-        focused: bool,
-        theme: &'a Theme,
-    ) -> Self {
+    pub fn new_themed(buffer: &'a mut Buffer, area: Rect, focused: bool, theme: &'a Theme) -> Self {
         let bounds = Rect::from_size(buffer.size());
         let area = area.intersection(bounds);
-        Self { buffer, area, theme, focused, focusable: false, visibility: None }
+        Self {
+            buffer,
+            area,
+            theme,
+            focused,
+            focusable: false,
+            visibility: None,
+        }
     }
 
     /// The widget's area size (relative coordinates run from the origin to
@@ -376,7 +378,12 @@ impl<'a> HandleCtx<'a> {
         outcomes: &'a mut Vec<Outcome>,
         request_focus: &'a mut bool,
     ) -> Self {
-        Self { phase, area, outcomes, request_focus }
+        Self {
+            phase,
+            area,
+            outcomes,
+            request_focus,
+        }
     }
 
     /// The dispatch phase this call is part of (capture or bubble).
@@ -460,7 +467,10 @@ mod tests {
         let area = Rect::from_size(Size::new(4, 1));
         // A default context resolves against Theme::default().
         let ctx = RenderCtx::new(&mut buffer, area, false);
-        assert_eq!(ctx.style(Role::Accent), Theme::default().style(Role::Accent));
+        assert_eq!(
+            ctx.style(Role::Accent),
+            Theme::default().style(Role::Accent)
+        );
         let _ = ctx;
         // A themed context resolves against the supplied theme.
         let theme = Theme::catppuccin_mocha();

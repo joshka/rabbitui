@@ -93,10 +93,16 @@ impl fmt::Display for ThemeError {
                 write!(f, "theme file has no [roles] table")
             }
             ThemeError::UnknownRole(name) => {
-                write!(f, "unknown role {name:?} (expected one of the documented roles)")
+                write!(
+                    f,
+                    "unknown role {name:?} (expected one of the documented roles)"
+                )
             }
             ThemeError::NotAString(name) => {
-                write!(f, "role {name:?} must be a style string like \"#rrggbb on #rrggbb, bold\"")
+                write!(
+                    f,
+                    "role {name:?} must be a style string like \"#rrggbb on #rrggbb, bold\""
+                )
             }
             ThemeError::BadStyle { role, reason } => {
                 write!(f, "role {role:?}: {reason}")
@@ -126,8 +132,10 @@ impl std::error::Error for ThemeError {
 /// for malformed TOML, or the parse errors [`parse_theme`] reports.
 pub fn load_theme(path: impl AsRef<Path>, base: Theme) -> Result<Theme, ThemeError> {
     let path = path.as_ref();
-    let text = std::fs::read_to_string(path)
-        .map_err(|source| ThemeError::Io { path: path.to_path_buf(), source })?;
+    let text = std::fs::read_to_string(path).map_err(|source| ThemeError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
     parse_theme(&text, base)
 }
 
@@ -152,9 +160,13 @@ pub fn parse_theme(text: &str, base: Theme) -> Result<Theme, ThemeError> {
     let mut theme = base;
     for (name, value) in roles {
         let role = Role::from_name(name).ok_or_else(|| ThemeError::UnknownRole(name.clone()))?;
-        let spec = value.as_str().ok_or_else(|| ThemeError::NotAString(name.clone()))?;
-        let style = parse_style(spec)
-            .map_err(|reason| ThemeError::BadStyle { role: name.clone(), reason })?;
+        let spec = value
+            .as_str()
+            .ok_or_else(|| ThemeError::NotAString(name.clone()))?;
+        let style = parse_style(spec).map_err(|reason| ThemeError::BadStyle {
+            role: name.clone(),
+            reason,
+        })?;
         theme.set(role, style);
     }
     Ok(theme)
@@ -178,18 +190,24 @@ fn parse_style(spec: &str) -> Result<Style, String> {
     let mut style = Style::new();
     // Colors: `FG` or `FG on BG`.
     let mut words = colors.split_whitespace();
-    let fg = words.next().ok_or_else(|| "missing foreground color".to_string())?;
+    let fg = words
+        .next()
+        .ok_or_else(|| "missing foreground color".to_string())?;
     style = style.fg(parse_color(fg)?);
     if let Some(word) = words.next() {
         if word != "on" {
-            return Err(format!("expected \"on\" before a background color, found {word:?}"));
+            return Err(format!(
+                "expected \"on\" before a background color, found {word:?}"
+            ));
         }
         let bg = words
             .next()
             .ok_or_else(|| "\"on\" must be followed by a background color".to_string())?;
         style = style.bg(parse_color(bg)?);
         if let Some(extra) = words.next() {
-            return Err(format!("unexpected trailing text after the background color: {extra:?}"));
+            return Err(format!(
+                "unexpected trailing text after the background color: {extra:?}"
+            ));
         }
     }
 
@@ -213,7 +231,11 @@ fn parse_color(word: &str) -> Result<Color, String> {
         u8::from_str_radix(&hex[range], 16)
             .map_err(|_| format!("color {word:?} has non-hex digits"))
     };
-    Ok(Color::Rgb(component(0..2)?, component(2..4)?, component(4..6)?))
+    Ok(Color::Rgb(
+        component(0..2)?,
+        component(2..4)?,
+        component(4..6)?,
+    ))
 }
 
 /// Adds one named attribute to `style`.
@@ -325,7 +347,10 @@ mod tests {
         let toml = "[roles]\naccent = \"#cba6f7, bold\"\n";
         let theme = parse_theme(toml, base).unwrap();
         // The named role is overridden…
-        assert_eq!(theme.style(Role::Accent).fg, Some(Color::Rgb(0xcb, 0xa6, 0xf7)));
+        assert_eq!(
+            theme.style(Role::Accent).fg,
+            Some(Color::Rgb(0xcb, 0xa6, 0xf7))
+        );
         // …and an unnamed role keeps the base.
         assert_eq!(theme.style(Role::Text), before_text);
     }

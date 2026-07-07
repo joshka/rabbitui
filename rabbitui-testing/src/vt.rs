@@ -113,10 +113,9 @@ impl VtScreen {
             cells.push((cell.contents().to_string(), VtColor::from(cell.fgcolor())));
         }
         // Trim trailing blank cells (space glyph, default color).
-        while cells
-            .last()
-            .is_some_and(|(sym, color)| (sym.is_empty() || sym == " ") && *color == VtColor::Default)
-        {
+        while cells.last().is_some_and(|(sym, color)| {
+            (sym.is_empty() || sym == " ") && *color == VtColor::Default
+        }) {
             cells.pop();
         }
         cells
@@ -152,7 +151,8 @@ impl VtScreen {
     pub fn assert_row(&self, y: u16, expected: &str) {
         let actual = self.row_text(y);
         assert_eq!(
-            actual, expected,
+            actual,
+            expected,
             "row {y}: expected {expected:?}, got {actual:?}\nfull screen:\n{}",
             self.contents()
         );
@@ -203,7 +203,9 @@ impl VtScreen {
         end_row: u16,
         end_col: u16,
     ) -> String {
-        self.parser.screen().contents_between(start_row, start_col, end_row, end_col)
+        self.parser
+            .screen()
+            .contents_between(start_row, start_col, end_row, end_col)
     }
 
     /// Every logical row from the top of scrollback through the bottom of the
@@ -327,6 +329,9 @@ mod tests {
         // The visible screen shows only the last line…
         screen.assert_row(0, "second");
         // …but scrollback keeps the first line above it.
-        assert_eq!(screen.all_lines(), vec!["first".to_string(), "second".to_string()]);
+        assert_eq!(
+            screen.all_lines(),
+            vec!["first".to_string(), "second".to_string()]
+        );
     }
 }

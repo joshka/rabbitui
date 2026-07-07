@@ -85,7 +85,9 @@ impl CommitLine {
     /// ```
     #[must_use]
     pub fn new(text: impl Into<String>, style: Style) -> Self {
-        Self { spans: vec![Span::styled(text, style)] }
+        Self {
+            spans: vec![Span::styled(text, style)],
+        }
     }
 
     /// Creates a commit line from an ordered sequence of [`Span`]s.
@@ -109,7 +111,9 @@ impl CommitLine {
     /// ```
     #[must_use]
     pub fn from_spans(spans: impl IntoIterator<Item = Span>) -> Self {
-        Self { spans: spans.into_iter().collect() }
+        Self {
+            spans: spans.into_iter().collect(),
+        }
     }
 
     /// The line's spans, in paint order.
@@ -137,13 +141,17 @@ impl CommitLine {
 
 impl From<&str> for CommitLine {
     fn from(text: &str) -> Self {
-        Self { spans: vec![Span::raw(text)] }
+        Self {
+            spans: vec![Span::raw(text)],
+        }
     }
 }
 
 impl From<String> for CommitLine {
     fn from(text: String) -> Self {
-        Self { spans: vec![Span::raw(text)] }
+        Self {
+            spans: vec![Span::raw(text)],
+        }
     }
 }
 

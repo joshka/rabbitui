@@ -119,7 +119,12 @@ fn area_buffer(ctx: &RenderCtx<'_>) -> Option<RatBuffer> {
     if size.width == 0 || size.height == 0 {
         return None;
     }
-    Some(RatBuffer::empty(RatRect::new(0, 0, size.width, size.height)))
+    Some(RatBuffer::empty(RatRect::new(
+        0,
+        0,
+        size.width,
+        size.height,
+    )))
 }
 
 /// Copies every cell of `rat_buffer` into `ctx`, converting style and honoring
@@ -183,7 +188,10 @@ mod tests {
             .fg(RatColor::Green)
             .bg(RatColor::Blue)
             .add_modifier(Modifier::BOLD | Modifier::ITALIC);
-        render_ratatui(Paragraph::new(Line::from(Span::styled("ok", style))), &mut ctx);
+        render_ratatui(
+            Paragraph::new(Line::from(Span::styled("ok", style))),
+            &mut ctx,
+        );
         let cell = buffer.get(Position::ORIGIN).unwrap();
         assert_eq!(cell.symbol, "o");
         assert_eq!(cell.style.fg, Some(Color::Ansi(2)));
@@ -257,6 +265,13 @@ mod tests {
         assert_eq!(symbol(&buffer, 0, 0), "a");
         assert_eq!(symbol(&buffer, 0, 1), "b");
         assert_eq!(symbol(&buffer, 0, 2), "c");
-        assert!(buffer.get(Position::new(0, 1)).unwrap().style.attrs.contains(Attrs::REVERSED));
+        assert!(
+            buffer
+                .get(Position::new(0, 1))
+                .unwrap()
+                .style
+                .attrs
+                .contains(Attrs::REVERSED)
+        );
     }
 }

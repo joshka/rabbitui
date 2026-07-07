@@ -73,7 +73,10 @@ fn alt_screen_diff_only_changes_the_changed_cells() {
     // The diff bytes must not mention row 1's content at all.
     let text = String::from_utf8_lossy(&diff_bytes);
     assert!(text.contains("xx"), "diff should carry the changed run");
-    assert!(!text.contains("bbbb"), "diff must not repaint the unchanged row");
+    assert!(
+        !text.contains("bbbb"),
+        "diff must not repaint the unchanged row"
+    );
 }
 
 #[test]
@@ -82,7 +85,10 @@ fn every_alt_frame_is_sync_framed() {
     let blank = Buffer::new(Size::new(6, 1));
     let current = buffer(&["hi"], 6);
     let bytes = engine.render(&current, &blank);
-    assert!(is_sync_framed(&bytes), "alt frame must be wrapped in mode-2026 framing");
+    assert!(
+        is_sync_framed(&bytes),
+        "alt frame must be wrapped in mode-2026 framing"
+    );
     // vt100 ignores the mode bytes but still renders the grid.
     let mut screen = VtScreen::new(6, 1);
     screen.feed(&bytes);
@@ -108,9 +114,18 @@ fn inline_commit_then_tail_yields_commit_above_tail() {
 
     // The committed line sits above the live tail.
     let lines = screen.all_lines();
-    let commit_at = lines.iter().position(|l| l == "log line 1").expect("commit present");
-    let tail_at = lines.iter().position(|l| l == "> prompt").expect("tail present");
-    assert!(commit_at < tail_at, "commit must appear above the tail: {lines:?}");
+    let commit_at = lines
+        .iter()
+        .position(|l| l == "log line 1")
+        .expect("commit present");
+    let tail_at = lines
+        .iter()
+        .position(|l| l == "> prompt")
+        .expect("tail present");
+    assert!(
+        commit_at < tail_at,
+        "commit must appear above the tail: {lines:?}"
+    );
 }
 
 #[test]
@@ -124,8 +139,14 @@ fn inline_two_commits_in_one_update_stay_in_order() {
     screen.feed(&engine.render(&tail, &commits));
 
     let lines = screen.all_lines();
-    let first = lines.iter().position(|l| l == "first").expect("first present");
-    let second = lines.iter().position(|l| l == "second").expect("second present");
+    let first = lines
+        .iter()
+        .position(|l| l == "first")
+        .expect("first present");
+    let second = lines
+        .iter()
+        .position(|l| l == "second")
+        .expect("second present");
     assert!(first < second, "commits must stay in order: {lines:?}");
 }
 
@@ -185,9 +206,15 @@ fn inline_stable_tail_diffs_only_changed_cells() {
 
     let text = String::from_utf8_lossy(&diff_bytes);
     assert!(text.contains("ONE!"), "diff carries the changed cells");
-    assert!(!text.contains("row zero"), "diff must not repaint the unchanged row");
+    assert!(
+        !text.contains("row zero"),
+        "diff must not repaint the unchanged row"
+    );
     // No ED-down clear on a stable-height diff (that would be a full repaint).
-    assert!(!text.contains("\x1b[0J"), "a stable-tail diff must not erase-below");
+    assert!(
+        !text.contains("\x1b[0J"),
+        "a stable-tail diff must not erase-below"
+    );
 }
 
 #[test]
@@ -210,7 +237,10 @@ fn mode_switch_alt_to_inline_restores_and_repaints() {
     let mut alt = AltEngine::new();
     let mut screen = VtScreen::new(20, 4);
     screen.feed(&alt.enter());
-    screen.feed(&alt.render(&buffer(&["alt content"], 20), &Buffer::new(Size::new(20, 4))));
+    screen.feed(&alt.render(
+        &buffer(&["alt content"], 20),
+        &Buffer::new(Size::new(20, 4)),
+    ));
     screen.assert_row(0, "alt content");
 
     // Leave alt (restores the prior screen), then enter inline and paint a tail.
@@ -222,7 +252,10 @@ fn mode_switch_alt_to_inline_restores_and_repaints() {
     // The alt content is gone (the terminal restored the primary screen); the
     // inline tail is now shown.
     let lines = screen.all_lines();
-    assert!(lines.iter().any(|l| l == "inline tail"), "inline tail must show: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l == "inline tail"),
+        "inline tail must show: {lines:?}"
+    );
     assert!(
         !lines.iter().any(|l| l == "alt content"),
         "alt content must not survive the switch: {lines:?}"
@@ -298,7 +331,10 @@ fn inline_commit_style_reaches_the_terminal() {
     // The committed cell carries a green foreground in the emulated grid.
     // all_lines pulls it from scrollback; find its row, then inspect the cell.
     let lines = screen.all_lines();
-    assert!(lines.iter().any(|l| l == "green"), "styled commit present: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l == "green"),
+        "styled commit present: {lines:?}"
+    );
 }
 
 #[test]

@@ -45,7 +45,10 @@ pub fn split_rows<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [
     let heights = split_lengths(area.size.height, &constraints);
     let mut y = area.origin.y;
     heights.map(|height| {
-        let rect = Rect::new(Position::new(area.origin.x, y), Size::new(area.size.width, height));
+        let rect = Rect::new(
+            Position::new(area.origin.x, y),
+            Size::new(area.size.width, height),
+        );
         y = y.saturating_add(height);
         rect
     })
@@ -59,7 +62,10 @@ pub fn split_columns<const N: usize>(area: Rect, constraints: [Constraint; N]) -
     let widths = split_lengths(area.size.width, &constraints);
     let mut x = area.origin.x;
     widths.map(|width| {
-        let rect = Rect::new(Position::new(x, area.origin.y), Size::new(width, area.size.height));
+        let rect = Rect::new(
+            Position::new(x, area.origin.y),
+            Size::new(width, area.size.height),
+        );
         x = x.saturating_add(width);
         rect
     })
@@ -81,8 +87,16 @@ fn split_lengths<const N: usize>(total: u16, constraints: &[Constraint; N]) -> [
     // Pass 2: divide the remainder among fills by cumulative exact shares.
     // boundary_i = round(cum_weight_i * remaining / total_weight) guarantees
     // the bands tile `remaining` with no gap and no overflow.
-    let total_weight: u32 =
-        constraints.iter().map(|c| if let Constraint::Fill(w) = c { u32::from(*w) } else { 0 }).sum();
+    let total_weight: u32 = constraints
+        .iter()
+        .map(|c| {
+            if let Constraint::Fill(w) = c {
+                u32::from(*w)
+            } else {
+                0
+            }
+        })
+        .sum();
     if total_weight == 0 {
         return lengths;
     }
@@ -110,8 +124,14 @@ mod tests {
 
     #[test]
     fn lengths_then_fill() {
-        let [a, b, c] =
-            split_rows(area(24), [Constraint::Length(1), Constraint::Fill(1), Constraint::Length(3)]);
+        let [a, b, c] = split_rows(
+            area(24),
+            [
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(3),
+            ],
+        );
         assert_eq!((a.size.height, b.size.height, c.size.height), (1, 20, 3));
         assert_eq!(b.origin.y, 1);
         assert_eq!(c.origin.y, 21);
@@ -120,8 +140,14 @@ mod tests {
     #[test]
     fn fills_tile_exactly_with_no_gap() {
         // 3 equal fills over 10 rows: 3+4+3 or similar — must sum to 10.
-        let [a, b, c] =
-            split_rows(area(10), [Constraint::Fill(1), Constraint::Fill(1), Constraint::Fill(1)]);
+        let [a, b, c] = split_rows(
+            area(10),
+            [
+                Constraint::Fill(1),
+                Constraint::Fill(1),
+                Constraint::Fill(1),
+            ],
+        );
         assert_eq!(a.size.height + b.size.height + c.size.height, 10);
         assert!(a.size.height.abs_diff(c.size.height) <= 1);
     }
@@ -134,8 +160,14 @@ mod tests {
 
     #[test]
     fn lengths_clip_when_area_too_small() {
-        let [a, b, c] =
-            split_rows(area(4), [Constraint::Length(3), Constraint::Length(3), Constraint::Fill(1)]);
+        let [a, b, c] = split_rows(
+            area(4),
+            [
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Fill(1),
+            ],
+        );
         assert_eq!((a.size.height, b.size.height, c.size.height), (3, 1, 0));
     }
 

@@ -100,7 +100,10 @@ impl FrameFacts {
     /// Creates an empty facts record.
     #[must_use]
     pub fn new() -> Self {
-        Self { entries: Vec::new(), visibility: Vec::new() }
+        Self {
+            entries: Vec::new(),
+            visibility: Vec::new(),
+        }
     }
 
     /// Records one widget's facts. Called by [`Frame`](crate::frame::Frame) as
@@ -128,7 +131,11 @@ impl FrameFacts {
     /// entries, or none declared above the base).
     #[must_use]
     pub fn top_layer(&self) -> u8 {
-        self.entries.iter().map(|entry| entry.layer).max().unwrap_or(0)
+        self.entries
+            .iter()
+            .map(|entry| entry.layer)
+            .max()
+            .unwrap_or(0)
     }
 
     /// True if no facts were recorded (an empty frame, or before the first
@@ -185,7 +192,9 @@ impl FrameFacts {
     /// disappears (slice-7 layers).
     pub fn focus_order(&self) -> impl Iterator<Item = &FactEntry> {
         let top = self.top_layer();
-        self.entries.iter().filter(move |entry| entry.focusable && entry.layer == top)
+        self.entries
+            .iter()
+            .filter(move |entry| entry.focusable && entry.layer == top)
     }
 
     /// The path from the root to `id` (inclusive), following parent links.
@@ -204,7 +213,9 @@ impl FrameFacts {
         let mut current = id;
         // Bound the walk to guarantee termination regardless of link shape.
         for _ in 0..self.entries.len() {
-            let Some(entry) = self.get(current) else { break };
+            let Some(entry) = self.get(current) else {
+                break;
+            };
             if entry.parent == current {
                 // Reached a root (self-parent); the path is complete.
                 break;
@@ -228,7 +239,13 @@ mod tests {
     }
 
     fn entry(id: WidgetId, parent: WidgetId, area: Rect, focusable: bool) -> FactEntry {
-        FactEntry { id, parent, area, focusable, layer: 0 }
+        FactEntry {
+            id,
+            parent,
+            area,
+            focusable,
+            layer: 0,
+        }
     }
 
     fn layered(
@@ -238,14 +255,25 @@ mod tests {
         focusable: bool,
         layer: u8,
     ) -> FactEntry {
-        FactEntry { id, parent, area, focusable, layer }
+        FactEntry {
+            id,
+            parent,
+            area,
+            focusable,
+            layer,
+        }
     }
 
     #[test]
     fn get_returns_declared_entry() {
         let mut facts = FrameFacts::new();
         let a = id("a");
-        facts.push(entry(a, WidgetId::ROOT, Rect::from_size(Size::new(2, 1)), true));
+        facts.push(entry(
+            a,
+            WidgetId::ROOT,
+            Rect::from_size(Size::new(2, 1)),
+            true,
+        ));
         assert_eq!(facts.get(a).unwrap().id, a);
         assert!(facts.get(id("missing")).is_none());
     }
@@ -328,7 +356,10 @@ mod tests {
             id: b,
             area: Rect::from_size(Size::new(3, 1)),
         });
-        let ids: Vec<_> = facts.visibility_requests().map(|request| request.id).collect();
+        let ids: Vec<_> = facts
+            .visibility_requests()
+            .map(|request| request.id)
+            .collect();
         assert_eq!(ids, vec![a, b]);
     }
 

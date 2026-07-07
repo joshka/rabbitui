@@ -149,7 +149,12 @@ impl MouseEvent {
     /// A mouse event with no modifiers.
     #[must_use]
     pub const fn new(kind: MouseKind, button: MouseButton, position: Position) -> Self {
-        Self { kind, button, position, modifiers: Modifiers::NONE }
+        Self {
+            kind,
+            button,
+            position,
+            modifiers: Modifiers::NONE,
+        }
     }
 
     /// This event with the given modifiers.
@@ -217,7 +222,10 @@ impl KeyEvent {
     /// A key press with no modifiers.
     #[must_use]
     pub const fn new(key: Key) -> Self {
-        Self { key, modifiers: Modifiers::NONE }
+        Self {
+            key,
+            modifiers: Modifiers::NONE,
+        }
     }
 
     /// This key press with the given modifiers.
@@ -314,7 +322,11 @@ pub struct Modifiers {
 
 impl Modifiers {
     /// No modifiers held.
-    pub const NONE: Self = Self { ctrl: false, alt: false, shift: false };
+    pub const NONE: Self = Self {
+        ctrl: false,
+        alt: false,
+        shift: false,
+    };
 
     /// Returns true if no modifier is held.
     #[must_use]
@@ -350,7 +362,10 @@ mod tests {
 
     #[test]
     fn key_helper_builds_unmodified_key_event() {
-        assert_eq!(InputEvent::key(Key::Enter), InputEvent::Key(KeyEvent::new(Key::Enter)));
+        assert_eq!(
+            InputEvent::key(Key::Enter),
+            InputEvent::Key(KeyEvent::new(Key::Enter))
+        );
     }
 
     #[test]

@@ -95,7 +95,10 @@ impl Rect {
     /// A rectangle covering `size` cells from the top-left of the surface.
     #[must_use]
     pub const fn from_size(size: Size) -> Self {
-        Self { origin: Position::ORIGIN, size }
+        Self {
+            origin: Position::ORIGIN,
+            size,
+        }
     }
 
     /// The first column inside the rectangle.

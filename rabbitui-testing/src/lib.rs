@@ -314,11 +314,7 @@ impl<S> TestApp<S> {
     /// app.send(|count| *count += 2, view);
     /// app.assert_buffer_lines(&["2"]);
     /// ```
-    pub fn send(
-        &mut self,
-        update: impl FnOnce(&mut S),
-        view: impl FnOnce(&S, &mut Frame<'_>),
-    ) {
+    pub fn send(&mut self, update: impl FnOnce(&mut S), view: impl FnOnce(&S, &mut Frame<'_>)) {
         update(&mut self.state);
         self.render(view);
     }
@@ -367,7 +363,13 @@ impl<S> TestApp<S> {
     /// assert_eq!(result.outcomes[0].1, Outcome::Activated);
     /// ```
     pub fn send_event(&mut self, event: InputEvent) -> RouteResult {
-        route(&self.facts, &self.handlers, &mut self.focus, &mut self.store, &event)
+        route(
+            &self.facts,
+            &self.handlers,
+            &mut self.focus,
+            &mut self.store,
+            &event,
+        )
     }
 
     /// Routes a bare key press (no modifiers) through the last rendered frame.
@@ -454,11 +456,7 @@ impl<S> TestApp<S> {
     /// app.inject(|results| results.push("hit".to_string()), view);
     /// app.assert_buffer_lines(&["hit"]);
     /// ```
-    pub fn inject(
-        &mut self,
-        update: impl FnOnce(&mut S),
-        view: impl FnOnce(&S, &mut Frame<'_>),
-    ) {
+    pub fn inject(&mut self, update: impl FnOnce(&mut S), view: impl FnOnce(&S, &mut Frame<'_>)) {
         self.send(update, view);
     }
 
@@ -596,8 +594,8 @@ impl<S> TestApp<S> {
     /// ```
     pub fn assert_buffer_lines(&self, expected: &[&str]) {
         let actual: Vec<String> = buffer_lines(&self.buffer);
-        let matches = actual.len() == expected.len()
-            && actual.iter().zip(expected).all(|(a, e)| a == e);
+        let matches =
+            actual.len() == expected.len() && actual.iter().zip(expected).all(|(a, e)| a == e);
         assert!(matches, "{}", diff_message(expected, &actual));
     }
 }
@@ -621,7 +619,9 @@ fn row_text(buffer: &Buffer, y: u16) -> String {
 
 /// Every row of `buffer` as trailing-trimmed strings, top to bottom.
 fn buffer_lines(buffer: &Buffer) -> Vec<String> {
-    (0..buffer.size().height).map(|y| row_text(buffer, y)).collect()
+    (0..buffer.size().height)
+        .map(|y| row_text(buffer, y))
+        .collect()
 }
 
 /// `buffer_lines` joined with `'\n'` — the public [`TestApp::buffer_text`] form.
@@ -773,7 +773,10 @@ mod tests {
         let mut app = TestApp::new(Size::new(6, 1), ());
         app.render(field_view);
         let id = rabbitui_core::id::WidgetId::ROOT.child(key("field"));
-        app.apply_pending(|p| p.command::<Field>(id, |s| s.value = "set".into()), field_view);
+        app.apply_pending(
+            |p| p.command::<Field>(id, |s| s.value = "set".into()),
+            field_view,
+        );
         app.assert_buffer_lines(&["set"]);
     }
 

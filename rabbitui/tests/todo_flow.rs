@@ -32,8 +32,16 @@ fn view(app: &Todo, frame: &mut Frame<'_>) {
         rabbitui_core::layout::Constraint::Length(1),
         rabbitui_core::layout::Constraint::Fill(1),
     ]);
-    frame.widget(key("input"), input_row, &TextInput::new().placeholder("Add a todo…"));
-    frame.widget(key("list"), list_area, &SelectionList::new(app.todos.clone()));
+    frame.widget(
+        key("input"),
+        input_row,
+        &TextInput::new().placeholder("Add a todo…"),
+    );
+    frame.widget(
+        key("list"),
+        list_area,
+        &SelectionList::new(app.todos.clone()),
+    );
 }
 
 /// Folds routing outcomes and the raw key into the state, mirroring the example's
@@ -81,7 +89,10 @@ fn step(app: &mut TestApp<Todo>, key_pressed: InputKey) {
     let submitted = apply(app.state_mut(), key_pressed, &result);
     if submitted {
         let id = WidgetId::ROOT.child(key("input"));
-        app.apply_pending(|p: &mut Pending| p.command::<TextInput>(id, |s| s.clear()), view);
+        app.apply_pending(
+            |p: &mut Pending| p.command::<TextInput>(id, |s| s.clear()),
+            view,
+        );
     } else {
         app.render(view);
     }
@@ -101,7 +112,11 @@ fn type_enter_appears_tab_select_delete() {
     // The first focusable (the input) is auto-focused on the first frame —
     // no Tab needed before typing (Focus::reconcile's default).
     let input_id = WidgetId::ROOT.child(key("input"));
-    assert_eq!(app.focus(), Some(input_id), "input is auto-focused on first render");
+    assert_eq!(
+        app.focus(),
+        Some(input_id),
+        "input is auto-focused on first render"
+    );
 
     // Type a todo and submit it.
     type_str(&mut app, "milk");
@@ -112,14 +127,27 @@ fn type_enter_appears_tab_select_delete() {
     // the widget command (its identity is stable), and it keeps focus.
     assert_eq!(app.state().todos, vec!["milk".to_string()]);
     assert_eq!(app.state().draft, "");
-    assert_eq!(app.focus(), Some(input_id), "the input keeps focus across a submit");
+    assert_eq!(
+        app.focus(),
+        Some(input_id),
+        "the input keeps focus across a submit"
+    );
     // The input row (the first line) is cleared — the submitted text is gone.
-    assert!(!app.buffer_text().lines().next().unwrap_or("").contains("milk"));
+    assert!(
+        !app.buffer_text()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .contains("milk")
+    );
 
     // Add a second todo the same way.
     type_str(&mut app, "eggs");
     step(&mut app, InputKey::Enter);
-    assert_eq!(app.state().todos, vec!["milk".to_string(), "eggs".to_string()]);
+    assert_eq!(
+        app.state().todos,
+        vec!["milk".to_string(), "eggs".to_string()]
+    );
 
     // The list shows both rows.
     app.render(view);
@@ -159,6 +187,10 @@ fn delete_key_reaches_app_only_when_list_focused() {
     // The input is auto-focused from the first frame (Focus::reconcile's
     // first-focusable default); 'd' should insert, not delete the todo.
     step(&mut app, InputKey::Char('d'));
-    assert_eq!(app.state().todos, vec!["one".to_string()], "'d' typed, did not delete");
+    assert_eq!(
+        app.state().todos,
+        vec!["one".to_string()],
+        "'d' typed, did not delete"
+    );
     assert_eq!(app.state().draft, "d");
 }

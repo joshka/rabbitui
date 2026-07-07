@@ -108,7 +108,9 @@ impl Terminal {
             Some(path) => TokioTerminalSession::open_path(path)?,
             None => TokioTerminalSession::open()?,
         };
-        Ok(Self { session: Some(session) })
+        Ok(Self {
+            session: Some(session),
+        })
     }
 
     /// Writes raw `bytes` to the terminal and flushes them.

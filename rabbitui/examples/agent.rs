@@ -86,7 +86,12 @@ enum TranscriptCell {
     /// A completed assistant message, held as its markdown source.
     Assistant { source: String },
     /// A completed tool call: its name, one-line summary, full output, status.
-    Tool { name: String, summary: String, output: String, status: ToolStatus },
+    Tool {
+        name: String,
+        summary: String,
+        output: String,
+        status: ToolStatus,
+    },
 }
 
 /// The in-flight assistant turn: accumulated prose and an optional running tool.
@@ -110,7 +115,12 @@ enum Msg {
     /// A tool call started; carries the tool's name.
     ToolStarted(String),
     /// A tool call finished with a summary, full output, and status.
-    ToolFinished { name: String, summary: String, output: String, status: ToolStatus },
+    ToolFinished {
+        name: String,
+        summary: String,
+        output: String,
+        status: ToolStatus,
+    },
     /// The assistant turn completed; commit the accumulated prose.
     Complete,
     /// The spinner ticker fired.
@@ -297,14 +307,28 @@ fn handle_message(app: &mut Agent, update: &Update<'_, Msg>, message: Msg) {
                 streaming.running_tool = Some(name);
             }
         }
-        Msg::ToolFinished { name, summary, output, status } => {
+        Msg::ToolFinished {
+            name,
+            summary,
+            output,
+            status,
+        } => {
             if let Some(streaming) = app.streaming.as_mut() {
                 streaming.running_tool = None;
                 // Flush any prose accumulated before the tool as its own assistant
                 // cell, so the tool cell lands between prose blocks in order.
                 flush_prose(app, update);
             }
-            push_cell(app, update, TranscriptCell::Tool { name, summary, output, status });
+            push_cell(
+                app,
+                update,
+                TranscriptCell::Tool {
+                    name,
+                    summary,
+                    output,
+                    status,
+                },
+            );
         }
         Msg::Complete => {
             flush_prose(app, update);
@@ -363,12 +387,17 @@ fn commit_lines_for(cell: &TranscriptCell) -> Vec<CommitLine> {
             ])]
         }
         TranscriptCell::Assistant { source } => markdown_to_commit_lines(source),
-        TranscriptCell::Tool { summary, status, .. } => {
+        TranscriptCell::Tool {
+            summary, status, ..
+        } => {
             let role = match status {
                 ToolStatus::Ok => Style::new().fg(Color::GREEN),
                 ToolStatus::Failed => Style::new().fg(Color::RED),
             };
-            vec![CommitLine::from_spans([Span::styled(summary.clone(), role)])]
+            vec![CommitLine::from_spans([Span::styled(
+                summary.clone(),
+                role,
+            )])]
         }
     }
 }
@@ -402,9 +431,17 @@ fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
         .streaming
         .as_ref()
         .map_or_else(String::new, |streaming| streaming.source.clone());
-    frame.widget(key("preview"), preview, &Text::new(&preview_text).wrap(true));
+    frame.widget(
+        key("preview"),
+        preview,
+        &Text::new(&preview_text).wrap(true),
+    );
 
-    frame.widget(key("status"), status_row, &Text::new(&status_line(app)).style(status_style(app)));
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status_line(app)).style(status_style(app)),
+    );
     frame.widget(
         composer_key(app),
         composer_row,
@@ -425,7 +462,11 @@ fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
 
     render_transcript(app, frame, transcript);
 
-    frame.widget(key("status"), status_row, &Text::new(&status_line(app)).style(status_style(app)));
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status_line(app)).style(status_style(app)),
+    );
     frame.widget(
         composer_key(app),
         composer_row,
@@ -484,12 +525,27 @@ fn render_cell(
     match cell {
         TranscriptCell::User(prompt) => {
             let text = format!("❯ {prompt}");
-            frame.widget(cell_key, slot, &Text::new(&text).style(Style::new().fg(Color::CYAN).bold()));
+            frame.widget(
+                cell_key,
+                slot,
+                &Text::new(&text).style(Style::new().fg(Color::CYAN).bold()),
+            );
         }
         TranscriptCell::Assistant { source } => {
-            frame.widget(cell_key, slot, &Text::new(source).wrap(true).role(rabbitui_core::theme::Role::Text));
+            frame.widget(
+                cell_key,
+                slot,
+                &Text::new(source)
+                    .wrap(true)
+                    .role(rabbitui_core::theme::Role::Text),
+            );
         }
-        TranscriptCell::Tool { name, summary, output, .. } => {
+        TranscriptCell::Tool {
+            name,
+            summary,
+            output,
+            ..
+        } => {
             // The header carries the tool name and its summary; the body (the full
             // output) is collapsed by default and revealed by Enter/click.
             let header = if summary.contains(name.as_str()) {
@@ -497,7 +553,11 @@ fn render_cell(
             } else {
                 format!("{summary} ({name})")
             };
-            frame.widget(cell_key, slot, &Collapsible::new(&header, output).default_collapsed(true));
+            frame.widget(
+                cell_key,
+                slot,
+                &Collapsible::new(&header, output).default_collapsed(true),
+            );
         }
     }
 }
@@ -636,7 +696,8 @@ impl MarkdownRender {
     /// new line so multi-line code fences keep their shape.
     fn text(&mut self, text: &str) {
         if self.bullet_pending {
-            self.current.push(Span::styled("• ", Style::new().fg(Color::CYAN)));
+            self.current
+                .push(Span::styled("• ", Style::new().fg(Color::CYAN)));
             self.bullet_pending = false;
         }
         if self.in_code_block {
@@ -647,26 +708,36 @@ impl MarkdownRender {
                 }
                 first = false;
                 if !line.is_empty() {
-                    self.current.push(Span::styled(line.to_string(), self.style()));
+                    self.current
+                        .push(Span::styled(line.to_string(), self.style()));
                 }
             }
         } else {
-            self.current.push(Span::styled(text.to_string(), self.style()));
+            self.current
+                .push(Span::styled(text.to_string(), self.style()));
         }
     }
 
     /// Appends an inline `code` span in a dim code style.
     fn inline_code(&mut self, code: &str) {
         if self.bullet_pending {
-            self.current.push(Span::styled("• ", Style::new().fg(Color::CYAN)));
+            self.current
+                .push(Span::styled("• ", Style::new().fg(Color::CYAN)));
             self.bullet_pending = false;
         }
-        self.current.push(Span::styled(code.to_string(), Style::new().fg(Color::Ansi(8)).dim()));
+        self.current.push(Span::styled(
+            code.to_string(),
+            Style::new().fg(Color::Ansi(8)).dim(),
+        ));
     }
 
     /// The current inline style from the active attributes and foreground.
     fn style(&self) -> Style {
-        let mut style = Style { fg: self.fg, bg: None, attrs: self.attrs };
+        let mut style = Style {
+            fg: self.fg,
+            bg: None,
+            attrs: self.attrs,
+        };
         if self.in_code_block {
             style = style.dim();
         }
@@ -723,8 +794,12 @@ fn agent_stream(prompt: &str) -> AgentStream {
 
     // Opening prose, chunked mid-word to prove the live-tail accumulation.
     steps.push_back(Step::Chunk(format!("## Working on: {topic}\n\n")));
-    steps.push_back(Step::Chunk("Let me start by looking at the relevant ".to_string()));
-    steps.push_back(Step::Chunk("code and running the **test suite**.\n".to_string()));
+    steps.push_back(Step::Chunk(
+        "Let me start by looking at the relevant ".to_string(),
+    ));
+    steps.push_back(Step::Chunk(
+        "code and running the **test suite**.\n".to_string(),
+    ));
 
     // A tool-call interlude: start, a sleep, then finish.
     steps.push_back(Step::ToolStart("cargo test".to_string()));
@@ -737,9 +812,13 @@ fn agent_stream(prompt: &str) -> AgentStream {
     });
 
     // Closing prose with a bullet list and inline code.
-    steps.push_back(Step::Chunk("\nAll green. The change touches:\n\n".to_string()));
+    steps.push_back(Step::Chunk(
+        "\nAll green. The change touches:\n\n".to_string(),
+    ));
     steps.push_back(Step::Chunk("- the `core::text` span type\n".to_string()));
-    steps.push_back(Step::Chunk("- the inline engine's per-span SGR\n\n".to_string()));
+    steps.push_back(Step::Chunk(
+        "- the inline engine's per-span SGR\n\n".to_string(),
+    ));
     steps.push_back(Step::Chunk("Done.".to_string()));
     steps.push_back(Step::Complete);
 
@@ -755,7 +834,12 @@ enum Step {
     /// Sleep before the next step (a tool "running").
     Sleep(Duration),
     /// Emit a tool-finished message.
-    ToolFinish { name: String, summary: String, output: String, status: ToolStatus },
+    ToolFinish {
+        name: String,
+        summary: String,
+        output: String,
+        status: ToolStatus,
+    },
     /// Emit the completion message.
     Complete,
 }
@@ -798,9 +882,19 @@ impl Stream for AgentStream {
                     this.arm_default_delay();
                     return Poll::Ready(Some(Msg::ToolStarted(name)));
                 }
-                Step::ToolFinish { name, summary, output, status } => {
+                Step::ToolFinish {
+                    name,
+                    summary,
+                    output,
+                    status,
+                } => {
                     this.arm_default_delay();
-                    return Poll::Ready(Some(Msg::ToolFinished { name, summary, output, status }));
+                    return Poll::Ready(Some(Msg::ToolFinished {
+                        name,
+                        summary,
+                        output,
+                        status,
+                    }));
                 }
                 Step::Complete => return Poll::Ready(Some(Msg::Complete)),
             }
@@ -822,7 +916,9 @@ struct SpinnerTicker {
 
 impl SpinnerTicker {
     fn new() -> Self {
-        Self { interval: tokio::time::interval(Duration::from_millis(120)) }
+        Self {
+            interval: tokio::time::interval(Duration::from_millis(120)),
+        }
     }
 }
 

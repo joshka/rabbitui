@@ -58,7 +58,7 @@ use crate::input::InputEvent;
 use crate::layout::{Constraint, split_columns, split_rows};
 use crate::store::StateStore;
 use crate::theme::Theme;
-use crate::widget::{Handled, HandleCtx, RenderCtx, Widget};
+use crate::widget::{HandleCtx, Handled, RenderCtx, Widget};
 
 /// The theme a [`Frame`] carries when none is supplied — the restrained dark
 /// default. Kept as a `const` so [`Frame::new`]/[`Frame::with_focus`] can borrow
@@ -71,8 +71,7 @@ const DEFAULT_THEME: &Theme = &Theme::dark();
 /// that downcasts the erased state back to `W::State` before calling it. This is
 /// how the runtime routes an event to a widget whose spec no longer exists —
 /// the thunk closes over `W`, not over the spec (ADR 0006).
-pub type Handler =
-    fn(&mut dyn Any, &InputEvent, &mut HandleCtx<'_>) -> Handled;
+pub type Handler = fn(&mut dyn Any, &InputEvent, &mut HandleCtx<'_>) -> Handled;
 
 /// The registered handlers of one frame, keyed by widget identity.
 ///
@@ -590,7 +589,10 @@ mod tests {
         let _ = frame.finish();
         store.end_frame();
         // The painted cell carries the theme's accent style, not the default's.
-        assert_eq!(buffer.get(Position::ORIGIN).unwrap().style, theme.style(Role::Accent));
+        assert_eq!(
+            buffer.get(Position::ORIGIN).unwrap().style,
+            theme.style(Role::Accent)
+        );
     }
 
     struct Activator;
@@ -600,7 +602,13 @@ mod tests {
             ctx.focusable(true);
         }
         fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
-            if matches!(event.as_key(), Some(KeyEvent { key: InputKey::Enter, .. })) {
+            if matches!(
+                event.as_key(),
+                Some(KeyEvent {
+                    key: InputKey::Enter,
+                    ..
+                })
+            ) {
                 ctx.emit(Outcome::Activated);
                 return Handled::Yes;
             }

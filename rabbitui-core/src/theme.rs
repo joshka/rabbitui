@@ -191,8 +191,7 @@ impl Theme {
         styles[role_index(Role::Warning)] = Style::new().fg(Color::YELLOW);
         styles[role_index(Role::Danger)] = Style::new().fg(Color::RED);
         styles[role_index(Role::Border)] = Style::new().fg(Color::Ansi(8));
-        styles[role_index(Role::Highlight)] =
-            Style::new().fg(Color::BLACK).bg(Color::CYAN);
+        styles[role_index(Role::Highlight)] = Style::new().fg(Color::BLACK).bg(Color::CYAN);
         Self { styles }
     }
 
@@ -348,8 +347,14 @@ mod tests {
     #[test]
     fn catppuccin_mocha_uses_truecolor() {
         let mocha = Theme::catppuccin_mocha();
-        assert_eq!(mocha.style(Role::Surface).bg, Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
-        assert_eq!(mocha.style(Role::Accent).fg, Some(Color::Rgb(0xcb, 0xa6, 0xf7)));
+        assert_eq!(
+            mocha.style(Role::Surface).bg,
+            Some(Color::Rgb(0x1e, 0x1e, 0x2e))
+        );
+        assert_eq!(
+            mocha.style(Role::Accent).fg,
+            Some(Color::Rgb(0xcb, 0xa6, 0xf7))
+        );
     }
 
     #[test]

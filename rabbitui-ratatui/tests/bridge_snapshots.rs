@@ -14,8 +14,8 @@ use rabbitui_core::buffer::Buffer;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::key;
 use rabbitui_core::style::{Attrs, Color};
-use rabbitui_testing::{TestApp, assert_snapshot};
 use rabbitui_ratatui::RatatuiWidget;
+use rabbitui_testing::{TestApp, assert_snapshot};
 use ratatui::style::{Color as RatColor, Modifier, Style as RatStyle};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, Paragraph};
@@ -28,7 +28,11 @@ fn styled_snapshot(buffer: &Buffer) -> String {
     for y in 0..buffer.size().height {
         for x in 0..buffer.size().width {
             let cell = buffer.get(Position::new(x, y)).unwrap();
-            out.push_str(if cell.symbol.is_empty() { " " } else { &cell.symbol });
+            out.push_str(if cell.symbol.is_empty() {
+                " "
+            } else {
+                &cell.symbol
+            });
         }
         out.push('\n');
     }
@@ -39,7 +43,11 @@ fn styled_snapshot(buffer: &Buffer) -> String {
             if cell.symbol == " " && cell.style == Default::default() {
                 continue;
             }
-            out.push_str(&format!("({x},{y}) {:?} = {}\n", cell.symbol, describe(&cell.style)));
+            out.push_str(&format!(
+                "({x},{y}) {:?} = {}\n",
+                cell.symbol,
+                describe(&cell.style)
+            ));
         }
     }
     out
@@ -66,7 +74,11 @@ fn describe(style: &rabbitui_core::style::Style) -> String {
             parts.push(name.to_string());
         }
     }
-    if parts.is_empty() { "default".to_string() } else { parts.join(" ") }
+    if parts.is_empty() {
+        "default".to_string()
+    } else {
+        parts.join(" ")
+    }
 }
 
 fn color_name(color: Color) -> String {
@@ -89,7 +101,9 @@ fn bordered_block_through_the_bridge() {
             Span::raw("hi "),
             Span::styled(
                 "cyan",
-                RatStyle::default().fg(RatColor::Cyan).add_modifier(Modifier::BOLD),
+                RatStyle::default()
+                    .fg(RatColor::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]))
         .block(Block::bordered().title("panel"));
@@ -136,12 +150,19 @@ fn adapter_rerenders_from_state_through_testapp() {
     };
     app.render(view);
     // 0%: the fill covers no full cells.
-    assert_eq!(filled(app.buffer()), 0, "0% gauge should have no filled cells");
+    assert_eq!(
+        filled(app.buffer()),
+        0,
+        "0% gauge should have no filled cells"
+    );
 
     // Fold state to 100% and re-render: the fill now covers cells the empty
     // gauge did not (the centered "100%" label sits over the middle, so not
     // every cell is a block glyph — the point is the bridged widget re-rendered
     // from the new state, growing the fill).
     app.send(|percent| *percent = 100, view);
-    assert!(filled(app.buffer()) > 0, "100% gauge should show a fill the 0% gauge did not");
+    assert!(
+        filled(app.buffer()) > 0,
+        "100% gauge should show a fill the 0% gauge did not"
+    );
 }

@@ -41,13 +41,21 @@ fn tab_traverses_declaration_order_and_wraps() {
 
     // The first focusable is auto-focused at render; Tab then walks
     // a → b → c → (wrap) a.
-    assert_eq!(app.focus(), Some(id("a")), "first focusable auto-focused at render");
+    assert_eq!(
+        app.focus(),
+        Some(id("a")),
+        "first focusable auto-focused at render"
+    );
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(id("b")));
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(id("c")));
     app.send_key(Key::Tab);
-    assert_eq!(app.focus(), Some(id("a")), "Tab past the last focusable wraps to the first");
+    assert_eq!(
+        app.focus(),
+        Some(id("a")),
+        "Tab past the last focusable wraps to the first"
+    );
 }
 
 #[test]
@@ -64,7 +72,11 @@ fn backtab_traverses_backward_and_wraps() {
     app.send_key(Key::BackTab);
     assert_eq!(app.focus(), Some(id("a")));
     app.send_key(Key::BackTab);
-    assert_eq!(app.focus(), Some(id("c")), "BackTab past the first wraps to the last");
+    assert_eq!(
+        app.focus(),
+        Some(id("c")),
+        "BackTab past the first wraps to the last"
+    );
 }
 
 #[test]
@@ -79,7 +91,11 @@ fn focus_survives_redeclaration() {
     for _ in 0..5 {
         app.render(three_buttons);
     }
-    assert_eq!(app.focus(), Some(id("b")), "focus is keyed by identity, not by frame");
+    assert_eq!(
+        app.focus(),
+        Some(id("b")),
+        "focus is keyed by identity, not by frame"
+    );
 }
 
 #[test]
@@ -109,7 +125,10 @@ fn dead_id_focus_recovers_to_a_survivor() {
     app.send(|show_b| *show_b = false, view);
     // Focus must recover to a surviving focusable, never a dead id.
     let recovered = app.focus().expect("focus recovers to a survivor");
-    assert!(recovered == id("a") || recovered == id("c"), "recovered to {recovered:?}");
+    assert!(
+        recovered == id("a") || recovered == id("c"),
+        "recovered to {recovered:?}"
+    );
     assert_ne!(recovered, id("b"));
 }
 
@@ -203,11 +222,19 @@ fn click_to_focus_moves_focus_to_an_unconsumed_focusable_target() {
     }
     let mut app = TestApp::new(Size::new(8, 3), ());
     app.render(view);
-    assert_eq!(app.focus(), Some(id("first")), "auto-focus landed on the button");
+    assert_eq!(
+        app.focus(),
+        Some(id("first")),
+        "auto-focus landed on the button"
+    );
     // The click is unconsumed (the panel ignores it) but focuses the panel.
     let result = app.send_mouse(MouseKind::Down, Position::new(0, 1));
     assert!(!result.consumed, "the panel ignored the click");
-    assert_eq!(app.focus(), Some(id("panel")), "click-to-focus moved focus to the target");
+    assert_eq!(
+        app.focus(),
+        Some(id("panel")),
+        "click-to-focus moved focus to the target"
+    );
 }
 
 #[test]
@@ -231,8 +258,7 @@ fn modal_layer_contains_focus_traversal() {
         let [base_area, _] = frame.rows([Constraint::Length(1), Constraint::Fill(1)]);
         frame.widget(key("base"), base_area, &Button::new("Base"));
         frame.layer(key("modal"), |modal| {
-            let [ok_area, cancel_area] =
-                modal.rows([Constraint::Length(1), Constraint::Length(1)]);
+            let [ok_area, cancel_area] = modal.rows([Constraint::Length(1), Constraint::Length(1)]);
             modal.widget(key("ok"), ok_area, &Button::new("OK"));
             modal.widget(key("cancel"), cancel_area, &Button::new("Cancel"));
         });
@@ -248,7 +274,11 @@ fn modal_layer_contains_focus_traversal() {
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(cancel));
     app.send_key(Key::Tab);
-    assert_eq!(app.focus(), Some(ok), "Tab wraps within the modal, never reaching the base");
+    assert_eq!(
+        app.focus(),
+        Some(ok),
+        "Tab wraps within the modal, never reaching the base"
+    );
     // The base button is never focused while the modal exists.
     assert_ne!(app.focus(), Some(id("base")));
 }
@@ -295,7 +325,11 @@ fn dismissing_a_modal_reconciles_focus_to_the_base() {
     assert_eq!(app.focus(), Some(ok), "focus is trapped in the modal");
     // Close the modal: `ok` vanishes, so focus reconciles to the base survivor.
     app.send(|open| *open = false, view);
-    assert_eq!(app.focus(), Some(id("base")), "focus reconciles to the base when the modal goes");
+    assert_eq!(
+        app.focus(),
+        Some(id("base")),
+        "focus reconciles to the base when the modal goes"
+    );
 }
 
 #[test]
@@ -309,7 +343,11 @@ fn facts_are_duplicate_free_across_repeated_renders() {
         app.render(three_buttons);
     }
     // Three focusable buttons, one identity each — the store holds exactly three.
-    assert_eq!(app.store_len(), 3, "one retained-state entry per distinct id, no duplicates");
+    assert_eq!(
+        app.store_len(),
+        3,
+        "one retained-state entry per distinct id, no duplicates"
+    );
 
     // And traversal visits each id exactly once before wrapping — proof the
     // focus order has no duplicates.
@@ -323,5 +361,9 @@ fn facts_are_duplicate_free_across_repeated_renders() {
     assert_ne!(second, third);
     assert_ne!(first, third);
     app.send_key(Key::Tab);
-    assert_eq!(app.focus(), first, "the fourth Tab wraps, confirming exactly three entries");
+    assert_eq!(
+        app.focus(),
+        first,
+        "the fourth Tab wraps, confirming exactly three entries"
+    );
 }

@@ -67,7 +67,7 @@ use rabbitui_core::store::StateStore;
 use rabbitui_core::theme::Theme;
 use rabbitui_core::widget::Widget;
 
-use crate::effect::{Cmd, Effects, EffectError, Outbox};
+use crate::effect::{Cmd, EffectError, Effects, Outbox};
 use crate::engine::{AltEngine, InlineEngine};
 use crate::terminal::Terminal;
 
@@ -223,7 +223,12 @@ impl<'a, M> Update<'a, M> {
         outcomes: &'a [(WidgetId, Outcome)],
         pending: &'a RefCell<Pending<M>>,
     ) -> Self {
-        Self { event, outcomes, pending, consumed: false }
+        Self {
+            event,
+            outcomes,
+            pending,
+            consumed: false,
+        }
     }
 
     /// Marks whether routing consumed the event (a widget handled it).
@@ -406,7 +411,10 @@ impl<'a, M> Update<'a, M> {
     #[must_use]
     pub fn outcome_for(&self, path: &[Key]) -> Option<&Outcome> {
         let target = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
-        self.outcomes.iter().find(|(id, _)| *id == target).map(|(_, outcome)| outcome)
+        self.outcomes
+            .iter()
+            .find(|(id, _)| *id == target)
+            .map(|(_, outcome)| outcome)
     }
 }
 
@@ -724,8 +732,16 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
-        let App { mut state, mut update, view, theme: base_theme, theme_file, mode, mouse, .. } =
-            self;
+        let App {
+            mut state,
+            mut update,
+            view,
+            theme: base_theme,
+            theme_file,
+            mode,
+            mouse,
+            ..
+        } = self;
 
         // Load the initial theme from the file (if any), layered over the base.
         // A startup error is fatal; a mid-run reload error is not (see below).
@@ -759,7 +775,9 @@ where
         terminal.write_bytes(&engine.enter()).await?;
         let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
         focus.reconcile(&facts);
-        terminal.write_bytes(&engine.render(&back, &front, &[])).await?;
+        terminal
+            .write_bytes(&engine.render(&back, &front, &[]))
+            .await?;
         std::mem::swap(&mut front, &mut back);
 
         // The frame budget (~60fps): the earliest instant a redraw may paint. A
@@ -857,12 +875,10 @@ where
 
                     if !broke {
                         if let Some(event) = crate::input::from_qwertty(&input) {
-                            let result =
-                                route(&facts, &handlers, &mut focus, &mut store, &event);
+                            let result = route(&facts, &handlers, &mut focus, &mut store, &event);
                             let pending = RefCell::new(Pending::default());
-                            let ctx =
-                                Update::new(Event::Input(event), &result.outcomes, &pending)
-                                    .with_consumed(result.consumed);
+                            let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
+                                .with_consumed(result.consumed);
                             broke = update(&mut state, ctx).is_break();
                             drain_pending(
                                 pending.into_inner(),
@@ -870,7 +886,7 @@ where
                                 &mut store,
                                 &facts,
                                 &mut focus,
-                            &mut widget_remainder,
+                                &mut widget_remainder,
                                 &mut commits_buf,
                                 &mut set_mode_buf,
                             );
@@ -897,7 +913,9 @@ where
                     // into this one frame with a biased `try_recv` loop, so a flood
                     // of stream messages is one render, not one render per message.
                     while !broke {
-                        let Some(next) = effects.try_recv() else { break };
+                        let Some(next) = effects.try_recv() else {
+                            break;
+                        };
                         broke = deliver_effect(
                             next,
                             &mut state,
@@ -931,7 +949,9 @@ where
                 .await?;
                 if !remaining.is_empty() {
                     let empty = Buffer::new(Size::new(viewport.width, 0));
-                    terminal.write_bytes(&engine.render(&empty, &front, &remaining)).await?;
+                    terminal
+                        .write_bytes(&engine.render(&empty, &front, &remaining))
+                        .await?;
                 }
                 return leave(terminal, &mut engine).await;
             }
@@ -981,7 +1001,9 @@ where
                 std::mem::take(&mut widget_remainder).apply(&mut store, &facts, &mut focus);
             }
             focus.reconcile(&facts);
-            terminal.write_bytes(&engine.render(&back, &front, &frame_commits)).await?;
+            terminal
+                .write_bytes(&engine.render(&back, &front, &frame_commits))
+                .await?;
             std::mem::swap(&mut front, &mut back);
 
             dirty = false;
@@ -1043,7 +1065,12 @@ fn drain_pending<M: Send + 'static>(
     commits_buf: &mut Vec<CommitLine>,
     set_mode_buf: &mut Option<Mode>,
 ) {
-    let Pending { commits, set_mode, effects: cmds, widget } = pending;
+    let Pending {
+        commits,
+        set_mode,
+        effects: cmds,
+        widget,
+    } = pending;
     for cmd in cmds {
         effects.spawn(cmd);
     }
@@ -1136,7 +1163,11 @@ async fn apply_mode_switch(
     let Some(target) = switching else {
         // No switch: an inline engine flushes the commits this frame; an
         // alt-screen engine has no scrollback, so they are dropped.
-        return Ok(if engine.is_inline() { commits } else { Vec::new() });
+        return Ok(if engine.is_inline() {
+            commits
+        } else {
+            Vec::new()
+        });
     };
 
     match (engine.mode(), target) {
@@ -1146,7 +1177,9 @@ async fn apply_mode_switch(
         (Mode::Inline { .. }, Mode::AltScreen) => {
             if !commits.is_empty() {
                 let empty = Buffer::new(Size::new(viewport.width, 0));
-                terminal.write_bytes(&engine.render(&empty, front, &commits)).await?;
+                terminal
+                    .write_bytes(&engine.render(&empty, front, &commits))
+                    .await?;
             }
             terminal.write_bytes(&engine.leave()).await?;
         }
@@ -1165,7 +1198,11 @@ async fn apply_mode_switch(
     // Entering inline: hand the commits back so the caller's frame render lands
     // them above the new live tail. Entering alt: the commits (if any) were
     // flushed above, so none remain.
-    Ok(if engine.is_inline() { commits } else { Vec::new() })
+    Ok(if engine.is_inline() {
+        commits
+    } else {
+        Vec::new()
+    })
 }
 
 /// The active render engine, dispatched by [`Mode`].
@@ -1190,7 +1227,10 @@ enum ModeEngineKind {
     /// The alternate-screen engine and its declared mode.
     Alt(AltEngine),
     /// The inline engine and its `max_height`.
-    Inline { engine: InlineEngine, max_height: u16 },
+    Inline {
+        engine: InlineEngine,
+        max_height: u16,
+    },
 }
 
 impl ModeEngine {
@@ -1198,11 +1238,15 @@ impl ModeEngine {
     fn new(mode: Mode, mouse_override: Option<bool>) -> Self {
         let kind = match mode {
             Mode::AltScreen => ModeEngineKind::Alt(AltEngine::new()),
-            Mode::Inline { max_height } => {
-                ModeEngineKind::Inline { engine: InlineEngine::new(), max_height }
-            }
+            Mode::Inline { max_height } => ModeEngineKind::Inline {
+                engine: InlineEngine::new(),
+                max_height,
+            },
         };
-        Self { kind, mouse_override }
+        Self {
+            kind,
+            mouse_override,
+        }
     }
 
     /// Whether this engine captures the mouse: the app override, or the by-mode
@@ -1215,9 +1259,9 @@ impl ModeEngine {
     fn mode(&self) -> Mode {
         match &self.kind {
             ModeEngineKind::Alt(_) => Mode::AltScreen,
-            ModeEngineKind::Inline { max_height, .. } => {
-                Mode::Inline { max_height: *max_height }
-            }
+            ModeEngineKind::Inline { max_height, .. } => Mode::Inline {
+                max_height: *max_height,
+            },
         }
     }
 
@@ -1302,7 +1346,12 @@ impl ThemeWatcher {
             Some(path) => (load(path, base)?, modified(path)),
             None => (base, None),
         };
-        Ok(Self { file, base, theme, last_modified })
+        Ok(Self {
+            file,
+            base,
+            theme,
+            last_modified,
+        })
     }
 
     /// The current theme.
@@ -1350,7 +1399,9 @@ fn load(_path: &Path, _base: Theme) -> Result<Theme> {
 
 /// The file's modification time, or `None` if it cannot be stat'd.
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
-    std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
 }
 
 /// Declares one frame: brackets `view` in the store's frame lifecycle, builds a
@@ -1398,7 +1449,11 @@ mod tests {
         let id = WidgetId::ROOT.child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
         let pending = RefCell::new(Pending::<()>::default());
-        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
+        let update = Update::new(
+            Event::Input(InputEvent::key(Key::Enter)),
+            &outcomes,
+            &pending,
+        );
         assert_eq!(update.outcome_for(&[key("ok")]), Some(&Outcome::Activated));
         assert_eq!(update.outcome_for(&[key("nope")]), None);
     }
@@ -1408,8 +1463,15 @@ mod tests {
         let id = WidgetId::ROOT.child(key("panel")).child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
         let pending = RefCell::new(Pending::<()>::default());
-        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
-        assert_eq!(update.outcome_for(&[key("panel"), key("ok")]), Some(&Outcome::Activated));
+        let update = Update::new(
+            Event::Input(InputEvent::key(Key::Enter)),
+            &outcomes,
+            &pending,
+        );
+        assert_eq!(
+            update.outcome_for(&[key("panel"), key("ok")]),
+            Some(&Outcome::Activated)
+        );
         // The wrong depth does not match.
         assert_eq!(update.outcome_for(&[key("ok")]), None);
     }
@@ -1458,11 +1520,17 @@ mod tests {
         let mut engine = ModeEngine::new(Mode::AltScreen, None);
         let enter = engine.enter();
         // Alt captures by default: entry ends with the mouse-enable bytes.
-        assert!(enter.windows(crate::encode::ENABLE_MOUSE.len())
-            .any(|w| w == crate::encode::ENABLE_MOUSE));
+        assert!(
+            enter
+                .windows(crate::encode::ENABLE_MOUSE.len())
+                .any(|w| w == crate::encode::ENABLE_MOUSE)
+        );
         let leave = engine.leave();
-        assert!(leave.windows(crate::encode::DISABLE_MOUSE.len())
-            .any(|w| w == crate::encode::DISABLE_MOUSE));
+        assert!(
+            leave
+                .windows(crate::encode::DISABLE_MOUSE.len())
+                .any(|w| w == crate::encode::DISABLE_MOUSE)
+        );
     }
 
     #[test]
@@ -1470,8 +1538,11 @@ mod tests {
         let mut engine = ModeEngine::new(Mode::inline(3), None);
         let enter = engine.enter();
         // Inline does not capture by default, so no mouse-enable is emitted.
-        assert!(!enter.windows(crate::encode::ENABLE_MOUSE.len())
-            .any(|w| w == crate::encode::ENABLE_MOUSE));
+        assert!(
+            !enter
+                .windows(crate::encode::ENABLE_MOUSE.len())
+                .any(|w| w == crate::encode::ENABLE_MOUSE)
+        );
     }
 
     /// A vt100 model processes the full alt-screen mouse-capture transition —
@@ -1488,7 +1559,8 @@ mod tests {
         // Entry carries the mouse-enable sequence at its tail.
         let enter = engine.enter();
         assert!(
-            enter.windows(crate::encode::ENABLE_MOUSE.len())
+            enter
+                .windows(crate::encode::ENABLE_MOUSE.len())
                 .any(|w| w == crate::encode::ENABLE_MOUSE),
             "alt-screen entry enables mouse (modes 1000+1006)"
         );
@@ -1497,14 +1569,19 @@ mod tests {
         // A frame renders normally alongside the enabled mouse mode.
         let previous = Buffer::new(Size::new(10, 3));
         let mut current = previous.clone();
-        current.set_string(rabbitui_core::geometry::Position::ORIGIN, "hi", Style::new());
+        current.set_string(
+            rabbitui_core::geometry::Position::ORIGIN,
+            "hi",
+            Style::new(),
+        );
         screen.feed(&engine.render(&current, &previous, &[]));
         screen.assert_row(0, "hi");
 
         // Leave carries the mouse-disable sequence, and vt100 processes it cleanly.
         let leave = engine.leave();
         assert!(
-            leave.windows(crate::encode::DISABLE_MOUSE.len())
+            leave
+                .windows(crate::encode::DISABLE_MOUSE.len())
                 .any(|w| w == crate::encode::DISABLE_MOUSE),
             "alt-screen leave disables mouse in reverse order"
         );

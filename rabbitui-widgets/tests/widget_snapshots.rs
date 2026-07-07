@@ -22,7 +22,11 @@ fn styled_snapshot(buffer: &Buffer) -> String {
     for y in 0..buffer.size().height {
         for x in 0..buffer.size().width {
             let cell = buffer.get(Position::new(x, y)).unwrap();
-            out.push_str(if cell.symbol.is_empty() { " " } else { &cell.symbol });
+            out.push_str(if cell.symbol.is_empty() {
+                " "
+            } else {
+                &cell.symbol
+            });
         }
         out.push('\n');
     }
@@ -33,7 +37,11 @@ fn styled_snapshot(buffer: &Buffer) -> String {
             if cell.symbol == " " && cell.style == Default::default() {
                 continue;
             }
-            out.push_str(&format!("({x},{y}) {:?} = {}\n", cell.symbol, describe(&cell.style)));
+            out.push_str(&format!(
+                "({x},{y}) {:?} = {}\n",
+                cell.symbol,
+                describe(&cell.style)
+            ));
         }
     }
     out
@@ -60,7 +68,11 @@ fn describe(style: &rabbitui_core::style::Style) -> String {
             parts.push(name.to_string());
         }
     }
-    if parts.is_empty() { "default".to_string() } else { parts.join(" ") }
+    if parts.is_empty() {
+        "default".to_string()
+    } else {
+        parts.join(" ")
+    }
 }
 
 fn color_name(color: Color) -> String {
@@ -85,7 +97,11 @@ fn text_input_focused_snapshot() {
     let mut app = TestApp::new(Size::new(12, 1), ()).with_theme(Theme::catppuccin_mocha());
     // Render once so the widget is declared, then focus it and type.
     let view = |_s: &(), frame: &mut rabbitui_core::frame::Frame<'_>| {
-        frame.widget(key("input"), frame.area(), &TextInput::new().placeholder("search"));
+        frame.widget(
+            key("input"),
+            frame.area(),
+            &TextInput::new().placeholder("search"),
+        );
     };
     app.render(view);
     app.set_focus(Some(text_input_id()));
@@ -100,7 +116,11 @@ fn text_input_focused_snapshot() {
 fn text_input_unfocused_placeholder_snapshot() {
     let mut app = TestApp::new(Size::new(12, 1), ()).with_theme(Theme::catppuccin_mocha());
     app.render(|_s, frame| {
-        frame.widget(key("input"), frame.area(), &TextInput::new().placeholder("search"));
+        frame.widget(
+            key("input"),
+            frame.area(),
+            &TextInput::new().placeholder("search"),
+        );
     });
     assert_snapshot!("text_input_unfocused", styled_snapshot(app.buffer()));
 }
@@ -110,7 +130,11 @@ fn selection_list_focused_snapshot() {
     let items = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
     let mut app = TestApp::new(Size::new(8, 3), items).with_theme(Theme::catppuccin_mocha());
     let view = |items: &Vec<String>, frame: &mut rabbitui_core::frame::Frame<'_>| {
-        frame.widget(key("list"), frame.area(), &SelectionList::new(items.clone()));
+        frame.widget(
+            key("list"),
+            frame.area(),
+            &SelectionList::new(items.clone()),
+        );
     };
     app.render(view);
     app.set_focus(Some(list_id()));
@@ -126,7 +150,11 @@ fn selection_list_unfocused_snapshot() {
     let items = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
     let mut app = TestApp::new(Size::new(8, 3), items).with_theme(Theme::catppuccin_mocha());
     app.render(|items, frame| {
-        frame.widget(key("list"), frame.area(), &SelectionList::new(items.clone()));
+        frame.widget(
+            key("list"),
+            frame.area(),
+            &SelectionList::new(items.clone()),
+        );
     });
     assert_snapshot!("selection_list_unfocused", styled_snapshot(app.buffer()));
 }
@@ -144,7 +172,8 @@ fn collapsible_collapsed_snapshot() {
         frame.widget(
             key("cell"),
             frame.area(),
-            &Collapsible::new("ran cargo test — 396 passed", "…full output…").default_collapsed(true),
+            &Collapsible::new("ran cargo test — 396 passed", "…full output…")
+                .default_collapsed(true),
         );
     });
     assert_snapshot!("collapsible_collapsed", styled_snapshot(app.buffer()));
@@ -160,7 +189,8 @@ fn collapsible_expanded_focused_snapshot() {
         frame.widget(
             key("cell"),
             frame.area(),
-            &Collapsible::new("ran cargo test — 396 passed", "test one\ntest two").default_collapsed(true),
+            &Collapsible::new("ran cargo test — 396 passed", "test one\ntest two")
+                .default_collapsed(true),
         );
     };
     app.render(view);
@@ -169,5 +199,8 @@ fn collapsible_expanded_focused_snapshot() {
     // Enter toggles the default-collapsed cell open; the state is retained by id.
     app.send_key(rabbitui_core::input::Key::Enter);
     app.render(view);
-    assert_snapshot!("collapsible_expanded_focused", styled_snapshot(app.buffer()));
+    assert_snapshot!(
+        "collapsible_expanded_focused",
+        styled_snapshot(app.buffer())
+    );
 }

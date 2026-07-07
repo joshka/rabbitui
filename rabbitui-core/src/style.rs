@@ -132,7 +132,11 @@ impl Style {
     /// Creates an empty style that changes nothing.
     #[must_use]
     pub const fn new() -> Self {
-        Self { fg: None, bg: None, attrs: Attrs::NONE }
+        Self {
+            fg: None,
+            bg: None,
+            attrs: Attrs::NONE,
+        }
     }
 
     /// Sets the foreground color.

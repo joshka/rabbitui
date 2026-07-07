@@ -83,7 +83,11 @@ impl<'a> Text<'a> {
     /// ```
     #[must_use]
     pub const fn new(content: &'a str) -> Self {
-        Self { content, style: Appearance::Role(Role::Text), wrap: false }
+        Self {
+            content,
+            style: Appearance::Role(Role::Text),
+            wrap: false,
+        }
     }
 
     /// Tags the text with a semantic [`Role`], resolved against the active theme.
@@ -314,7 +318,10 @@ mod tests {
         let mut ctx =
             RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(3, 1)), false, &theme);
         Text::new("hi").role(Role::Danger).render(&mut (), &mut ctx);
-        assert_eq!(buffer.get(Position::ORIGIN).unwrap().style, theme.style(Role::Danger));
+        assert_eq!(
+            buffer.get(Position::ORIGIN).unwrap().style,
+            theme.style(Role::Danger)
+        );
     }
 
     #[test]
@@ -384,7 +391,9 @@ mod tests {
         // Width 10: "the quick brown fox" wraps at spaces into three rows.
         let mut buffer = Buffer::new(Size::new(10, 4));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 4)), false);
-        Text::new("the quick brown fox").wrap(true).render(&mut (), &mut ctx);
+        Text::new("the quick brown fox")
+            .wrap(true)
+            .render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "the quick");
         assert_eq!(row(&buffer, 1), "brown fox");
         assert_eq!(row(&buffer, 2), "");
@@ -395,7 +404,9 @@ mod tests {
         // A single 12-char word into a width-5 area breaks every 5 graphemes.
         let mut buffer = Buffer::new(Size::new(5, 3));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 3)), false);
-        Text::new("abcdefghijkl").wrap(true).render(&mut (), &mut ctx);
+        Text::new("abcdefghijkl")
+            .wrap(true)
+            .render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "abcde");
         assert_eq!(row(&buffer, 1), "fghij");
         assert_eq!(row(&buffer, 2), "kl");
@@ -417,7 +428,9 @@ mod tests {
         // An explicit newline forces a row break independent of wrapping.
         let mut buffer = Buffer::new(Size::new(20, 3));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(20, 3)), false);
-        Text::new("one\ntwo three").wrap(true).render(&mut (), &mut ctx);
+        Text::new("one\ntwo three")
+            .wrap(true)
+            .render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two three");
     }

@@ -187,7 +187,12 @@ pub fn route(
     store: &mut StateStore,
     event: &InputEvent,
 ) -> RouteResult {
-    let mut dispatcher = Dispatcher { facts, handlers, store, event };
+    let mut dispatcher = Dispatcher {
+        facts,
+        handlers,
+        store,
+        event,
+    };
     let mut result = RouteResult::default();
 
     // Step 1: target selection. Key events target the focused widget; mouse
@@ -280,10 +285,17 @@ impl Dispatcher<'_> {
         focus: &mut Focus,
         result: &mut RouteResult,
     ) -> bool {
-        let Some(handler) = self.handlers.get(&id) else { return false };
-        let area = self.facts.get(id).map_or(Rect::default(), |entry| entry.area);
+        let Some(handler) = self.handlers.get(&id) else {
+            return false;
+        };
+        let area = self
+            .facts
+            .get(id)
+            .map_or(Rect::default(), |entry| entry.area);
         // A handler with no retained state row cannot run; treat as not-handled.
-        let Some(state) = self.store.get_dyn_mut(id) else { return false };
+        let Some(state) = self.store.get_dyn_mut(id) else {
+            return false;
+        };
 
         let mut outcomes = Vec::new();
         let mut request_focus = false;
@@ -321,7 +333,10 @@ fn advance_focus(facts: &FrameFacts, focus: &mut Focus, direction: Direction) {
         focus.current = None;
         return;
     }
-    let next = match focus.current.and_then(|id| order.iter().position(|&o| o == id)) {
+    let next = match focus
+        .current
+        .and_then(|id| order.iter().position(|&o| o == id))
+    {
         Some(index) => match direction {
             Direction::Forward => (index + 1) % order.len(),
             Direction::Backward => (index + order.len() - 1) % order.len(),
@@ -390,7 +405,13 @@ mod tests {
         let (facts, handlers, mut store, a, _b) = two_buttons();
         let mut focus = Focus::new();
         focus.set(Some(a));
-        let result = route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Enter));
+        let result = route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Enter),
+        );
         assert!(result.consumed);
         assert_eq!(result.outcomes, vec![(a, Outcome::Activated)]);
     }
@@ -400,10 +421,22 @@ mod tests {
         let (facts, handlers, mut store, a, b) = two_buttons();
         let mut focus = Focus::new();
         focus.set(Some(a));
-        let r1 = route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Tab));
+        let r1 = route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Tab),
+        );
         assert!(r1.consumed);
         assert_eq!(focus.current(), Some(b));
-        let r2 = route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Tab));
+        let r2 = route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Tab),
+        );
         assert!(r2.consumed);
         assert_eq!(focus.current(), Some(a));
     }
@@ -413,9 +446,21 @@ mod tests {
         let (facts, handlers, mut store, a, b) = two_buttons();
         let mut focus = Focus::new();
         focus.set(Some(a));
-        route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::BackTab));
+        route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::BackTab),
+        );
         assert_eq!(focus.current(), Some(b));
-        route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::BackTab));
+        route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::BackTab),
+        );
         assert_eq!(focus.current(), Some(a));
     }
 
@@ -423,7 +468,13 @@ mod tests {
     fn tab_with_no_focus_selects_first() {
         let (facts, handlers, mut store, a, _b) = two_buttons();
         let mut focus = Focus::new();
-        route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Tab));
+        route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Tab),
+        );
         assert_eq!(focus.current(), Some(a));
     }
 
@@ -433,8 +484,13 @@ mod tests {
         let mut focus = Focus::new();
         focus.set(Some(a));
         // 'x' is not a binding of Button and not a framework default.
-        let result =
-            route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Char('x')));
+        let result = route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Char('x')),
+        );
         assert!(!result.consumed);
         assert!(result.outcomes.is_empty());
     }
@@ -488,14 +544,19 @@ mod tests {
         let mut focus = Focus::new();
         focus.set(Some(btn));
 
-        let result =
-            route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Escape));
+        let result = route(
+            &facts,
+            &handlers,
+            &mut focus,
+            &mut store,
+            &InputEvent::key(Key::Escape),
+        );
         assert!(result.consumed, "the trap consumed Escape on capture");
         assert_eq!(result.outcomes, vec![(trap, Outcome::Dismissed)]);
     }
 
-    use crate::input::{MouseButton, MouseEvent, MouseKind};
     use crate::geometry::Position;
+    use crate::input::{MouseButton, MouseEvent, MouseKind};
 
     #[test]
     fn mouse_down_activates_the_button_under_the_pointer() {

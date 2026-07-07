@@ -79,7 +79,10 @@ impl Cell {
     /// ```
     #[must_use]
     pub fn new(symbol: impl Into<String>, style: Style) -> Self {
-        Self { symbol: symbol.into(), style }
+        Self {
+            symbol: symbol.into(),
+            style,
+        }
     }
 
     /// Returns true if this cell is a continuation cell — the empty right half
@@ -125,7 +128,10 @@ impl Cell {
 
 impl Default for Cell {
     fn default() -> Self {
-        Self { symbol: String::from(" "), style: Style::new() }
+        Self {
+            symbol: String::from(" "),
+            style: Style::new(),
+        }
     }
 }
 
@@ -198,7 +204,10 @@ impl Buffer {
     /// ```
     #[must_use]
     pub fn new(size: Size) -> Self {
-        Self { size, cells: vec![Cell::default(); size.area() as usize] }
+        Self {
+            size,
+            cells: vec![Cell::default(); size.area() as usize],
+        }
     }
 
     /// The buffer's size in cells.
@@ -305,18 +314,14 @@ impl Buffer {
     /// assert_eq!(buffer.get(Position::new(1, 0)).unwrap().symbol, "b");
     /// assert_eq!(buffer.get(Position::new(2, 0)).unwrap().symbol, " ");
     /// ```
-    pub fn set_stringn(
-        &mut self,
-        position: Position,
-        text: &str,
-        style: Style,
-        max_width: usize,
-    ) {
+    pub fn set_stringn(&mut self, position: Position, text: &str, style: Style, max_width: usize) {
         if position.y >= self.size.height {
             return;
         }
         let limit = usize::from(self.size.width.saturating_sub(position.x)).min(max_width);
-        let Ok(limit) = u16::try_from(limit) else { return };
+        let Ok(limit) = u16::try_from(limit) else {
+            return;
+        };
         let end = position.x.saturating_add(limit);
         let mut x = position.x;
         for grapheme in text.graphemes(true) {
@@ -437,7 +442,10 @@ impl Buffer {
             );
             let changed = full_repaint || previous.get(position) != Some(cell);
             if changed {
-                changes.push(CellChange { position, cell: cell.clone() });
+                changes.push(CellChange {
+                    position,
+                    cell: cell.clone(),
+                });
             }
         }
         changes

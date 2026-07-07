@@ -61,7 +61,11 @@ fn view(percent: &u16, frame: &mut Frame<'_>) {
 
     // A native rabbitui widget: styled by literal Style here for brevity.
     let title = Style::new().fg(Color::GREEN).bold();
-    frame.widget(key("title"), title_row, &Text::new("rabbitui + ratatui interop").style(title));
+    frame.widget(
+        key("title"),
+        title_row,
+        &Text::new("rabbitui + ratatui interop").style(title),
+    );
 
     // A ratatui Paragraph inside a ratatui bordered Block — a classic ratatui
     // drawing, dropped into the rabbitui frame through the bridge.
@@ -71,7 +75,9 @@ fn view(percent: &u16, frame: &mut Frame<'_>) {
             Span::raw("rendered through the "),
             Span::styled(
                 "rabbitui-ratatui",
-                RatStyle::default().fg(RatColor::Cyan).add_modifier(Modifier::BOLD),
+                RatStyle::default()
+                    .fg(RatColor::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" bridge."),
         ]),

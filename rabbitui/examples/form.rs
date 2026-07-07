@@ -77,7 +77,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The notes options — a small list to prove wheel-over-list routing.
-const NOTES: &[&str] = &["Follow up by email", "Add to newsletter", "No further contact"];
+const NOTES: &[&str] = &[
+    "Follow up by email",
+    "Add to newsletter",
+    "No further contact",
+];
 
 /// Folds one update into the form: track field edits, open/close the modal, and
 /// quit.
@@ -93,7 +97,11 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
     if form.confirming {
         // Modal is open: Ok submits and closes; Cancel closes.
         if update.outcome_for(&[key("modal"), key("ok")]) == Some(&Outcome::Activated) {
-            form.submitted = Some(format!("Submitted {} <{}>", form.name.trim(), form.email.trim()));
+            form.submitted = Some(format!(
+                "Submitted {} <{}>",
+                form.name.trim(),
+                form.email.trim()
+            ));
             close_modal(form, &update);
         }
         if update.outcome_for(&[key("modal"), key("cancel")]) == Some(&Outcome::Activated) {
@@ -144,16 +152,23 @@ fn close_modal(form: &mut Form, _update: &Update<'_>) {
 
 /// Declares the form and, when confirming, the modal layer over it.
 fn view(form: &Form, frame: &mut Frame<'_>) {
-    let [name_row, name_status, email_row, email_status, notes_area, submit_row, result_row] =
-        frame.rows([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(NOTES.len() as u16),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ]);
+    let [
+        name_row,
+        name_status,
+        email_row,
+        email_status,
+        notes_area,
+        submit_row,
+        result_row,
+    ] = frame.rows([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(NOTES.len() as u16),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ]);
 
     // Name field + its validation status.
     frame.widget(key("name"), name_row, &TextInput::new().placeholder("Name"));
@@ -164,10 +179,18 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     } else {
         ("  name: must not be blank".to_string(), Role::Danger)
     };
-    frame.widget(key("name_status"), name_status, &Text::new(&name_msg).role(name_role));
+    frame.widget(
+        key("name_status"),
+        name_status,
+        &Text::new(&name_msg).role(name_role),
+    );
 
     // Email field + its validation status.
-    frame.widget(key("email"), email_row, &TextInput::new().placeholder("Email"));
+    frame.widget(
+        key("email"),
+        email_row,
+        &TextInput::new().placeholder("Email"),
+    );
     let (email_msg, email_role) = if form.email.is_empty() {
         ("  email: required".to_string(), Role::Muted)
     } else if form.email_ok() {
@@ -175,19 +198,36 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     } else {
         ("  email: must contain @".to_string(), Role::Danger)
     };
-    frame.widget(key("email_status"), email_status, &Text::new(&email_msg).role(email_role));
+    frame.widget(
+        key("email_status"),
+        email_status,
+        &Text::new(&email_msg).role(email_role),
+    );
 
     // Notes: a small selection list (proves wheel-over-list routing).
     frame.widget(key("notes"), notes_area, &SelectionList::new(NOTES));
 
     // Submit: focusable/clickable only when the form validates.
-    let submit_label = if form.valid() { "[ Submit ]" } else { "[ Submit (fill fields) ]" };
-    frame.widget(key("submit"), submit_row, &SubmitButton { label: submit_label, enabled: form.valid() });
+    let submit_label = if form.valid() {
+        "[ Submit ]"
+    } else {
+        "[ Submit (fill fields) ]"
+    };
+    frame.widget(
+        key("submit"),
+        submit_row,
+        &SubmitButton {
+            label: submit_label,
+            enabled: form.valid(),
+        },
+    );
 
     // A result / hint line.
     let result = match &form.submitted {
         Some(message) => Text::new(message).role(Role::Success),
-        None => Text::new("Tab: move  click: focus  Enter/click Submit  Esc: quit").role(Role::Muted),
+        None => {
+            Text::new("Tab: move  click: focus  Enter/click Submit  Esc: quit").role(Role::Muted)
+        }
     };
     frame.widget(key("result"), result_row, &result);
 
@@ -258,7 +298,9 @@ impl rabbitui_core::widget::Widget for SubmitButton<'_> {
             }
             return Handled::No;
         }
-        let Some(k) = event.as_key() else { return Handled::No };
+        let Some(k) = event.as_key() else {
+            return Handled::No;
+        };
         match k.key {
             Key::Enter | Key::Char(' ') => {
                 ctx.emit(Outcome::Activated);
