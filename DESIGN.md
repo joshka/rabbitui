@@ -107,12 +107,12 @@ IME/preedit is acknowledged as a substrate gap; tracked in the qwertty requireme
 ## Styling and theming (ADR 0007)
 
 Typed styles plus semantic theme tokens, resolved framework-side. Widgets reference roles (`accent`,
-`surface`, `danger`…), themes map roles to concrete styles, and Catppuccin / Nord / Dracula presets
-ship in v0.1 — "pretty by default" is a requirement, per the wave. Theme files are TOML and
-hot-reloadable in debug builds (live reload is Textual's #1 adoption driver; we get it without a CSS
-engine). A cascade/selector engine is deliberately deferred — Brick's evidence says role-based
-theming covers ~90% at ~10% of the machinery; the ADR records what demand signal would justify
-revisiting.
+`surface`, `danger`…), themes map roles to concrete styles; Catppuccin Mocha ships today, Nord /
+Dracula land with Arc 2.2 presets ship in v0.1 — "pretty by default" is a requirement, per the wave.
+Theme files are TOML and hot-reloadable in debug builds (live reload is Textual's #1 adoption
+driver; we get it without a CSS engine). A cascade/selector engine is deliberately deferred —
+Brick's evidence says role-based theming covers ~90% at ~10% of the machinery; the ADR records what
+demand signal would justify revisiting.
 
 ## Widgets and the extension surface (ADR 0008)
 
