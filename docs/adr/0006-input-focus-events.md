@@ -222,3 +222,16 @@ stores **focus as framework state keyed by `WidgetId`**. Specifically:
 - **Pointer-capture / nested-routing proofs (labs roadmap steps 5–6) surface a case the capturing-
   ID model cannot express** (e.g. nested overlays with conflicting capture claims) → reopen the
   capture-ownership rules before API stabilization.
+
+## Amendments
+
+- **2026-07-06 (slice 3):** Clarified: `update` runs exactly once per mapped
+  event *regardless of consumption*, carrying the event plus any outcomes in
+  one `Update` — "unconsumed → passed to update" governs how apps should treat
+  raw keys (check `outcome_for` first), not whether `update` runs. Dead-id
+  focus recovery is defined as **first surviving focusable in declaration
+  order** (facts carry no cross-frame ordinal; a stable-ordinal upgrade is a
+  revisit option, not the default). Known gap, deliberately deferred to the
+  effects slice: `request_focus` for a widget absent from current facts is
+  silently ignored, which does not yet meet this ADR's "reveal or fail loudly"
+  clause — tracked in docs/design/slice3-input-design.md deltas.

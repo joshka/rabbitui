@@ -8,7 +8,10 @@
 //!
 //! The catalog grows a widget at a time, slice by slice (`ROADMAP.md`). Slice 2
 //! starts it with [`Text`], the stateless multi-line label the counter and
-//! hello examples paint through.
+//! hello examples paint through. Slice 3 adds [`Button`], the first *interactive*
+//! widget: focusable, reversed when focused, and emitting
+//! [`Outcome::Activated`](rabbitui_core::outcome::Outcome::Activated) on Enter or
+//! Space.
 //!
 //! # Examples
 //!
@@ -20,6 +23,8 @@
 //! assert_eq!(title.content(), "Hello, rabbitui!");
 //! ```
 
+pub mod button;
 pub mod text;
 
+pub use button::Button;
 pub use text::Text;

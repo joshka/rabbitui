@@ -102,6 +102,21 @@ impl StateStore {
         entry.state.downcast_mut::<S>().expect("state type ensured above")
     }
 
+    /// Lends type-erased `&mut` access to the state already stored for `id`.
+    ///
+    /// Unlike [`get_or_default`](Self::get_or_default) this neither creates state
+    /// nor needs the concrete type: it is how the router reaches a widget's
+    /// retained state during event dispatch, where only the erased handler thunk
+    /// (which knows the type) will downcast it. Returns `None` if `id` holds no
+    /// state (it was never declared, or its state was dropped).
+    ///
+    /// This does **not** touch `last_seen`: dispatch happens between frames and
+    /// must not be mistaken for a re-declaration.
+    #[must_use]
+    pub fn get_dyn_mut(&mut self, id: WidgetId) -> Option<&mut dyn Any> {
+        self.entries.get_mut(&id).map(|entry| entry.state.as_mut())
+    }
+
     /// Marks the end of a frame and drops state for widgets that have not
     /// been declared within the grace period.
     pub fn end_frame(&mut self) {

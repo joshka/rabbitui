@@ -8,8 +8,19 @@
 //! the widget as `&mut` during render.
 //!
 //! Widgets paint through a [`RenderCtx`], which owns clipping to the widget's
-//! area (and, from slice 3, collects frame facts: hit regions, focus entries,
-//! cursor candidates).
+//! area and (from slice 3) collects frame facts: whether the widget is
+//! focusable, and — for painting focus styles — whether it currently holds
+//! focus.
+//!
+//! # Input: the handler is an associated function
+//!
+//! A widget spec dies after render, so nothing widget-shaped exists when an
+//! event arrives (ADR 0006). rabbitui resolves this by registering a
+//! **monomorphized handler thunk** at render time and routing events to it
+//! against the *previous* frame's facts. The handler is
+//! [`Widget::handle`] — an **associated function** (no `&self`), so it runs
+//! without a spec, against retained state only. It defaults to ignoring every
+//! event.
 //!
 //! # Examples
 //!
@@ -30,9 +41,37 @@
 //!     }
 //! }
 //! ```
+//!
+//! A focusable widget that reacts to Enter:
+//!
+//! ```
+//! use rabbitui_core::input::{InputEvent, Key};
+//! use rabbitui_core::outcome::Outcome;
+//! use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+//!
+//! struct Trigger;
+//!
+//! impl Widget for Trigger {
+//!     type State = ();
+//!
+//!     fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+//!         ctx.focusable(true);
+//!     }
+//!
+//!     fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+//!         if matches!(event.as_key().map(|k| k.key), Some(Key::Enter)) {
+//!             ctx.emit(Outcome::Activated);
+//!             return Handled::Yes;
+//!         }
+//!         Handled::No
+//!     }
+//! }
+//! ```
 
 use crate::buffer::Buffer;
 use crate::geometry::{Position, Rect};
+use crate::input::InputEvent;
+use crate::outcome::Outcome;
 use crate::style::Style;
 
 /// A widget spec: a per-frame description of one widget, rendered against its
@@ -48,29 +87,83 @@ pub trait Widget {
 
     /// Paints the widget into its area and updates retained state.
     fn render(&self, state: &mut Self::State, ctx: &mut RenderCtx<'_>);
+
+    /// Handles an event routed to this widget.
+    ///
+    /// This is an **associated function** — it takes no `&self`, so it runs
+    /// without a spec instance, against retained `state` only (ADR 0006). The
+    /// framework registers `W::handle` as a type-erased thunk when the widget is
+    /// declared and calls it when routing an event whose target (or an ancestor
+    /// on the capture/bubble path) is this widget's id.
+    ///
+    /// Return [`Handled::Yes`] to consume the event and stop propagation; the
+    /// default ignores everything and returns [`Handled::No`].
+    fn handle(state: &mut Self::State, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        let _ = (state, event, ctx);
+        Handled::No
+    }
 }
 
-/// The surface a widget paints through: its area of the buffer, pre-clipped.
+/// Whether a handler consumed an event.
+///
+/// [`Handled::Yes`] stops routing (no further capture/bubble, no framework
+/// default like Tab traversal, no fallthrough to the app's `update`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Handled {
+    /// The event was consumed; stop propagating it.
+    Yes,
+    /// The event was ignored; keep propagating it.
+    No,
+}
+
+/// Which leg of the two-phase dispatch a handler is being called for.
+///
+/// Routing runs capture (root → target) then bubble (target → root), per ADR
+/// 0006. A handler can behave differently in each phase — a container might
+/// swallow a shortcut on [`Phase::Capture`] before it reaches the target, while
+/// most widgets only act on [`Phase::Bubble`] (which includes the target
+/// itself).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Descending root → target (ancestors first).
+    Capture,
+    /// The target, then ascending target → root (ancestors last).
+    Bubble,
+}
+
+/// The surface a widget paints through: its area of the buffer, pre-clipped,
+/// plus the frame-facts it declares as it renders.
 ///
 /// Positions passed to paint methods are relative to the widget's own area;
 /// painting outside the area is clipped, never an error.
+///
+/// A widget marks itself focusable with [`focusable`](Self::focusable) and reads
+/// its own focus state with [`is_focused`](Self::is_focused) to paint focus
+/// styles. Both feed the frame facts the framework routes input through.
 #[derive(Debug)]
 pub struct RenderCtx<'a> {
     buffer: &'a mut Buffer,
     /// The widget's area in buffer coordinates, already clipped to the buffer.
     area: Rect,
+    /// Whether the framework reports this widget as currently focused.
+    focused: bool,
+    /// Whether the widget declared itself focusable this frame. The frame reads
+    /// this back after `render` to record the focus fact.
+    focusable: bool,
 }
 
 impl<'a> RenderCtx<'a> {
     /// Creates a context painting into `area` of `buffer`.
     ///
     /// `area` is clipped to the buffer's bounds; a fully out-of-bounds area
-    /// yields a context whose paints are all no-ops.
+    /// yields a context whose paints are all no-ops. The context starts
+    /// non-focusable; `focused` is the framework's current focus verdict for
+    /// this widget.
     #[must_use]
-    pub fn new(buffer: &'a mut Buffer, area: Rect) -> Self {
+    pub fn new(buffer: &'a mut Buffer, area: Rect, focused: bool) -> Self {
         let bounds = Rect::from_size(buffer.size());
         let area = area.intersection(bounds);
-        Self { buffer, area }
+        Self { buffer, area, focused, focusable: false }
     }
 
     /// The widget's area size (relative coordinates run from the origin to
@@ -84,6 +177,35 @@ impl<'a> RenderCtx<'a> {
     #[must_use]
     pub fn size(&self) -> crate::geometry::Size {
         self.area.size
+    }
+
+    /// Declares whether this widget can hold keyboard focus this frame.
+    ///
+    /// Per-instance (ADR 0006): the same widget kind may opt in on one call site
+    /// and out on another (a disabled control passes `false`). The framework
+    /// records this as a focus fact; only focusable widgets appear in tab
+    /// traversal.
+    pub fn focusable(&mut self, focusable: bool) {
+        self.focusable = focusable;
+    }
+
+    /// Whether the framework reports this widget as currently focused.
+    ///
+    /// A render-time query, for painting focus styles (a reversed background, a
+    /// highlighted border). Focus itself is framework state keyed by identity
+    /// (ADR 0002/0006); this is the read-only view of it during render.
+    #[must_use]
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    /// Whether the widget declared itself focusable this frame.
+    ///
+    /// Read by [`Frame`](crate::frame::Frame) after `render` to record the focus
+    /// fact; not typically called by widgets.
+    #[must_use]
+    pub fn is_focusable(&self) -> bool {
+        self.focusable
     }
 
     /// Writes `text` at `position` (relative to the widget's area) in
@@ -101,6 +223,70 @@ impl<'a> RenderCtx<'a> {
     }
 }
 
+/// The surface a handler acts through during event routing.
+///
+/// A handler does **not** paint (it has no buffer) and does **not** mutate
+/// render state mid-dispatch (Brick's queued-request discipline, ADR 0006 §1).
+/// It carries the current dispatch [`Phase`], the widget's area (in absolute
+/// buffer coordinates, from last frame's facts), and two request channels:
+/// [`emit`](Self::emit) to report a typed [`Outcome`] to the app, and
+/// [`request_focus`](Self::request_focus) to ask the framework to focus this
+/// widget next.
+#[derive(Debug)]
+pub struct HandleCtx<'a> {
+    phase: Phase,
+    area: Rect,
+    outcomes: &'a mut Vec<Outcome>,
+    request_focus: &'a mut bool,
+}
+
+impl<'a> HandleCtx<'a> {
+    /// Creates a handler context for one handler invocation.
+    ///
+    /// `outcomes` collects everything this handler emits, and `request_focus` is
+    /// set if the handler asks for focus. The framework owns both and drains
+    /// them after the handler returns.
+    #[must_use]
+    pub fn new(
+        phase: Phase,
+        area: Rect,
+        outcomes: &'a mut Vec<Outcome>,
+        request_focus: &'a mut bool,
+    ) -> Self {
+        Self { phase, area, outcomes, request_focus }
+    }
+
+    /// The dispatch phase this call is part of (capture or bubble).
+    #[must_use]
+    pub fn phase(&self) -> Phase {
+        self.phase
+    }
+
+    /// The widget's area in absolute buffer coordinates (from last frame's
+    /// facts).
+    #[must_use]
+    pub fn area(&self) -> Rect {
+        self.area
+    }
+
+    /// Reports a typed outcome to the app.
+    ///
+    /// The framework collects the frame's outcomes and delivers them to the
+    /// app's `update` in the same call as the event (ADR 0001). A handler may
+    /// emit more than once.
+    pub fn emit(&mut self, outcome: Outcome) {
+        self.outcomes.push(outcome);
+    }
+
+    /// Asks the framework to move focus to this widget.
+    ///
+    /// Applied after routing; the widget must be focusable in the current facts
+    /// or the request is ignored.
+    pub fn request_focus(&mut self) {
+        *self.request_focus = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +296,7 @@ mod tests {
     fn paints_relative_to_area() {
         let mut buffer = Buffer::new(Size::new(10, 3));
         let area = Rect::new(Position::new(2, 1), Size::new(5, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area);
+        let mut ctx = RenderCtx::new(&mut buffer, area, false);
         ctx.set_string(Position::new(1, 0), "hi", Style::new());
         assert_eq!(buffer.get(Position::new(3, 1)).unwrap().symbol, "h");
         assert_eq!(buffer.get(Position::new(4, 1)).unwrap().symbol, "i");
@@ -120,7 +306,7 @@ mod tests {
     fn clips_to_area_not_buffer() {
         let mut buffer = Buffer::new(Size::new(10, 3));
         let area = Rect::new(Position::new(2, 1), Size::new(3, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area);
+        let mut ctx = RenderCtx::new(&mut buffer, area, false);
         ctx.set_string(Position::ORIGIN, "abcdef", Style::new());
         // "abc" fits the 3-wide area; "def" is clipped even though the buffer
         // continues.
@@ -132,7 +318,7 @@ mod tests {
     fn out_of_area_positions_are_no_ops() {
         let mut buffer = Buffer::new(Size::new(4, 2));
         let area = Rect::new(Position::ORIGIN, Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area);
+        let mut ctx = RenderCtx::new(&mut buffer, area, false);
         ctx.set_string(Position::new(0, 5), "nope", Style::new());
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().symbol, " ");
     }
@@ -141,7 +327,60 @@ mod tests {
     fn area_outside_buffer_is_empty() {
         let mut buffer = Buffer::new(Size::new(4, 2));
         let area = Rect::new(Position::new(10, 10), Size::new(5, 5));
-        let ctx = RenderCtx::new(&mut buffer, area);
+        let ctx = RenderCtx::new(&mut buffer, area, false);
         assert!(ctx.area().is_empty());
+    }
+
+    #[test]
+    fn focus_flags_default_off_and_are_settable() {
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let area = Rect::from_size(Size::new(4, 1));
+        let mut ctx = RenderCtx::new(&mut buffer, area, true);
+        assert!(ctx.is_focused());
+        assert!(!ctx.is_focusable());
+        ctx.focusable(true);
+        assert!(ctx.is_focusable());
+    }
+
+    #[test]
+    fn handle_ctx_collects_outcomes_and_focus_request() {
+        let mut outcomes = Vec::new();
+        let mut request_focus = false;
+        {
+            let mut ctx = HandleCtx::new(
+                Phase::Bubble,
+                Rect::from_size(Size::new(4, 1)),
+                &mut outcomes,
+                &mut request_focus,
+            );
+            assert_eq!(ctx.phase(), Phase::Bubble);
+            ctx.emit(Outcome::Activated);
+            ctx.request_focus();
+        }
+        assert_eq!(outcomes, vec![Outcome::Activated]);
+        assert!(request_focus);
+    }
+
+    #[test]
+    fn default_handle_ignores_events() {
+        use crate::input::{InputEvent, Key};
+
+        struct Ignorer;
+        impl Widget for Ignorer {
+            type State = ();
+            fn render(&self, _state: &mut (), _ctx: &mut RenderCtx<'_>) {}
+        }
+
+        let mut outcomes = Vec::new();
+        let mut request_focus = false;
+        let mut ctx = HandleCtx::new(
+            Phase::Bubble,
+            Rect::default(),
+            &mut outcomes,
+            &mut request_focus,
+        );
+        let handled = Ignorer::handle(&mut (), &InputEvent::key(Key::Enter), &mut ctx);
+        assert_eq!(handled, Handled::No);
+        assert!(outcomes.is_empty());
     }
 }

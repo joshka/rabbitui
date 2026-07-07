@@ -141,3 +141,58 @@ runtime uses — extract routing into a core or shared function so the harness
 and runtime cannot drift). Integration tests: traversal order, wrap-around,
 focus survives re-declaration, dead-id focus recovery, outcome delivery,
 unconsumed-event fallthrough, capture-stops-routing.
+
+## Implementation deltas
+
+Deviations made during the slice-3 implementation, with rationale:
+
+- **`update` is always called with the event, even when a handler consumed it.**
+  The spec's routing step 5 reads "everything still unconsumed → passed to the
+  app's `update` as `Event::Input`", which could be read as *skipping* the
+  `update` call for consumed events. Instead, `run` calls `update` exactly once
+  per mapped event with an `Update { event, outcomes }` in every case: outcomes
+  must be delivered "in the same update call as the event" (the Outcomes
+  section), so `update` has to run when an event was consumed-and-produced-an-
+  outcome. Apps follow the ADR 0001 worked-example pattern — check `outcome_for`
+  first, then handle raw keys — so a consumed key that yielded an outcome does
+  not also misfire as a raw binding. Net effect matches the intent (unconsumed
+  keys reach the app; consumed keys arrive as outcomes) with a simpler, single
+  `update` call. `Event::Input` does not expose a `consumed` bit; if an app ever
+  needs it, that is an additive change.
+
+- **`RenderCtx::new` gained a `focused: bool` parameter** (was `(buffer, area)`,
+  now `(buffer, area, focused)`). The spec says "Frame gains access to a focus
+  snapshot so `RenderCtx::is_focused` works" but fixes no signature; threading the
+  verdict in at construction is the least-surprising shape and keeps `RenderCtx`
+  self-contained. `Frame::widget` computes `focus == Some(id)` and passes it.
+
+- **Focus reconciliation is a named step (`Focus::reconcile`) run after each
+  render, before routing the next event**, rather than folded into traversal.
+  The spec describes dead-id recovery as part of traversal; splitting it out
+  makes "focus survives re-declaration" and "dead-id recovery" testable in
+  isolation and keeps `route` about the current event. Dead-id recovery targets
+  the **first surviving focusable in declaration order** (facts carry no
+  cross-frame position, so "next survivor after the dead slot" is not
+  recoverable from data on hand); documented on `Focus::reconcile`.
+
+- **`StateStore::get_dyn_mut`** was added so the router can lend a widget's
+  retained state to its type-erased handler thunk without knowing the concrete
+  type. It does not touch `last_seen` (dispatch happens between frames and must
+  not read as a re-declaration).
+
+- **`Frame` grew `with_focus`, `finish`, and `into_parts`.** `new` stays
+  focus-less for existing call sites; `with_focus` supplies the snapshot;
+  `finish`/`into_parts` surrender the collected facts (and handlers) to the
+  runtime/harness. `TestApp::send_event`/`send_key` return the core
+  `RouteResult` (outcomes + consumed) rather than an `rabbitui::app::Update`,
+  because the testing crate depends only on core; this keeps the harness
+  runtime-free while exercising the identical `route` function.
+
+- **Substrate coverage is narrower than the core `Key` vocabulary.** qwertty
+  decodes text, C0 controls, and four arrows only, so `Key::BackTab`,
+  `Home`/`End`, `PageUp`/`PageDown`, a forward `Delete`, and any non-empty
+  `Modifiers` are defined in core but never produced by the facade's mapping in
+  slice 3 (documented in `rabbitui::input`). Ctrl-C (`0x03`) maps to nothing and
+  is dropped, so the examples quit on `q`/Escape rather than Ctrl-C. The core
+  vocabulary is intentionally ahead of the substrate so widget code needs no
+  revision when qwertty lands those protocols (ADR 0006 §9).

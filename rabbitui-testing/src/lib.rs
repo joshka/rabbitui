@@ -22,6 +22,18 @@
 //! possible at all — ratatui cannot ship a real headless driver for exactly
 //! this reason.
 //!
+//! # Input goes through the *same* routing as the runtime
+//!
+//! From slice 3 the driver also owns a [`Focus`] and keeps the last rendered
+//! frame's facts and handlers, so [`TestApp::send_key`] / [`TestApp::send_event`]
+//! route an event through the shared [`route`] function — the exact code path
+//! `rabbitui::app::run` uses. Extracting routing into core is what makes the
+//! harness and the runtime provably identical (ADR 0006's "cannot drift"
+//! requirement); a test that passes here is testing the real router.
+//!
+//! [`Focus`]: rabbitui_core::routing::Focus
+//! [`route`]: rabbitui_core::routing::route
+//!
 //! [`StateStore`]: rabbitui_core::store::StateStore
 //! [`Frame`]: rabbitui_core::frame::Frame
 //!
@@ -65,8 +77,12 @@ pub mod snapshot;
 pub use snapshot::assert_snapshot;
 
 use rabbitui_core::buffer::Buffer;
-use rabbitui_core::frame::Frame;
+use rabbitui_core::facts::FrameFacts;
+use rabbitui_core::frame::{Frame, HandlerMap};
 use rabbitui_core::geometry::{Position, Size};
+use rabbitui_core::id::WidgetId;
+use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::routing::{Focus, RouteResult, route};
 use rabbitui_core::store::StateStore;
 
 /// A headless driver for a rabbitui app: state, a state store, and a back
@@ -95,6 +111,11 @@ pub struct TestApp<S> {
     state: S,
     store: StateStore,
     buffer: Buffer,
+    focus: Focus,
+    /// The most recently rendered frame's facts — routing targets these.
+    facts: FrameFacts,
+    /// The most recently rendered frame's handler thunks.
+    handlers: HandlerMap,
 }
 
 impl<S> TestApp<S> {
@@ -118,7 +139,31 @@ impl<S> TestApp<S> {
     /// ```
     #[must_use]
     pub fn new(size: Size, state: S) -> Self {
-        Self { state, store: StateStore::new(), buffer: Buffer::new(size) }
+        Self {
+            state,
+            store: StateStore::new(),
+            buffer: Buffer::new(size),
+            focus: Focus::new(),
+            facts: FrameFacts::new(),
+            handlers: HandlerMap::new(),
+        }
+    }
+
+    /// A mutable handle to the app's state, to set up a scenario directly.
+    ///
+    /// Prefer [`send`](Self::send) to model an update; this is for arranging
+    /// preconditions a test needs before the first render.
+    pub fn state_mut(&mut self) -> &mut S {
+        &mut self.state
+    }
+
+    /// The framework's current focus target, if any.
+    ///
+    /// Reflects traversal driven by [`send_key`](Self::send_key) and
+    /// reconciliation after each render — the same [`Focus`] the runtime keeps.
+    #[must_use]
+    pub fn focus(&self) -> Option<WidgetId> {
+        self.focus.current()
     }
 
     /// The app's current state.
@@ -178,11 +223,19 @@ impl<S> TestApp<S> {
     pub fn render(&mut self, view: impl FnOnce(&S, &mut Frame<'_>)) {
         clear(&mut self.buffer);
         self.store.begin_frame();
-        {
-            let mut frame = Frame::new(&mut self.buffer, &mut self.store);
+        let (facts, handlers) = {
+            let mut frame =
+                Frame::with_focus(&mut self.buffer, &mut self.store, self.focus.current());
             view(&self.state, &mut frame);
-        }
+            frame.into_parts()
+        };
         self.store.end_frame();
+        // Keep this frame's facts/handlers for routing, then reconcile focus so
+        // traversal and dispatch run against current facts — exactly as the
+        // runtime does after each paint.
+        self.facts = facts;
+        self.handlers = handlers;
+        self.focus.reconcile(&self.facts);
     }
 
     /// Folds an update into the state, then renders one frame through `view`.
@@ -227,6 +280,61 @@ impl<S> TestApp<S> {
     ) {
         update(&mut self.state);
         self.render(view);
+    }
+
+    /// Sets the focused widget directly, to arrange a routing scenario.
+    ///
+    /// The runtime never exposes this — focus is framework state — but a test
+    /// often needs to start from "button B is focused" without pressing Tab
+    /// first. A later [`render`](Self::render) reconciles this against the facts,
+    /// so the id must be focusable in the rendered frame to survive.
+    pub fn set_focus(&mut self, id: Option<WidgetId>) {
+        self.focus.set(id);
+    }
+
+    /// Routes one input event through the last rendered frame, returning the
+    /// routing result (emitted outcomes and whether the event was consumed).
+    ///
+    /// This is the harness's input primitive: it runs the shared [`route`]
+    /// function against the facts and handlers captured by the most recent
+    /// [`render`](Self::render) — the exact path `rabbitui::app::run` takes — so
+    /// a test drives the real router. It does **not** re-render; call
+    /// [`render`](Self::render) afterward to observe the resulting frame (focus
+    /// styles, updated status lines), and fold any returned outcomes into state
+    /// the way the app's `update` would.
+    ///
+    /// [`route`]: rabbitui_core::routing::route
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::Size;
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::input::Key;
+    /// use rabbitui_core::outcome::Outcome;
+    /// use rabbitui_testing::TestApp;
+    /// use rabbitui_widgets::Button;
+    ///
+    /// let mut app = TestApp::new(Size::new(4, 1), ());
+    /// app.render(|_s, frame| frame.widget(key("ok"), frame.area(), &Button::new("OK")));
+    /// app.set_focus(Some(WidgetId::ROOT.child(key("ok"))));
+    /// app.render(|_s, frame| frame.widget(key("ok"), frame.area(), &Button::new("OK")));
+    ///
+    /// let result = app.send_key(Key::Enter);
+    /// assert!(result.consumed);
+    /// assert_eq!(result.outcomes[0].1, Outcome::Activated);
+    /// ```
+    pub fn send_event(&mut self, event: InputEvent) -> RouteResult {
+        route(&self.facts, &self.handlers, &mut self.focus, &mut self.store, &event)
+    }
+
+    /// Routes a bare key press (no modifiers) through the last rendered frame.
+    ///
+    /// A convenience over [`send_event`](Self::send_event) for the common case;
+    /// see that method for the routing contract and re-render note.
+    pub fn send_key(&mut self, key: Key) -> RouteResult {
+        self.send_event(InputEvent::key(key))
     }
 
     /// The rendered buffer as text: rows joined by `'\n'`, each row's trailing

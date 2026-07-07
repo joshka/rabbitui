@@ -1,28 +1,24 @@
 //! The walking skeleton: run the full loop to draw a greeting and quit.
 //!
 //! Draws "Hello, rabbitui!" and a styled hint through the declared frame, then
-//! quits on `q`, Escape, or Ctrl-C. Run with `cargo run --example hello`.
+//! quits on `q` or Escape. Run with `cargo run --example hello`.
 
 use std::ops::ControlFlow;
 
-use qwertty::{ControlInput, InputEvent};
-use rabbitui::app::{self, Event};
+use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
+use rabbitui_core::input::Key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::style::{Color, Style};
 use rabbitui_widgets::Text;
-
-/// The ETX byte (Ctrl-C) as delivered in raw mode. qwertty classifies it as
-/// [`ControlInput::Other`] since it is not one of the named control variants.
-const CTRL_C: u8 = 0x03;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::run(
         (),
-        |(): &mut (), event: Event| {
-            if quit_requested(&event) {
+        |(): &mut (), update: Update<'_>| {
+            if quit_requested(&update) {
                 ControlFlow::Break(())
             } else {
                 ControlFlow::Continue(())
@@ -43,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame.widget(
                 key("hint"),
                 hint_row,
-                &Text::new("press q, Esc, or Ctrl-C to quit").style(hint),
+                &Text::new("press q or Esc to quit").style(hint),
             );
         },
     )
@@ -51,15 +47,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Returns true if `event` is one of the quit keys: `q`, Escape, or Ctrl-C.
-fn quit_requested(event: &Event) -> bool {
-    let Event::Input(input) = event else {
+/// Returns true if this update carries a quit key: `q` or Escape.
+///
+/// The event reaches `update` because no widget consumed it — the hello view has
+/// no interactive widgets, so every key falls through to the app (ADR 0006's
+/// unconsumed-event path).
+fn quit_requested(update: &Update<'_>) -> bool {
+    let Event::Input(input) = update.event() else {
         return false;
     };
-    matches!(
-        input,
-        InputEvent::Text('q')
-            | InputEvent::Control(ControlInput::Escape)
-            | InputEvent::Control(ControlInput::Other(CTRL_C))
-    )
+    matches!(input.as_key().map(|k| k.key), Some(Key::Char('q') | Key::Escape))
 }

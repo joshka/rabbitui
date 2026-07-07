@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn renders_a_single_line_from_the_origin() {
         let mut buffer = Buffer::new(Size::new(10, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
         Text::new("hello").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "hello");
     }
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn splits_on_newline_one_row_per_line() {
         let mut buffer = Buffer::new(Size::new(10, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 3)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two");
@@ -144,7 +144,7 @@ mod tests {
     fn lines_past_the_bottom_are_clipped() {
         // Two rows of area, three lines of content: the third is dropped.
         let mut buffer = Buffer::new(Size::new(10, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two");
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn long_lines_clip_at_the_right_edge() {
         let mut buffer = Buffer::new(Size::new(3, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 1)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
         Text::new("abcdef").render(&mut (), &mut ctx);
         // The ctx clips to the 3-wide area; the rest is dropped, not wrapped.
         assert_eq!(row(&buffer, 0), "abc");
@@ -163,7 +163,7 @@ mod tests {
     fn style_applies_to_every_painted_cell() {
         let mut buffer = Buffer::new(Size::new(5, 1));
         let style = Style::new().fg(Color::GREEN);
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
         Text::new("ab").style(style).render(&mut (), &mut ctx);
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().style, style);
         assert_eq!(buffer.get(Position::new(1, 0)).unwrap().style, style);
@@ -173,7 +173,7 @@ mod tests {
     fn empty_content_paints_one_blank_line() {
         // "" splits into a single empty line; nothing is painted, no panic.
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Text::new("").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "");
     }

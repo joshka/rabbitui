@@ -1,23 +1,20 @@
 //! A counter driven through the declared frame.
 //!
-//! Increments on `+` or space, decrements on `-`, and quits on `q`, Escape, or
-//! Ctrl-C. State lives in a plain `i64`; each key folds into it in `update`, and
-//! `view` declares a title and the current count as two [`Text`] widgets into
-//! the frame. Run with `cargo run --example counter`.
+//! Increments on `+` or space, decrements on `-`, and quits on `q` or Escape.
+//! State lives in a plain `i64`; each key folds into it in `update`, and `view`
+//! declares a title and the current count as two [`Text`] widgets. The counter
+//! has no interactive widgets, so every key falls through routing to `update`
+//! (ADR 0006's unconsumed-event path). Run with `cargo run --example counter`.
 
 use std::ops::ControlFlow;
 
-use qwertty::{ControlInput, InputEvent};
-use rabbitui::app::{self, Event};
+use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
+use rabbitui_core::input::Key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::style::{Color, Style};
 use rabbitui_widgets::Text;
-
-/// The ETX byte (Ctrl-C) as delivered in raw mode. qwertty classifies it as
-/// [`ControlInput::Other`] since it is not one of the named control variants.
-const CTRL_C: u8 = 0x03;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,18 +22,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Folds one event into the count, or asks to quit.
-fn update(count: &mut i64, event: Event) -> ControlFlow<()> {
-    let Event::Input(input) = event else {
+/// Folds one update into the count, or asks to quit.
+fn update(count: &mut i64, update: Update<'_>) -> ControlFlow<()> {
+    let Event::Input(input) = update.event() else {
         return ControlFlow::Continue(());
     };
-    match input {
-        InputEvent::Text('+' | ' ') => *count += 1,
-        InputEvent::Text('-') => *count -= 1,
-        InputEvent::Text('q')
-        | InputEvent::Control(ControlInput::Escape | ControlInput::Other(CTRL_C)) => {
-            return ControlFlow::Break(());
-        }
+    match input.as_key().map(|k| k.key) {
+        Some(Key::Char('+' | ' ')) => *count += 1,
+        Some(Key::Char('-')) => *count -= 1,
+        Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
         _ => {}
     }
     ControlFlow::Continue(())

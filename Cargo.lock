@@ -97,6 +97,7 @@ name = "rabbitui-testing"
 version = "0.1.0"
 dependencies = [
  "rabbitui-core",
+ "rabbitui-widgets",
 ]
 
 [[package]]

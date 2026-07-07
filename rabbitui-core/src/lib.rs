@@ -16,10 +16,14 @@
 //! ```
 
 pub mod buffer;
+pub mod facts;
 pub mod frame;
 pub mod geometry;
 pub mod id;
+pub mod input;
 pub mod layout;
+pub mod outcome;
+pub mod routing;
 pub mod store;
 pub mod style;
 pub mod widget;
