@@ -1,0 +1,86 @@
+┌panel─────────────┐
+│hi cyan           │
+│                  │
+└──────────────────┘
+---
+(0,0) "┌" = fg=reset bg=reset
+(1,0) "p" = fg=reset bg=reset
+(2,0) "a" = fg=reset bg=reset
+(3,0) "n" = fg=reset bg=reset
+(4,0) "e" = fg=reset bg=reset
+(5,0) "l" = fg=reset bg=reset
+(6,0) "─" = fg=reset bg=reset
+(7,0) "─" = fg=reset bg=reset
+(8,0) "─" = fg=reset bg=reset
+(9,0) "─" = fg=reset bg=reset
+(10,0) "─" = fg=reset bg=reset
+(11,0) "─" = fg=reset bg=reset
+(12,0) "─" = fg=reset bg=reset
+(13,0) "─" = fg=reset bg=reset
+(14,0) "─" = fg=reset bg=reset
+(15,0) "─" = fg=reset bg=reset
+(16,0) "─" = fg=reset bg=reset
+(17,0) "─" = fg=reset bg=reset
+(18,0) "─" = fg=reset bg=reset
+(19,0) "┐" = fg=reset bg=reset
+(0,1) "│" = fg=reset bg=reset
+(1,1) "h" = fg=reset bg=reset
+(2,1) "i" = fg=reset bg=reset
+(3,1) " " = fg=reset bg=reset
+(4,1) "c" = fg=ansi6 bg=reset bold
+(5,1) "y" = fg=ansi6 bg=reset bold
+(6,1) "a" = fg=ansi6 bg=reset bold
+(7,1) "n" = fg=ansi6 bg=reset bold
+(8,1) " " = fg=reset bg=reset
+(9,1) " " = fg=reset bg=reset
+(10,1) " " = fg=reset bg=reset
+(11,1) " " = fg=reset bg=reset
+(12,1) " " = fg=reset bg=reset
+(13,1) " " = fg=reset bg=reset
+(14,1) " " = fg=reset bg=reset
+(15,1) " " = fg=reset bg=reset
+(16,1) " " = fg=reset bg=reset
+(17,1) " " = fg=reset bg=reset
+(18,1) " " = fg=reset bg=reset
+(19,1) "│" = fg=reset bg=reset
+(0,2) "│" = fg=reset bg=reset
+(1,2) " " = fg=reset bg=reset
+(2,2) " " = fg=reset bg=reset
+(3,2) " " = fg=reset bg=reset
+(4,2) " " = fg=reset bg=reset
+(5,2) " " = fg=reset bg=reset
+(6,2) " " = fg=reset bg=reset
+(7,2) " " = fg=reset bg=reset
+(8,2) " " = fg=reset bg=reset
+(9,2) " " = fg=reset bg=reset
+(10,2) " " = fg=reset bg=reset
+(11,2) " " = fg=reset bg=reset
+(12,2) " " = fg=reset bg=reset
+(13,2) " " = fg=reset bg=reset
+(14,2) " " = fg=reset bg=reset
+(15,2) " " = fg=reset bg=reset
+(16,2) " " = fg=reset bg=reset
+(17,2) " " = fg=reset bg=reset
+(18,2) " " = fg=reset bg=reset
+(19,2) "│" = fg=reset bg=reset
+(0,3) "└" = fg=reset bg=reset
+(1,3) "─" = fg=reset bg=reset
+(2,3) "─" = fg=reset bg=reset
+(3,3) "─" = fg=reset bg=reset
+(4,3) "─" = fg=reset bg=reset
+(5,3) "─" = fg=reset bg=reset
+(6,3) "─" = fg=reset bg=reset
+(7,3) "─" = fg=reset bg=reset
+(8,3) "─" = fg=reset bg=reset
+(9,3) "─" = fg=reset bg=reset
+(10,3) "─" = fg=reset bg=reset
+(11,3) "─" = fg=reset bg=reset
+(12,3) "─" = fg=reset bg=reset
+(13,3) "─" = fg=reset bg=reset
+(14,3) "─" = fg=reset bg=reset
+(15,3) "─" = fg=reset bg=reset
+(16,3) "─" = fg=reset bg=reset
+(17,3) "─" = fg=reset bg=reset
+(18,3) "─" = fg=reset bg=reset
+(19,3) "┘" = fg=reset bg=reset
+

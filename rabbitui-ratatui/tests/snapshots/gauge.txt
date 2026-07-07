@@ -1,0 +1,53 @@
+┌──────────────┐
+│█████60%      │
+└──────────────┘
+---
+(0,0) "┌" = fg=reset bg=reset
+(1,0) "─" = fg=reset bg=reset
+(2,0) "─" = fg=reset bg=reset
+(3,0) "─" = fg=reset bg=reset
+(4,0) "─" = fg=reset bg=reset
+(5,0) "─" = fg=reset bg=reset
+(6,0) "─" = fg=reset bg=reset
+(7,0) "─" = fg=reset bg=reset
+(8,0) "─" = fg=reset bg=reset
+(9,0) "─" = fg=reset bg=reset
+(10,0) "─" = fg=reset bg=reset
+(11,0) "─" = fg=reset bg=reset
+(12,0) "─" = fg=reset bg=reset
+(13,0) "─" = fg=reset bg=reset
+(14,0) "─" = fg=reset bg=reset
+(15,0) "┐" = fg=reset bg=reset
+(0,1) "│" = fg=reset bg=reset
+(1,1) "█" = fg=ansi2 bg=reset
+(2,1) "█" = fg=ansi2 bg=reset
+(3,1) "█" = fg=ansi2 bg=reset
+(4,1) "█" = fg=ansi2 bg=reset
+(5,1) "█" = fg=ansi2 bg=reset
+(6,1) "6" = fg=reset bg=ansi2
+(7,1) "0" = fg=reset bg=ansi2
+(8,1) "%" = fg=reset bg=ansi2
+(9,1) " " = fg=ansi2 bg=reset
+(10,1) " " = fg=ansi2 bg=reset
+(11,1) " " = fg=ansi2 bg=reset
+(12,1) " " = fg=ansi2 bg=reset
+(13,1) " " = fg=ansi2 bg=reset
+(14,1) " " = fg=ansi2 bg=reset
+(15,1) "│" = fg=reset bg=reset
+(0,2) "└" = fg=reset bg=reset
+(1,2) "─" = fg=reset bg=reset
+(2,2) "─" = fg=reset bg=reset
+(3,2) "─" = fg=reset bg=reset
+(4,2) "─" = fg=reset bg=reset
+(5,2) "─" = fg=reset bg=reset
+(6,2) "─" = fg=reset bg=reset
+(7,2) "─" = fg=reset bg=reset
+(8,2) "─" = fg=reset bg=reset
+(9,2) "─" = fg=reset bg=reset
+(10,2) "─" = fg=reset bg=reset
+(11,2) "─" = fg=reset bg=reset
+(12,2) "─" = fg=reset bg=reset
+(13,2) "─" = fg=reset bg=reset
+(14,2) "─" = fg=reset bg=reset
+(15,2) "┘" = fg=reset bg=reset
+

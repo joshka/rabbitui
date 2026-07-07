@@ -1,0 +1,37 @@
+[package]
+name = "rabbitui-ratatui"
+description = "Render ratatui widgets inside a rabbitui frame via a cell-copy bridge"
+version.workspace = true
+edition.workspace = true
+# The bridge tracks ratatui's release cadence and absorbs its churn — including
+# its MSRV — in this leaf crate, insulated from core by the crate boundary
+# (ADR 0010 §"Neutral", ADR 0011). ratatui 0.30 requires rustc 1.88, so this
+# crate raises its rust-version above the workspace's 1.85 rather than pinning
+# ratatui to an older release. rabbitui-core stays at 1.85.
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rabbitui-core.workspace = true
+# No backend: the bridge only ever calls a widget's paint step into a Buffer it
+# owns (ADR 0010 §Decision.3), so it needs neither a Terminal nor crossterm /
+# termion / termwiz. `std` and the widget set are the only features it wants;
+# `underline-color` is dropped deliberately — rabbitui has no separate underline
+# color, so enabling it would only add a field the bridge discards (see the
+# lossy-conversion note in `src/style.rs`).
+ratatui = { version = "0.30", default-features = false, features = ["std", "all-widgets"] }
+# The shared width oracle for wide-grapheme skip-cell mapping — the same crate
+# (and version) rabbitui-core uses, so the bridge never disagrees with the
+# buffer about how many columns a grapheme advances.
+unicode-width.workspace = true
+
+[dev-dependencies]
+rabbitui-testing.workspace = true
+# The interop example runs a full rabbitui app loop next to native widgets.
+rabbitui = { workspace = true }
+rabbitui-widgets.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
