@@ -18,15 +18,26 @@ in vertical slices ([ROADMAP.md](ROADMAP.md)). Nothing is published yet.
   2024–26 framework wave, and Codex's tui2)
 - [docs/field-report.md](docs/field-report.md) — a shareable state-of-the-field synthesis
 
+## Gallery
+
+Every widget and every theme role on one screen — run `cargo run --example gallery`, or pick a
+preset with `GALLERY_THEME=nord cargo run --example gallery` (`dark`, `catppuccin`, `nord`,
+`dracula`):
+
+![The rabbitui widget gallery under the default dark theme](docs/images/gallery-dark-top.png)
+
 ## Workspace
 
-| Crate              | Purpose                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| `rabbitui-core`    | Runtime-free foundation: geometry, styles, buffer, identity, facts, widget contract |
-| `rabbitui`         | The facade: async event loop, terminal session, rendering                           |
-| `rabbitui-testing` | Headless driver and PTY-level test harness                                          |
+| Crate              | Purpose                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `rabbitui-core`    | Runtime-free foundation: geometry, styles, buffer, identity, facts, widget contract  |
+| `rabbitui`         | The facade: async event loop, terminal session, rendering                            |
+| `rabbitui-widgets` | The widget catalog: Text, Button, TextInput, SelectionList, Collapsible, Panel       |
+| `rabbitui-testing` | Headless driver and PTY-level test harness                                           |
+| `rabbitui-ratatui` | Bridge for embedding existing ratatui widgets                                        |
+| `rabbitui-agent`   | Flagship: a terminal chat/agent client — the framework's living acceptance test      |
 
-Try it: `cargo run --example smoke` (or `hello`, once slice 1 lands).
+Try it: `cargo run --example gallery` (or `counter`, `todo`, `form`, `focus`, `stream`, `agent`, …).
 
 ## License
 

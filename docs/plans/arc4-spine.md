@@ -91,3 +91,14 @@ Adopt in this order, each its own commit + drift note in `docs/substrate/`:
 versions; open P0s (lone-ESC, resize events) re-checked at each step — if lone-ESC has landed,
 file the follow-up task to restore Esc bindings app-wide and retire the ctrl-chord workaround note
 in ADR 0006.
+
+## 9. `Update::set_theme` (runtime theme switching)
+
+**Surfaced by the Arc 2A gallery (2026-07-07).** The runtime has no way to change theme mid-run —
+the active theme is a run-loop local fed by the builder and the theme-file watcher. **Position:**
+add `Update::set_theme(Theme)`, buffered in `Pending` and applied before the next paint, mirroring
+`Update::set_mode` exactly (same buffering, same last-call-wins, same `TestApp::apply_pending`
+support). Interaction with an active `theme_file`: last-writer-wins (a later mtime poll re-overrides);
+document it. Small and well-shaped, but it touches core runtime + `Pending` + `TestApp`, so it lands
+here with the keybinding/config work, not in an example. **Acceptance:** the gallery's number keys
+switch theme live; a `TestApp` test asserts a role's resolved color changes after `set_theme`.
