@@ -58,6 +58,7 @@
 
 pub mod button;
 pub mod collapsible;
+pub mod error_banner;
 #[cfg(feature = "tracing")]
 pub mod log_overlay;
 pub mod panel;
@@ -67,6 +68,7 @@ pub mod text_input;
 
 pub use button::Button;
 pub use collapsible::Collapsible;
+pub use error_banner::ErrorBanner;
 #[cfg(feature = "tracing")]
 pub use log_overlay::LogOverlay;
 pub use panel::Panel;
