@@ -247,3 +247,11 @@ stores **focus as framework state keyed by `WidgetId`**. Specifically:
   outcomes can ride along, which means raw-key app bindings also see keys a focused widget already
   handled — the todo example's `d` binding deleted a todo while the user typed "feed". App-level
   printable-key bindings must guard on `!update.consumed()`; outcomes need no guard.
+
+- **2026-07-07 (form UX round):** `Update::is_focused(&[Key])` added — apps need focus-dependent
+  decisions (the concrete case: arrow-key field navigation in a form), and mirroring focus from
+  outcomes is unreliable because Tab traversal is framework-internal. Composed-identity comparison,
+  so it works at any depth. Also amended by the same round: initial auto-focus interacts with
+  single-focusable apps such that printable bindings guarded on consumption can never fire (the
+  stream example) — the pattern for such apps is ctrl-chords, which text inputs pass through by
+  contract.

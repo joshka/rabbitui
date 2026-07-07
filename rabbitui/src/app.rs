@@ -208,6 +208,8 @@ pub struct Update<'a, M = ()> {
     pending: &'a RefCell<Pending<M>>,
     /// Whether routing consumed the event.
     consumed: bool,
+    /// The framework's focus at event time.
+    focus: Option<WidgetId>,
 }
 
 impl<'a, M> Update<'a, M> {
@@ -228,6 +230,7 @@ impl<'a, M> Update<'a, M> {
             outcomes,
             pending,
             consumed: false,
+            focus: None,
         }
     }
 
@@ -252,6 +255,27 @@ impl<'a, M> Update<'a, M> {
     #[must_use]
     pub fn consumed(&self) -> bool {
         self.consumed
+    }
+
+    /// Supplies the focus snapshot so [`is_focused`](Self::is_focused) works.
+    ///
+    /// The loop sets this from the framework's focus state; tests may too.
+    #[must_use]
+    pub fn with_focus(mut self, focus: Option<WidgetId>) -> Self {
+        self.focus = focus;
+        self
+    }
+
+    /// Whether the widget at this root-relative key path currently has focus.
+    ///
+    /// Lets an app make focus-dependent decisions (arrow-key field
+    /// navigation, contextual help lines) without mirroring framework state
+    /// from outcomes. Compares composed identity, so it works at any depth:
+    /// `update.is_focused(&[key("modal"), key("ok")])`.
+    #[must_use]
+    pub fn is_focused(&self, path: &[Key]) -> bool {
+        let id = path.iter().fold(WidgetId::ROOT, |id, k| id.child(*k));
+        self.focus == Some(id)
     }
 
     /// Commits `line` into the terminal's native scrollback (inline mode).
@@ -985,7 +1009,8 @@ where
                             let result = route(&facts, &handlers, &mut focus, &mut store, &event);
                             let pending = RefCell::new(Pending::default());
                             let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
-                                .with_consumed(result.consumed);
+                                .with_consumed(result.consumed)
+                                .with_focus(focus.current());
                             broke = update(&mut state, ctx).is_break();
                             drain_pending(
                                 pending.into_inner(),

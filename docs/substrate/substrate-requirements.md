@@ -103,3 +103,16 @@ the terminal type. rabbitui now works around it at its seam (ttyname(stdin/stdou
 `open_path`), but this belongs in qwertty: suggest `open()` resolve the controlling terminal via
 ttyname before falling back to the alias, or document `open_path` as required on macOS. Your
 socketpair FakeDevice is unaffected (socketpairs poll fine).
+
+## P0 (UX-blocking): lone-ESC timing policy is unimplemented (2026-07-07)
+
+User-visible on every app with an Escape binding: pressing Esc does nothing
+until the NEXT byte arrives, because the syntax parser correctly holds ESC as
+a possible sequence introducer and — per event.rs's own docs — the
+Escape-vs-sequence timing policy belongs to "the layer above (design 02)",
+which the Tokio session does not implement yet. No seam-side workaround
+exists without forking decode (which we won't do). Ask: the standard
+bounded-timeout flush (kitty-protocol negotiation later subsumes most of it,
+since enhanced mode disambiguates ESC positively). Until then rabbitui's
+examples document Ctrl-C as the reliable quit and keep their Esc bindings
+ready.

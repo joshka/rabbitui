@@ -17,7 +17,7 @@
 //! The status line shows the mode, the agent state, and a spinner while
 //! streaming. The composer is a [`TextInput`]; Enter sends a prompt and spawns a
 //! deterministic simulated agent response (a `Cmd::stream` of chunked markdown,
-//! a tool-call interlude, then completion). `Esc` cancels a streaming response
+//! a tool-call interlude, then completion). `Ctrl-X` (or `Esc`, once the substrate flushes lone escapes) cancels a streaming response
 //! via `Cmd::cancel_group("agent")` — which also covers re-prompting mid-stream.
 //! `q`/Ctrl-C quit.
 //!
@@ -208,7 +208,26 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
     {
         if let Some(k) = input.as_key() {
             match k.key {
-                // Toggle inline ↔ alt-screen live.
+                // Ctrl-T: mode toggle that works even while the composer is
+                // focused (printable 'm' below only fires when it is not).
+                Key::Char('t') if k.modifiers.ctrl => {
+                    app.inline = !app.inline;
+                    update.set_mode(if app.inline {
+                        Mode::inline(TAIL_HEIGHT)
+                    } else {
+                        Mode::AltScreen
+                    });
+                }
+                // Ctrl-X: cancel that works while the composer is focused
+                // (lone Esc is currently held by the substrate's parser —
+                // see the requirements handover).
+                Key::Char('x') if k.modifiers.ctrl => {
+                    if app.is_streaming() {
+                        cancel_agent(app, &update);
+                    }
+                }
+                // Toggle inline ↔ alt-screen live. The alt-screen transcript
+                // owns its own scroll via the frame.scroll scope.
                 Key::Char('m') if !k.modifiers.ctrl => {
                     app.inline = !app.inline;
                     update.set_mode(if app.inline {
@@ -573,7 +592,7 @@ fn status_role(app: &Agent) -> Role {
 
 /// The one-line help/hint under the composer.
 const HINT: &str =
-    "Tab: focus  Enter: send  Esc: cancel  m: mode (inline scrollback is immutable)  q: quit";
+    "Enter: send  Ctrl-X: cancel  Ctrl-T: mode  Ctrl-C: quit  (inline scrollback is immutable)";
 
 /// The composer's key for this frame, carrying the generation so a submit re-keys
 /// (and clears) it.
@@ -706,7 +725,7 @@ impl MarkdownRender {
         }
         self.current.push(Span::styled(
             code.to_string(),
-            Style::new().fg(Color::Ansi(8)).dim(),
+            Style::new().fg(Color::Ansi(8)),
         ));
     }
 
@@ -718,7 +737,7 @@ impl MarkdownRender {
             attrs: self.attrs,
         };
         if self.in_code_block {
-            style = style.dim();
+            style.fg = style.fg.or(Some(Color::Ansi(8)));
         }
         style
     }

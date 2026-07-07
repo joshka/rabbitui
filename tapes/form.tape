@@ -16,7 +16,7 @@ Wait+Screen "TAPE_BUILD_READY"
 Type "./target/debug/examples/form"
 Show
 Enter
-Wait+Screen "Tab: move"
+Wait+Screen "Enter: submit"
 Sleep 200ms
 Screenshot target/betamax/form-initial.png
 Type "Josh"

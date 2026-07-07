@@ -90,7 +90,8 @@ impl ListSource for &[String] {
 /// moves, and [`Outcome::Activated`] on Enter.
 ///
 /// The selected row paints in [`Role::Highlight`] when the list is focused and
-/// [`Role::Muted`] when it is not; other rows use [`Role::Text`].
+/// [`Role::Accent`] when it is not; other rows use [`Role::Text`].
+/// (Accent, not Muted: the selection must never be the dimmest row.)
 ///
 /// # Examples
 ///
@@ -239,7 +240,7 @@ impl<S: ListSource> Widget for SelectionList<S> {
         let selected_style = if ctx.is_focused() {
             ctx.style(Role::Highlight)
         } else {
-            ctx.style(Role::Muted)
+            ctx.style(Role::Accent)
         };
 
         // Paint only the visible window: offset .. offset + height, clamped to len.
@@ -638,7 +639,7 @@ mod tests {
         };
         let buffer = render(&list, &mut state, 5, false);
         let selected_style = buffer.get(Position::new(0, 1)).unwrap().style;
-        assert_eq!(selected_style, Theme::default().style(Role::Muted));
+        assert_eq!(selected_style, Theme::default().style(Role::Accent));
     }
 
     #[test]

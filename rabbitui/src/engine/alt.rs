@@ -76,6 +76,9 @@ impl AltEngine {
         let mut out = Vec::new();
         out.extend_from_slice(encode::ENTER_ALT_SCREEN);
         out.extend_from_slice(encode::HIDE_CURSOR);
+        // SGR reset before the clear: background color erase would otherwise
+        // flood the fresh screen with whatever background was last active.
+        out.extend_from_slice(encode::SGR_RESET);
         out.extend_from_slice(encode::CLEAR_SCREEN);
         out
     }

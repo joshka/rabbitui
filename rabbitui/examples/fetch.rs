@@ -164,7 +164,8 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 Key::Char('~') if !update.consumed() => {
                     app.show_logs = !app.show_logs;
                 }
-                Key::Char('q') | Key::Escape => return ControlFlow::Break(()),
+                Key::Char('q') if !update.consumed() => return ControlFlow::Break(()),
+                Key::Escape => return ControlFlow::Break(()),
                 _ => {}
             }
         }
@@ -226,7 +227,7 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus   type: search   Ctrl-L: clear   t: clock   ~: logs   q: quit")
+        &Text::new("type: search   Ctrl-L: clear   t/~ (list): clock/logs   Ctrl-C: quit")
             .role(Role::Muted),
     );
 

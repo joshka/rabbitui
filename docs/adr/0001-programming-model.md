@@ -193,3 +193,13 @@ additive, not a rewrite.
   tui-realm `MockComponent` / ratatui #1969 failure mode) → reopen the widget contract.
 - **Shell demand inverts:** if the optional shells attract the overwhelming majority of real apps
   while the raw declared-frame API goes unused → reconsider which layer is "core."
+
+## Amendments
+
+- **2026-07-07 (benchmarks):** The Context's "full re-render is microseconds" is now measured (Arc
+  2B, Apple M2 Max, release): 0.51 ms at 1,000 widgets, 1.69 ms at 10,000, virtualized scroll at
+  10,000 items 1.29 ms. The literal wording was ~10× optimistic; the architectural conclusion stands
+  — all measured cases sit far inside a 60 fps frame budget, and the first revisit trigger (">~2
+  ms/frame in user view construction on a realistic model") remains untripped by an order of
+  magnitude at realistic sizes. Numbers and method: docs/design/arc2b-measurement-scroll.md §
+  Benchmark results.

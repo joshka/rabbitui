@@ -8,12 +8,13 @@
 //!
 //! # Controls
 //!
-//! - `n` — commit the next numbered log line into scrollback (an update-time
+//! - `Ctrl-N` — commit the next numbered log line into scrollback (an update-time
 //!   [`Update::commit`], so it happens exactly once per press).
 //! - `m` — toggle between [`Mode::Inline`] and [`Mode::AltScreen`] live, via
 //!   [`Update::set_mode`]. In alt-screen the transcript is a full-screen buffer;
 //!   switch back to inline and the committed history is back in scrollback.
-//! - Tab — focus the input; type and press Enter to commit your own line.
+//! - The input is auto-focused; type and press Enter to commit your own line.
+//! - `Ctrl-T` — toggle inline/alt-screen; `Ctrl-C` quits.
 //! - `q` — quit.
 //!
 //! # A timer-free demo
@@ -92,17 +93,23 @@ fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
 
     // App-level bindings fire only on keys no focused widget consumed (the input
     // eats printables while focused — Update::consumed is the guard).
-    if let Event::Input(input) = update.event()
-        && !update.consumed()
-    {
-        match input.as_key().map(|k| k.key) {
+    // The input is the only focusable, so auto-focus means it is ALWAYS
+    // focused and printable bindings would never fire — hence ctrl-chords,
+    // which text inputs pass through (user rule: printable bindings must not
+    // fight text boxes).
+    if let Event::Input(input) = update.event() {
+        let (key, ctrl) = match input.as_key() {
+            Some(k) => (Some(k.key), k.modifiers.ctrl),
+            None => (None, false),
+        };
+        match key {
             // Commit the next numbered log line into native scrollback.
-            Some(Key::Char('n')) => {
+            Some(Key::Char('n')) if ctrl => {
                 app.committed += 1;
                 update.commit(format!("{:>3}  log line", app.committed));
             }
             // Toggle inline ↔ alt-screen live.
-            Some(Key::Char('m')) => {
+            Some(Key::Char('t')) if ctrl => {
                 app.inline = !app.inline;
                 update.set_mode(if app.inline {
                     Mode::inline(TAIL_HEIGHT)
@@ -110,7 +117,10 @@ fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
                     Mode::AltScreen
                 });
             }
-            Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
+            Some(Key::Char('c')) if ctrl => return ControlFlow::Break(()),
+            Some(Key::Char('q') | Key::Escape) if !update.consumed() => {
+                return ControlFlow::Break(());
+            }
             _ => {}
         }
     }
@@ -153,7 +163,7 @@ fn view(app: &Stream, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("n: commit   m: toggle mode   Tab: focus input   q: quit").role(Role::Muted),
+        &Text::new("type + Enter: commit   Ctrl-N: log line   Ctrl-T: mode   Ctrl-C: quit").role(Role::Muted),
     );
 }
 

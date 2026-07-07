@@ -63,6 +63,6 @@ fn view(count: &i64, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("+/space: add   -: subtract   q/Esc: quit").role(Role::Muted),
+        &Text::new("+/space: add   -: subtract   q: quit").role(Role::Muted),
     );
 }

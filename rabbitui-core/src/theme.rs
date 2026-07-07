@@ -180,12 +180,14 @@ impl Theme {
     #[must_use]
     pub const fn dark() -> Self {
         // ANSI-anchored so it survives on a 16-color terminal with no
-        // degradation pass. Muted uses DIM; the highlight is the accent hue used
+        // degradation pass. The highlight is the accent hue used
         // as a background for the focused element.
         let mut styles = [Style::new(); Role::ALL.len()];
         styles[role_index(Role::Surface)] = Style::new().bg(Color::Reset);
         styles[role_index(Role::Text)] = Style::new().fg(Color::Reset);
-        styles[role_index(Role::Muted)] = Style::new().fg(Color::Ansi(8)).dim();
+        // Ansi(8) alone: adding DIM double-dims to illegibility on dark
+        // terminals (user report, 2026-07-07).
+        styles[role_index(Role::Muted)] = Style::new().fg(Color::Ansi(8));
         styles[role_index(Role::Accent)] = Style::new().fg(Color::CYAN);
         styles[role_index(Role::Success)] = Style::new().fg(Color::GREEN);
         styles[role_index(Role::Warning)] = Style::new().fg(Color::YELLOW);

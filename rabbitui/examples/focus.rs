@@ -89,6 +89,6 @@ fn view(app: &App, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus   Enter/Space: activate   q/Esc: quit").role(Role::Muted),
+        &Text::new("Tab: focus   Enter/Space: activate   q: quit").role(Role::Muted),
     );
 }

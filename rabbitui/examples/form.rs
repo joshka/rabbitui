@@ -139,6 +139,28 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
         }
     }
 
+    // Vertical arrows move between fields (web-form muscle memory). TextInput
+    // leaves Up/Down unconsumed; the notes list consumes them for selection,
+    // so this only fires where it makes sense.
+    if let Event::Input(input) = update.event()
+        && !update.consumed()
+        && !form.confirming
+    {
+        let order = ["name", "email", "notes"];
+        if let Some(k) = input.as_key() {
+            let step: Option<i32> = match k.key {
+                Key::Up => Some(-1),
+                Key::Down => Some(1),
+                _ => None,
+            };
+            let at = order.iter().position(|name| update.is_focused(&[key(name)]));
+            if let (Some(step), Some(at)) = (step, at) {
+                let next = (at as i32 + step).rem_euclid(order.len() as i32) as usize;
+                update.focus(&[key(order[next])]);
+            }
+        }
+    }
+
     // App-level quit: `q` with no field focused, or Ctrl-C. TextInput leaves
     // Ctrl chords for the app, so Ctrl-C quits even while a field is focused.
     if let Event::Input(input) = update.event() {
@@ -166,7 +188,7 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     // A centered form panel at a sensible width — a form shouldn't sprawl across
     // a wide terminal. Its border highlights while a field (not the modal) holds
     // focus; while the modal is up, the base reads as inert (unfocused border).
-    let area = center(frame.area(), 60, 13);
+    let area = center(frame.area(), 60, 16);
     let panel = Panel::new().title("form").padding(1).focused(!form.confirming);
     frame.widget(key("panel"), area, &panel);
     let inner = Panel::inner(area, &panel);
@@ -174,9 +196,12 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     let [
         name_row,
         name_status,
+        _gap1,
         email_row,
         email_status,
+        _gap2,
         notes_area,
+        _gap3,
         submit_row,
         result_row,
     ] = split_rows(
@@ -186,7 +211,10 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(NOTES.len() as u16),
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Fill(1),
         ],
@@ -248,7 +276,7 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     let result = match &form.submitted {
         Some(message) => Text::new(message).role(Role::Success),
         None => {
-            Text::new("Tab: move  click: focus  Enter/click Submit  Esc: quit").role(Role::Muted)
+            Text::new("Tab/↑↓: move  Enter: submit  Ctrl-C: quit").role(Role::Muted)
         }
     };
     frame.widget(key("result"), result_row, &result);

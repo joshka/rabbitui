@@ -64,6 +64,6 @@ fn view((): &(), frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("press q or Esc to quit").role(Role::Muted),
+        &Text::new("press q to quit").role(Role::Muted),
     );
 }

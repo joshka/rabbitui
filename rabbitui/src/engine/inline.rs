@@ -177,7 +177,11 @@ impl InlineEngine {
         // bottom row's column 1 from the previous frame, so climb `H-1` rows.
         self.anchor_to_top(&mut frame);
         // Wipe the old tail and everything below it; committed scrollback above
-        // is untouched.
+        // is untouched. SGR reset FIRST: terminals implement background color
+        // erase, so an erase with a background-carrying SGR still active fills
+        // the region with that background — seen live as a colored band after a
+        // styled cell was the last thing painted (user report, 2026-07-07).
+        frame.bytes(encode::SGR_RESET);
         frame.bytes(encode::ERASE_BELOW);
 
         // Flush commits: each scrolls the erased region up into native history.
