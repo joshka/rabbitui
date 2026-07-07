@@ -228,3 +228,13 @@ correlator). Adoption order on our side:
 4. **Correlator — no action yet** (we use the typed query methods only).
 5. Heads-up: your in-flight correlate module currently emits dead-code warnings that show up in our
    workspace clippy runs (cosmetic; scoped runs stay clean). No action needed unless it lingers.
+
+- **2026-07-07 (drift note):** your input-API refactor (InputEvent →
+  Event/KeyEvent/Key/SyntaxToken) landed while our Arc 2B build was in flight
+  and broke our facade seam mid-task; we migrated faithfully the same hour
+  (behavior-identical — full TextPayload adoption is still the scheduled
+  pre-pin migration). No complaint — we signed up for tracking main — but this
+  is the concrete case for the stability flag we asked for in §8 item 3:
+  a one-line "event module shape frozen enough to build against" signal in
+  this doc when you believe it, so we can schedule the real migration once
+  instead of chasing drift.
