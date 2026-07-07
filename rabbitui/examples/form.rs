@@ -119,12 +119,23 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
             form.focus_modal = false;
         }
     } else {
-        // Base form: Submit opens the modal (only reachable when the form is valid,
-        // since the button is non-focusable and unclickable otherwise).
-        if update.outcome_for(&[key("submit")]) == Some(&Outcome::Activated) && form.valid() {
-            form.confirming = true;
-            form.focus_modal = true;
-            form.submitted = None;
+        // Base form: the Submit button, or Enter inside either field (the
+        // web-form convention — a field's Submitted outcome attempts the form
+        // submit), opens the confirm modal when the form is valid. Enter in a
+        // field of an invalid form focuses the first invalid field instead,
+        // whose status line already says what is wrong.
+        let button = update.outcome_for(&[key("submit")]) == Some(&Outcome::Activated);
+        let field_enter = update.outcome_for(&[key("name")]) == Some(&Outcome::Submitted)
+            || update.outcome_for(&[key("email")]) == Some(&Outcome::Submitted);
+        if button || field_enter {
+            if form.valid() {
+                form.confirming = true;
+                form.focus_modal = true;
+                form.submitted = None;
+            } else if field_enter {
+                let invalid = if form.name.trim().is_empty() { "name" } else { "email" };
+                update.focus(&[key(invalid)]);
+            }
         }
     }
 
