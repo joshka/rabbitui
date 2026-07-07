@@ -92,6 +92,21 @@ training priors.
 1. **Extraction + replay + persistence.** Crate skeleton, `Backend` trait, `ReplayBackend`,
    transcript persistence/resume, the existing agent example UI ported. TestApp-driven tests for
    compose→send→stream→commit against replay fixtures. _No network code yet._
+
+   _Refinement adopted during the slice-1 build (2026-07-07):_ the reducer is factored into a pure
+   `apply_message(&mut Agent, Msg)` / `on_submit` that only mutate state — `TestApp` does not run
+   the real `update` closure, so purity is what makes it testable. Scrollback commits are decoupled
+   from state via an `Agent.committed: usize` marker (the update closure commits any not-yet-
+   committed _final_ cells in inline mode after the reducer runs), because commits go to native
+   scrollback that `TestApp`'s buffer does not model — tests therefore render in alt-screen mode and
+   assert the buffer. Tool events are **deferred to slice 4** as the plan intends: slice 1 handles
+   `TextDelta` (prose) and `ThinkingDelta` (accumulated, committed as a Muted cell — the fancy
+   collapsible is slice 3) and closes the turn on `MessageDone`; the `StreamEvent` tool variants
+   exist for enum stability but slice-1 fixtures don't emit them, and the reducer treats a stray
+   `stop_reason: tool_use` as `end_turn`. The binary ships a built-in demo `ReplayBackend`
+   (the ported scripted response as `StreamEvent`s) so `cargo run --bin rabbit` works before slice 2
+   lands the real wire and makes `AnthropicBackend` the default. Composer clear uses
+   `update.widget::<TextInput>(path, |s| s.clear())` (the newer API), not the example's re-keying.
 2. **Anthropic wire.** `AnthropicBackend`, SSE parser (unit-tested on recorded fixtures), auth
    resolution, error/stop_reason cells, record mode. Record 2–3 real fixtures (short exchanges),
    scrub nothing secret into them (no keys in fixtures), commit them for CI.

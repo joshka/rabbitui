@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["rabbitui", "rabbitui-core", "rabbitui-ratatui", "rabbitui-testing", "rabbitui-widgets"]
+members = [
+    "rabbitui",
+    "rabbitui-agent",
+    "rabbitui-core",
+    "rabbitui-ratatui",
+    "rabbitui-testing",
+    "rabbitui-widgets",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +26,15 @@ rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
 qwertty = { path = "../../../qwertty", features = ["tokio"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
 futures-core = { version = "0.3", default-features = false }
+# The flagship agent client (rabbitui-agent) adapts the backend's event stream
+# into the app's message type; `std` gives StreamExt combinators without pulling
+# the executor/io stack. Slice 2's SSE parsing reuses it.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Agent client: transcript persistence and replay-fixture (de)serialization.
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# Agent client: markdown → styled spans (app-land, as in the slice-8 example).
+pulldown-cmark = { version = "0.12", default-features = false }
 rustix = { version = "1", default-features = false, features = ["std", "termios"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"

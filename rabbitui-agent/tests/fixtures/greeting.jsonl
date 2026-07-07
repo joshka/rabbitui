@@ -1,0 +1,5 @@
+{"type":"thinking_delta","text":"The user greeted me; I'll greet back briefly."}
+{"type":"text_delta","text":"## Hello\n\n"}
+{"type":"text_delta","text":"Nice to meet you. I am the "}
+{"type":"text_delta","text":"**rabbit** agent client.\n"}
+{"type":"message_done","stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":9}}
