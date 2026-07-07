@@ -147,8 +147,6 @@ struct Agent {
     input_generation: u64,
     /// The spinner animation frame.
     spinner: usize,
-    /// The alt-screen transcript scroll offset, in rows from the top.
-    scroll: usize,
     /// Whether the spinner ticker stream is currently running.
     ticking: bool,
 }
@@ -162,7 +160,6 @@ impl Default for Agent {
             draft: String::new(),
             input_generation: 0,
             spinner: 0,
-            scroll: 0,
             ticking: false,
         }
     }
@@ -214,7 +211,6 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
                 // Toggle inline ↔ alt-screen live.
                 Key::Char('m') if !k.modifiers.ctrl => {
                     app.inline = !app.inline;
-                    app.scroll = 0;
                     update.set_mode(if app.inline {
                         Mode::inline(TAIL_HEIGHT)
                     } else {
@@ -228,11 +224,10 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
                         cancel_agent(app, &update);
                     }
                 }
-                // Transcript scroll (alt-screen), when focus is off the composer.
-                Key::Up if !app.inline => app.scroll = app.scroll.saturating_sub(1),
-                Key::Down if !app.inline => app.scroll = app.scroll.saturating_add(1),
-                Key::PageUp if !app.inline => app.scroll = app.scroll.saturating_sub(5),
-                Key::PageDown if !app.inline => app.scroll = app.scroll.saturating_add(5),
+                // The alt-screen transcript now owns its own scroll: the
+                // `frame.scroll` scope consumes Up/Down/PageUp/PageDown/Home/End
+                // and the wheel while focused, so the app no longer tracks an
+                // offset or handles those keys here.
                 Key::Char('q') if !k.modifiers.ctrl => return ControlFlow::Break(()),
                 Key::Char('c') if k.modifiers.ctrl => return ControlFlow::Break(()),
                 _ => {}
@@ -259,9 +254,10 @@ fn submit_prompt(app: &mut Agent, update: &Update<'_, Msg>) {
 
     push_cell(app, update, TranscriptCell::User(prompt.clone()));
 
-    // Begin a fresh streaming turn and spawn the deterministic agent stream.
+    // Begin a fresh streaming turn and spawn the deterministic agent stream. The
+    // alt-screen scroll pins to the bottom on new content via a scroll-into-view
+    // request from the newest cell, so no app-side offset is tracked.
     app.streaming = Some(Streaming::default());
-    app.scroll = usize::MAX; // pin the alt view to the bottom on a new turn.
     update.spawn(Cmd::stream(agent_stream(&prompt)).group(AGENT_GROUP));
 
     // Start the spinner ticker (its own group so it is independently cancellable).
@@ -446,7 +442,7 @@ fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status_line(app)).role(status_role(app)),
+        &Text::new(status_line(app)).role(status_role(app)),
     );
     frame.widget(
         composer_key(app),
@@ -480,7 +476,7 @@ fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status_line(app)).role(status_role(app)),
+        &Text::new(status_line(app)).role(status_role(app)),
     );
     frame.widget(
         composer_key(app),
@@ -490,64 +486,44 @@ fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
 }
 
-/// Renders the transcript as a scrolling column of collapsible cells into `area`.
+/// Renders the transcript as a **measured, virtualized scroll** of collapsible
+/// cells into `area` (`frame.scroll`).
 ///
-/// Each cell is laid out with a fixed height (a few rows), stacked top to bottom,
-/// offset by the app's scroll. No virtualization this slice — a few hundred cells
-/// is fine; the [`SelectionList`] seam is the recorded path when it matters
-/// (`docs/design/slice8-agent-chrome.md`).
-///
-/// [`SelectionList`]: rabbitui_widgets::SelectionList
+/// This retires the slice-8 hand-rolled fixed-slot stack (the design note's named
+/// acceptance case): each cell is now declared as a scroll `item`, measured at its
+/// honest [`desired_height`](rabbitui_core::widget::Widget::desired_height) —
+/// [`Text`] by its (wrapped) line count, [`Collapsible`] by 1 collapsed and
+/// header+body expanded — so the column stacks at real heights, virtualizes to the
+/// viewport, and scrolls with Up/Down/PageUp/PageDown/Home/End and the wheel
+/// (handled by the scroll scope, not the app). Expanding a tool cell grows its
+/// measured height and the stack reflows; the scrollbar appears on overflow.
 fn render_transcript(app: &Agent, frame: &mut Frame<'_>, area: rabbitui_core::geometry::Rect) {
-    // Each cell gets a fixed 4-row slot: a header plus up to three body rows.
-    const CELL_ROWS: u16 = 4;
-    let viewport_rows = area.size.height;
-    let total = app.cells.len();
-    // Clamp scroll so the bottom cell is always reachable and the pinned-to-bottom
-    // sentinel (usize::MAX) resolves to the last screenful.
-    let max_scroll = total.saturating_sub(usize::from(viewport_rows / CELL_ROWS).max(1));
-    let scroll = app.scroll.min(max_scroll);
-
-    let mut y = area.origin.y;
-    let bottom = area.origin.y + viewport_rows;
-    for (index, cell) in app.cells.iter().enumerate().skip(scroll) {
-        if y >= bottom {
-            break;
+    frame.scroll(key("transcript"), area, |scroll| {
+        for (index, cell) in app.cells.iter().enumerate() {
+            declare_cell(scroll, index, cell);
         }
-        let height = (bottom - y).min(CELL_ROWS);
-        let slot = rabbitui_core::geometry::Rect::new(
-            rabbitui_core::geometry::Position::new(area.origin.x, y),
-            rabbitui_core::geometry::Size::new(area.size.width, height),
-        );
-        render_cell(frame, index, cell, slot);
-        y += height;
-    }
+    });
 }
 
-/// Declares one transcript cell into `slot`.
+/// Declares one transcript cell as a scroll item.
 ///
-/// User and assistant cells paint as plain text (assistant cells expanded); tool
-/// cells are [`Collapsible`]s defaulting collapsed, whose full output is revealed
-/// by Enter/click — the alt-screen affordance the immutable inline scrollback
-/// cannot offer.
-fn render_cell(
-    frame: &mut Frame<'_>,
+/// User cells are a one-line accent prompt; assistant cells are wrapped prose
+/// (measured to their wrapped height); tool cells are [`Collapsible`]s defaulting
+/// collapsed, whose full output is revealed by Enter/click — the alt-screen
+/// affordance the immutable inline scrollback cannot offer.
+fn declare_cell(
+    scroll: &mut rabbitui_core::scroll::ScrollScope<'_, '_>,
     index: usize,
     cell: &TranscriptCell,
-    slot: rabbitui_core::geometry::Rect,
 ) {
     let cell_key = key("cell").index(index);
     match cell {
         TranscriptCell::User(prompt) => {
             let text = format!("❯ {prompt}");
-            frame.widget(cell_key, slot, &Text::new(&text).role(Role::Accent));
+            scroll.item(cell_key, &Text::new(&text).role(Role::Accent));
         }
         TranscriptCell::Assistant { source } => {
-            frame.widget(
-                cell_key,
-                slot,
-                &Text::new(source).wrap(true).role(Role::Text),
-            );
+            scroll.item(cell_key, &Text::new(source).wrap(true).role(Role::Text));
         }
         TranscriptCell::Tool {
             name,
@@ -562,9 +538,8 @@ fn render_cell(
             } else {
                 format!("{summary} ({name})")
             };
-            frame.widget(
+            scroll.item(
                 cell_key,
-                slot,
                 &Collapsible::new(&header, output).default_collapsed(true),
             );
         }
@@ -684,8 +659,8 @@ impl MarkdownRender {
                 self.fg = None;
                 self.break_line();
             }
-            TagEnd::Emphasis => self.attrs = remove(self.attrs, Attrs::ITALIC),
-            TagEnd::Strong => self.attrs = remove(self.attrs, Attrs::BOLD),
+            TagEnd::Emphasis => self.attrs = self.attrs.remove(Attrs::ITALIC),
+            TagEnd::Strong => self.attrs = self.attrs.remove(Attrs::BOLD),
             TagEnd::CodeBlock => {
                 self.break_line();
                 self.in_code_block = false;
@@ -760,26 +735,6 @@ impl MarkdownRender {
         self.break_line();
         self.lines.into_iter().map(CommitLine::from_spans).collect()
     }
-}
-
-/// Returns `attrs` with `remove` cleared.
-fn remove(attrs: Attrs, remove: Attrs) -> Attrs {
-    // `Attrs` exposes only `|`; reconstruct the complement by re-oring the set
-    // minus the removed bit. The set is tiny, so rebuild it from the known flags.
-    let mut result = Attrs::NONE;
-    for flag in [
-        Attrs::BOLD,
-        Attrs::DIM,
-        Attrs::ITALIC,
-        Attrs::UNDERLINE,
-        Attrs::REVERSED,
-        Attrs::STRIKETHROUGH,
-    ] {
-        if attrs.contains(flag) && !remove.contains(flag) {
-            result |= flag;
-        }
-    }
-    result
 }
 
 // ---------------------------------------------------------------------------

@@ -47,7 +47,7 @@
 //! use rabbitui_widgets::Text;
 //!
 //! let title = Text::new("Hello, rabbitui!").role(Role::Accent);
-//! assert_eq!(title.content(), "Hello, rabbitui!");
+//! assert_eq!(title.content().to_plain_string(), "Hello, rabbitui!");
 //! ```
 
 pub mod button;
@@ -61,5 +61,5 @@ pub use button::Button;
 pub use collapsible::Collapsible;
 pub use panel::Panel;
 pub use selection_list::{ListSource, SelectionList};
-pub use text::Text;
+pub use text::{Content, Text};
 pub use text_input::TextInput;

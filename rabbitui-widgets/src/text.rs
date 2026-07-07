@@ -1,19 +1,131 @@
-//! A stateless multi-line text label.
+//! A stateless multi-line text label, plain or styled-span.
+
+use std::borrow::Cow;
 
 use rabbitui_core::geometry::Position;
 use rabbitui_core::style::Style;
+use rabbitui_core::text::Span;
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{RenderCtx, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+/// What a [`Text`] shows: either a plain string or a sequence of styled
+/// [`Span`]s.
+///
+/// `Content` is what lets one `Text` widget serve both the plain label
+/// (`Text::new("ready")`) and the flagship's multi-style live tail (bold
+/// headings, dim code, an accent status), where slice 8 had to fall back to
+/// monochrome because the widget-side `Text` could not carry spans. Both arms
+/// hold a [`Cow`] so a caller can borrow existing data (a `&str`, a committed
+/// `&[Span]`) or hand over owned content without the widget forcing a clone.
+///
+/// The two arms differ only in whether the text carries per-run styling; both
+/// flow through the *same* grapheme+style iterator for paint and wrap (see
+/// [`Text`]'s soft-wrap docs), so styled text wraps exactly like plain text —
+/// the fix for "styling pops at commit" in the flagship.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_core::style::{Color, Style};
+/// use rabbitui_core::text::Span;
+/// use rabbitui_widgets::text::Content;
+///
+/// // A plain string is `Plain` content.
+/// let plain: Content<'_> = "hello".into();
+/// assert_eq!(plain.to_plain_string(), "hello");
+///
+/// // A vector of spans is `Spans` content.
+/// let spans: Content<'_> =
+///     vec![Span::styled("ok", Style::new().fg(Color::GREEN))].into();
+/// assert_eq!(spans.to_plain_string(), "ok");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Content<'a> {
+    /// A single unstyled run: the widget's resolved [`Role`]/[`Style`] paints all
+    /// of it.
+    Plain(Cow<'a, str>),
+    /// A sequence of styled runs: each [`Span`]'s style layers over the widget's
+    /// resolved default (an empty span style resolves to exactly the default).
+    Spans(Cow<'a, [Span]>),
+}
+
+impl Content<'_> {
+    /// The content's text with span styling flattened away — the concatenation of
+    /// every run's text, `'\n'`s preserved.
+    ///
+    /// Useful for measuring, testing, and the plain-text fallback; the paint path
+    /// uses the styled iterator instead.
+    #[must_use]
+    pub fn to_plain_string(&self) -> String {
+        match self {
+            Content::Plain(text) => text.as_ref().to_string(),
+            Content::Spans(spans) => spans.iter().map(|span| span.text.as_str()).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a str> for Content<'a> {
+    fn from(text: &'a str) -> Self {
+        Content::Plain(Cow::Borrowed(text))
+    }
+}
+
+impl From<String> for Content<'_> {
+    fn from(text: String) -> Self {
+        Content::Plain(Cow::Owned(text))
+    }
+}
+
+impl<'a> From<&'a String> for Content<'a> {
+    fn from(text: &'a String) -> Self {
+        Content::Plain(Cow::Borrowed(text.as_str()))
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for Content<'a> {
+    fn from(text: Cow<'a, str>) -> Self {
+        Content::Plain(text)
+    }
+}
+
+impl From<Vec<Span>> for Content<'_> {
+    fn from(spans: Vec<Span>) -> Self {
+        Content::Spans(Cow::Owned(spans))
+    }
+}
+
+impl<'a> From<&'a [Span]> for Content<'a> {
+    fn from(spans: &'a [Span]) -> Self {
+        Content::Spans(Cow::Borrowed(spans))
+    }
+}
+
+impl From<Span> for Content<'_> {
+    fn from(span: Span) -> Self {
+        Content::Spans(Cow::Owned(vec![span]))
+    }
+}
+
 /// A run of text painted line by line, one row per `'\n'`-separated line.
 ///
 /// `Text` is the simplest conforming widget: stateless (`State = ()`), holding
-/// borrowed content and an optional [`Role`] override. It splits its content on
-/// `'\n'` and paints each line on its own row from the top of its area; lines and
-/// rows past the area are clipped by the [`RenderCtx`], never wrapped (wrapping is
-/// layout's job, not this widget's — `docs/adr/0004-layout.md`).
+/// borrowed or owned [`Content`] and an optional [`Role`] override. It splits its
+/// content on `'\n'` and paints each line on its own row from the top of its
+/// area; lines and rows past the area are clipped by the [`RenderCtx`], never
+/// wrapped unless [`wrap`](Self::wrap) is on.
+///
+/// # Plain and styled content
+///
+/// `Text::new` accepts anything convertible into [`Content`]: a `&str`/`String`
+/// (plain) or a `Vec<Span>`/`&[Span]` (styled). Plain content paints entirely in
+/// the widget's resolved style; styled content layers each span's style over that
+/// resolved default, so a span carrying only `bold` keeps the role's color and
+/// adds bold, and an empty span style paints as the plain default. Paint and wrap
+/// share **one** grapheme+style iterator, so styled text wraps identically to
+/// plain text — the flagship's monochrome live tail and "styling pops at commit"
+/// strain both close here.
 ///
 /// By default the text paints in the theme's [`Role::Text`] style (ADR 0007:
 /// widgets reference roles, not colors). [`role`](Self::role) re-tags it to a
@@ -29,13 +141,20 @@ use unicode_width::UnicodeWidthStr;
 /// display rows as it needs, preferring whitespace boundaries and falling back
 /// to a grapheme break for a word longer than the area. Wrapping uses the same
 /// width oracle the buffer uses, so a wide (CJK/emoji) grapheme is never split
-/// across the boundary. This is the transcript live-tail's wrap
-/// (`docs/design/slice8-agent-chrome.md`); committed lines stay unwrapped so the
-/// terminal owns their reflow.
+/// across the boundary — including at a span boundary in styled content.
+///
+/// # Measurement
+///
+/// [`desired_height`](Widget::desired_height) reports the line count: the number
+/// of `'\n'`-separated lines when unwrapped, or the total wrapped-row count at the
+/// given width when [`wrap`](Self::wrap) is on. A scroll container stacks and
+/// virtualizes on this.
 ///
 /// # Examples
 ///
 /// ```
+/// use rabbitui_core::style::{Color, Style};
+/// use rabbitui_core::text::Span;
 /// use rabbitui_core::theme::Role;
 /// use rabbitui_widgets::Text;
 ///
@@ -44,23 +163,30 @@ use unicode_width::UnicodeWidthStr;
 ///
 /// // A muted, multi-line hint.
 /// let hint = Text::new("line one\nline two").role(Role::Muted);
-/// assert_eq!(hint.content(), "line one\nline two");
+/// assert_eq!(hint.content().to_plain_string(), "line one\nline two");
+///
+/// // A styled-span line: a green "ok" then a plain " done".
+/// let status = Text::new(vec![
+///     Span::styled("ok", Style::new().fg(Color::GREEN).bold()),
+///     Span::raw(" done"),
+/// ]);
 ///
 /// // A soft-wrapped paragraph.
 /// let para = Text::new("a long paragraph that wraps").wrap(true);
 /// assert!(para.is_wrapped());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Text<'a> {
-    content: &'a str,
+    content: Content<'a>,
     style: Appearance,
     /// Whether long lines soft-wrap to the area width (grapheme-correct) rather
     /// than clip at the right edge.
     wrap: bool,
 }
 
-/// How a [`Text`] resolves its paint style: a semantic role (resolved against the
-/// active theme) or a literal [`Style`] override.
+/// How a [`Text`] resolves its default paint style: a semantic role (resolved
+/// against the active theme) or a literal [`Style`] override. Styled spans layer
+/// over whichever this resolves to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Appearance {
     /// Resolve this role against the theme at render time.
@@ -73,18 +199,22 @@ impl<'a> Text<'a> {
     /// Creates a text widget showing `content` in the theme's [`Role::Text`]
     /// style.
     ///
+    /// `content` is anything convertible into [`Content`]: a `&str`/`String` for a
+    /// plain label, or a `Vec<Span>`/`&[Span]` for styled runs. `Text::new("str")`
+    /// stays source-compatible with the plain constructor.
+    ///
     /// # Examples
     ///
     /// ```
     /// use rabbitui_widgets::Text;
     ///
     /// let text = Text::new("hello");
-    /// assert_eq!(text.content(), "hello");
+    /// assert_eq!(text.content().to_plain_string(), "hello");
     /// ```
     #[must_use]
-    pub const fn new(content: &'a str) -> Self {
+    pub fn new(content: impl Into<Content<'a>>) -> Self {
         Self {
-            content,
+            content: content.into(),
             style: Appearance::Role(Role::Text),
             wrap: false,
         }
@@ -93,7 +223,8 @@ impl<'a> Text<'a> {
     /// Tags the text with a semantic [`Role`], resolved against the active theme.
     ///
     /// The idiomatic way to style text (ADR 0007): name what it *means* and let
-    /// the theme pick the color. Overrides any prior [`role`](Self::role) or
+    /// the theme pick the color. For styled-span content this sets the *default*
+    /// each span layers over. Overrides any prior [`role`](Self::role) or
     /// [`style`](Self::style).
     ///
     /// # Examples
@@ -103,7 +234,7 @@ impl<'a> Text<'a> {
     /// use rabbitui_widgets::Text;
     ///
     /// let error = Text::new("disk full").role(Role::Danger);
-    /// assert_eq!(error.content(), "disk full");
+    /// assert_eq!(error.content().to_plain_string(), "disk full");
     /// ```
     #[must_use]
     pub const fn role(mut self, role: Role) -> Self {
@@ -111,10 +242,11 @@ impl<'a> Text<'a> {
         self
     }
 
-    /// Sets a literal [`Style`] applied to every cell, bypassing the theme.
+    /// Sets a literal [`Style`] applied as the default, bypassing the theme.
     ///
     /// An escape hatch for a one-off style no role captures; prefer
-    /// [`role`](Self::role) so the text tracks theme changes. Overrides any prior
+    /// [`role`](Self::role) so the text tracks theme changes. For styled-span
+    /// content this is the base each span layers over. Overrides any prior
     /// [`role`](Self::role) or `style`.
     ///
     /// # Examples
@@ -160,10 +292,10 @@ impl<'a> Text<'a> {
         self.wrap
     }
 
-    /// The text content this widget shows.
+    /// The [`Content`] this widget shows.
     #[must_use]
-    pub const fn content(&self) -> &'a str {
-        self.content
+    pub const fn content(&self) -> &Content<'a> {
+        &self.content
     }
 
     /// The literal style override, if one was set with [`style`](Self::style),
@@ -177,80 +309,165 @@ impl<'a> Text<'a> {
             Appearance::Role(_) => None,
         }
     }
+
+    /// The resolved default style: the literal override, or the role resolved
+    /// against `ctx`'s theme. Spans layer over this.
+    fn base_style(&self, ctx: &RenderCtx<'_>) -> Style {
+        match self.style {
+            Appearance::Role(role) => ctx.style(role),
+            Appearance::Style(style) => style,
+        }
+    }
+
+    /// The logical lines of this content: each a run of `(grapheme, style)` pairs,
+    /// split on `'\n'`. `base` is the resolved default each span's style layers
+    /// over. This is the *one* iterator both paint and wrap consume.
+    fn styled_lines(&self, base: Style) -> Vec<Vec<StyledGrapheme<'_>>> {
+        let mut lines: Vec<Vec<StyledGrapheme<'_>>> = vec![Vec::new()];
+        match &self.content {
+            Content::Plain(text) => extend_lines(&mut lines, text, base),
+            Content::Spans(spans) => {
+                for span in spans.iter() {
+                    // Each span's style layers over the resolved base.
+                    extend_lines(&mut lines, &span.text, span.style.merge_over(base));
+                }
+            }
+        }
+        lines
+    }
+}
+
+/// Appends `text`'s graphemes (all painted in `style`) into `lines`, splitting on
+/// `'\n'`: a newline starts a fresh line, so a run spanning several logical lines
+/// tiles across them. The graphemes borrow from `text`, so `lines` inherits its
+/// lifetime.
+fn extend_lines<'a>(lines: &mut Vec<Vec<StyledGrapheme<'a>>>, text: &'a str, style: Style) {
+    let mut first_line = true;
+    for line_text in text.split('\n') {
+        if !first_line {
+            lines.push(Vec::new());
+        }
+        first_line = false;
+        let current = lines.last_mut().expect("at least one line");
+        for grapheme in line_text.graphemes(true) {
+            current.push(StyledGrapheme { grapheme, style });
+        }
+    }
+}
+
+/// One grapheme cluster paired with the resolved style that paints it — the atom
+/// the shared paint/wrap iterator yields.
+#[derive(Debug, Clone, Copy)]
+struct StyledGrapheme<'a> {
+    grapheme: &'a str,
+    style: Style,
+}
+
+impl StyledGrapheme<'_> {
+    /// The display width of this grapheme, clamped to the terminal's 1–2 cell
+    /// range (the buffer's width oracle).
+    fn width(&self) -> usize {
+        UnicodeWidthStr::width(self.grapheme).clamp(1, 2)
+    }
 }
 
 impl Widget for Text<'_> {
     type State = ();
 
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
-        let style = match self.style {
-            Appearance::Role(role) => ctx.style(role),
-            Appearance::Style(style) => style,
-        };
-        let height = ctx.area().size.height;
-        if !self.wrap {
-            for (row, line) in self.content.split('\n').enumerate() {
-                let Ok(y) = u16::try_from(row) else { break };
-                // Rows past the area's bottom are no-ops; stop once we're below it.
-                if y >= height {
-                    break;
-                }
-                ctx.set_string(Position::new(0, y), line, style);
-            }
+        let base = self.base_style(ctx);
+        let area = ctx.area().size;
+        if area.height == 0 || area.width == 0 {
             return;
         }
+        let lines = self.styled_lines(base);
 
-        // Soft wrap: each logical line yields one or more display rows, painted
-        // top to bottom until the area's bottom is reached.
-        let width = ctx.area().size.width;
-        let mut y: u16 = 0;
-        for line in self.content.split('\n') {
-            for display in wrap_line(line, width) {
-                if y >= height {
-                    return;
-                }
-                ctx.set_string(Position::new(0, y), &display, style);
-                y += 1;
+        let display_rows: Vec<Vec<StyledGrapheme<'_>>> = if self.wrap {
+            lines
+                .iter()
+                .flat_map(|line| wrap_line(line, area.width))
+                .collect()
+        } else {
+            lines
+        };
+
+        for (y, row) in display_rows.iter().enumerate() {
+            let Ok(y) = u16::try_from(y) else { break };
+            if y >= area.height {
+                break;
             }
+            paint_row(ctx, y, row);
         }
+    }
+
+    fn desired_height(&self, (): &(), width: u16) -> u16 {
+        let lines = self.styled_lines(Style::new());
+        let rows = if self.wrap {
+            lines
+                .iter()
+                .map(|line| wrap_line(line, width).len())
+                .sum::<usize>()
+        } else {
+            lines.len()
+        };
+        u16::try_from(rows).unwrap_or(u16::MAX)
     }
 }
 
-/// Soft-wraps one logical line to `width` display cells, returning the display
-/// rows in order.
+/// Paints one display row of styled graphemes at `y`, advancing the column by
+/// each grapheme's display width (so a wide grapheme's continuation cell is left
+/// to the buffer, exactly as `set_string` handles it).
+fn paint_row(ctx: &mut RenderCtx<'_>, y: u16, row: &[StyledGrapheme<'_>]) {
+    let mut x: u16 = 0;
+    let width = ctx.area().size.width;
+    for cell in row {
+        if x >= width {
+            break;
+        }
+        ctx.set_string(Position::new(x, y), cell.grapheme, cell.style);
+        x = x.saturating_add(u16::try_from(cell.width()).unwrap_or(1));
+    }
+}
+
+/// Soft-wraps one logical line (a run of styled graphemes) to `width` display
+/// cells, returning the display rows in order.
 ///
-/// The wrap is grapheme-correct and width-aware (the buffer's oracle): a row
-/// accumulates graphemes until the next one would exceed `width`, preferring to
-/// break at the last whitespace so words stay intact. A single word wider than
-/// the area is broken at a grapheme boundary (no infinite loop, no split wide
-/// grapheme). A `width` of zero yields one empty row so an empty area still
-/// advances a line.
-fn wrap_line(line: &str, width: u16) -> Vec<String> {
+/// Grapheme-correct and width-aware: a row accumulates graphemes until the next
+/// would exceed `width`, preferring to break at the last whitespace so words stay
+/// intact. A single word wider than the area is broken at a grapheme boundary (no
+/// infinite loop, no split wide grapheme). Styling rides along untouched — the
+/// break logic sees widths, not text — so a wide grapheme at a span boundary is
+/// kept whole with its own style. A `width` of zero yields one empty row so an
+/// empty area still advances a line.
+fn wrap_line<'a>(line: &[StyledGrapheme<'a>], width: u16) -> Vec<Vec<StyledGrapheme<'a>>> {
     if width == 0 {
-        return vec![String::new()];
+        return vec![Vec::new()];
     }
     let width = usize::from(width);
 
-    let mut rows: Vec<String> = Vec::new();
-    // The row under construction, its display width, and the byte index and
-    // display width of the last whitespace break candidate within it.
-    let mut current = String::new();
+    let mut rows: Vec<Vec<StyledGrapheme<'a>>> = Vec::new();
+    let mut current: Vec<StyledGrapheme<'a>> = Vec::new();
     let mut current_width = 0usize;
+    // The index (in `current`) just after the last whitespace break candidate,
+    // and the display width up to that point.
     let mut last_space: Option<(usize, usize)> = None;
 
-    for grapheme in line.graphemes(true) {
-        let advance = UnicodeWidthStr::width(grapheme).clamp(1, 2);
+    for cell in line {
+        let advance = cell.width();
         // A grapheme that would overflow the row closes the row first.
         if current_width + advance > width && !current.is_empty() {
             match last_space {
-                // Break at the last space: the row is everything up to it; the
-                // remainder (after the space) carries to the next row.
-                Some((byte, _)) => {
-                    let remainder = current[byte..].trim_start().to_string();
-                    current.truncate(byte);
+                // Break after the last space: everything up to it stays; the
+                // remainder (with leading spaces trimmed) carries to the next row.
+                Some((split, _)) => {
+                    let remainder: Vec<StyledGrapheme<'a>> = current
+                        .split_off(split)
+                        .into_iter()
+                        .skip_while(|g| g.grapheme.chars().all(char::is_whitespace))
+                        .collect();
                     rows.push(std::mem::take(&mut current));
+                    current_width = remainder.iter().map(StyledGrapheme::width).sum();
                     current = remainder;
-                    current_width = UnicodeWidthStr::width(current.as_str());
                 }
                 // No break candidate (a single long word): hard-break here.
                 None => {
@@ -260,11 +477,17 @@ fn wrap_line(line: &str, width: u16) -> Vec<String> {
             }
             last_space = None;
         }
-        if grapheme.chars().all(char::is_whitespace) {
-            // Record the break candidate at this space's byte position.
-            last_space = Some((current.len(), current_width));
+        let is_space = cell.grapheme.chars().all(char::is_whitespace);
+        // Drop whitespace that would lead a row (a break already consumed the
+        // word separator, so the next row starts at the next word).
+        if is_space && current.is_empty() {
+            continue;
         }
-        current.push_str(grapheme);
+        if is_space {
+            // Record the break candidate after this space.
+            last_space = Some((current.len() + 1, current_width + advance));
+        }
+        current.push(*cell);
         current_width += advance;
     }
     rows.push(current);
@@ -275,10 +498,11 @@ fn wrap_line(line: &str, width: u16) -> Vec<String> {
 mod tests {
     use rabbitui_core::buffer::Buffer;
     use rabbitui_core::geometry::{Position, Rect, Size};
-    use rabbitui_core::style::{Color, Style};
+    use rabbitui_core::style::{Attrs, Color, Style};
+    use rabbitui_core::text::Span;
     use rabbitui_core::widget::{RenderCtx, Widget};
 
-    use super::Text;
+    use super::{Content, Text};
 
     /// Reads a row of a buffer back as a trailing-trimmed string.
     fn row(buffer: &Buffer, y: u16) -> String {
@@ -292,8 +516,18 @@ mod tests {
     #[test]
     fn builder_sets_content_and_style() {
         let text = Text::new("hi").style(Style::new().fg(Color::RED).bold());
-        assert_eq!(text.content(), "hi");
+        assert_eq!(text.content().to_plain_string(), "hi");
         assert_eq!(text.get_style().unwrap().fg, Some(Color::RED));
+    }
+
+    #[test]
+    fn new_accepts_str_string_and_spans() {
+        assert!(matches!(Text::new("x").content(), Content::Plain(_)));
+        assert!(matches!(Text::new(String::from("x")).content(), Content::Plain(_)));
+        assert!(matches!(
+            Text::new(vec![Span::raw("x")]).content(),
+            Content::Spans(_)
+        ));
     }
 
     #[test]
@@ -344,7 +578,6 @@ mod tests {
 
     #[test]
     fn lines_past_the_bottom_are_clipped() {
-        // Two rows of area, three lines of content: the third is dropped.
         let mut buffer = Buffer::new(Size::new(10, 2));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
@@ -357,7 +590,6 @@ mod tests {
         let mut buffer = Buffer::new(Size::new(3, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
         Text::new("abcdef").render(&mut (), &mut ctx);
-        // The ctx clips to the 3-wide area; the rest is dropped, not wrapped.
         assert_eq!(row(&buffer, 0), "abc");
     }
 
@@ -373,12 +605,75 @@ mod tests {
 
     #[test]
     fn empty_content_paints_one_blank_line() {
-        // "" splits into a single empty line; nothing is painted, no panic.
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Text::new("").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "");
     }
+
+    // --- styled-span content ---
+
+    #[test]
+    fn spans_paint_each_run_in_its_own_style() {
+        let mut buffer = Buffer::new(Size::new(10, 1));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
+        Text::new(vec![
+            Span::styled("ok", Style::new().fg(Color::GREEN).bold()),
+            Span::styled(" no", Style::new().fg(Color::RED)),
+        ])
+        .render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "ok no");
+        // "ok" is green+bold; " no" is red.
+        let ok = buffer.get(Position::new(0, 0)).unwrap();
+        assert_eq!(ok.style.fg, Some(Color::GREEN));
+        assert!(ok.style.attrs.contains(Attrs::BOLD));
+        assert_eq!(buffer.get(Position::new(3, 0)).unwrap().style.fg, Some(Color::RED));
+    }
+
+    #[test]
+    fn empty_span_style_resolves_to_the_widget_default() {
+        use rabbitui_core::theme::{Role, Theme};
+        // A raw (unstyled) span under a Danger role paints in Danger — the role
+        // default merges under the empty span style.
+        let theme = Theme::catppuccin_mocha();
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut ctx =
+            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+        Text::new(vec![Span::raw("err")])
+            .role(Role::Danger)
+            .render(&mut (), &mut ctx);
+        assert_eq!(
+            buffer.get(Position::ORIGIN).unwrap().style,
+            theme.style(Role::Danger)
+        );
+    }
+
+    #[test]
+    fn span_attrs_layer_over_the_role_default() {
+        use rabbitui_core::theme::{Role, Theme};
+        // A span carrying only `bold` keeps the role's foreground and adds bold.
+        let theme = Theme::catppuccin_mocha();
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut ctx =
+            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+        Text::new(vec![Span::styled("hi", Style::new().bold())])
+            .role(Role::Accent)
+            .render(&mut (), &mut ctx);
+        let cell = buffer.get(Position::ORIGIN).unwrap();
+        assert_eq!(cell.style.fg, theme.style(Role::Accent).fg);
+        assert!(cell.style.attrs.contains(Attrs::BOLD));
+    }
+
+    #[test]
+    fn spans_split_on_embedded_newlines() {
+        let mut buffer = Buffer::new(Size::new(10, 2));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
+        Text::new(vec![Span::raw("a\nb"), Span::raw("c")]).render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "a");
+        assert_eq!(row(&buffer, 1), "bc");
+    }
+
+    // --- wrap ---
 
     #[test]
     fn wrap_builder_toggles_the_flag() {
@@ -388,7 +683,6 @@ mod tests {
 
     #[test]
     fn wrap_breaks_at_word_boundaries() {
-        // Width 10: "the quick brown fox" wraps at spaces into three rows.
         let mut buffer = Buffer::new(Size::new(10, 4));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 4)), false);
         Text::new("the quick brown fox")
@@ -401,7 +695,6 @@ mod tests {
 
     #[test]
     fn wrap_hard_breaks_a_word_longer_than_the_area() {
-        // A single 12-char word into a width-5 area breaks every 5 graphemes.
         let mut buffer = Buffer::new(Size::new(5, 3));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 3)), false);
         Text::new("abcdefghijkl")
@@ -414,8 +707,6 @@ mod tests {
 
     #[test]
     fn wrap_keeps_wide_graphemes_whole_at_the_boundary() {
-        // Three wide CJK graphemes (2 cells each) into a width-4 area: two fit on
-        // row 0 (4 cells), the third never straddles the edge and moves to row 1.
         let mut buffer = Buffer::new(Size::new(4, 2));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
         Text::new("世界語").wrap(true).render(&mut (), &mut ctx);
@@ -424,8 +715,28 @@ mod tests {
     }
 
     #[test]
+    fn wrap_keeps_wide_graphemes_whole_across_a_span_boundary() {
+        // Two spans, each one wide CJK grapheme, then a third: styled content must
+        // wrap exactly like plain, never straddling the edge at the span seam.
+        let mut buffer = Buffer::new(Size::new(4, 2));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
+        Text::new(vec![
+            Span::styled("世", Style::new().fg(Color::GREEN)),
+            Span::styled("界", Style::new().fg(Color::RED)),
+            Span::styled("語", Style::new().fg(Color::BLUE)),
+        ])
+        .wrap(true)
+        .render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "世界");
+        assert_eq!(row(&buffer, 1), "語");
+        // Styling survives the wrap: the second grapheme (red) is on row 0, the
+        // third (blue) wrapped to row 1.
+        assert_eq!(buffer.get(Position::new(2, 0)).unwrap().style.fg, Some(Color::RED));
+        assert_eq!(buffer.get(Position::new(0, 1)).unwrap().style.fg, Some(Color::BLUE));
+    }
+
+    #[test]
     fn wrap_preserves_explicit_newlines() {
-        // An explicit newline forces a row break independent of wrapping.
         let mut buffer = Buffer::new(Size::new(20, 3));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(20, 3)), false);
         Text::new("one\ntwo three")
@@ -436,7 +747,41 @@ mod tests {
     }
 
     #[test]
-    fn wrap_line_helper_short_line_is_one_row() {
-        assert_eq!(super::wrap_line("short", 10), vec!["short".to_string()]);
+    fn styled_wrap_keeps_per_span_styling() {
+        // "aaa bbb" styled: green word, red word. Wrapped at width 3, styling
+        // survives on both rows.
+        let mut buffer = Buffer::new(Size::new(3, 2));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 2)), false);
+        Text::new(vec![
+            Span::styled("aaa ", Style::new().fg(Color::GREEN)),
+            Span::styled("bbb", Style::new().fg(Color::RED)),
+        ])
+        .wrap(true)
+        .render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "aaa");
+        assert_eq!(row(&buffer, 1), "bbb");
+        assert_eq!(buffer.get(Position::new(0, 0)).unwrap().style.fg, Some(Color::GREEN));
+        assert_eq!(buffer.get(Position::new(0, 1)).unwrap().style.fg, Some(Color::RED));
+    }
+
+    // --- measurement ---
+
+    #[test]
+    fn desired_height_counts_lines_unwrapped() {
+        assert_eq!(Text::new("a\nb\nc").desired_height(&(), 10), 3);
+        assert_eq!(Text::new("single").desired_height(&(), 10), 1);
+    }
+
+    #[test]
+    fn desired_height_counts_wrapped_rows() {
+        // "the quick brown fox" at width 10 wraps into two rows.
+        let text = Text::new("the quick brown fox").wrap(true);
+        assert_eq!(text.desired_height(&(), 10), 2);
+    }
+
+    #[test]
+    fn desired_height_of_spans_counts_flattened_lines() {
+        let text = Text::new(vec![Span::raw("a\nb"), Span::raw("c")]);
+        assert_eq!(text.desired_height(&(), 10), 2);
     }
 }

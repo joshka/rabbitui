@@ -27,6 +27,7 @@ pub mod mode;
 pub mod outcome;
 pub mod pending;
 pub mod routing;
+pub mod scroll;
 pub mod store;
 pub mod style;
 pub mod text;

@@ -178,6 +178,20 @@ impl CollapsibleState {
     }
 }
 
+impl Collapsible<'_> {
+    /// The collapsed state to measure against: the retained state once it has
+    /// been initialized, otherwise the builder default (which the first render
+    /// will apply). This keeps [`desired_height`](Widget::desired_height) honest
+    /// on the first frame, before any render has consumed the default.
+    fn effective_collapsed(&self, state: &CollapsibleState) -> bool {
+        if state.initialized {
+            state.collapsed
+        } else {
+            self.default_collapsed
+        }
+    }
+}
+
 impl Widget for Collapsible<'_> {
     type State = CollapsibleState;
 
@@ -210,6 +224,18 @@ impl Widget for Collapsible<'_> {
                 }
                 ctx.set_string(Position::new(0, row), line, body_style);
             }
+        }
+    }
+
+    fn desired_height(&self, state: &CollapsibleState, _width: u16) -> u16 {
+        // Collapsed: the header row alone. Expanded: the header plus one row per
+        // body line (the transcript view sizes the cell to this so a scroll can
+        // stack and virtualize on it).
+        if self.effective_collapsed(state) {
+            1
+        } else {
+            let body_lines = u16::try_from(self.body.split('\n').count()).unwrap_or(u16::MAX);
+            body_lines.saturating_add(1)
         }
     }
 
@@ -380,6 +406,29 @@ mod tests {
         assert_eq!(handled, Handled::No);
         assert!(!state.is_collapsed());
         assert!(outcomes.is_empty());
+    }
+
+    #[test]
+    fn desired_height_is_one_collapsed_and_header_plus_body_expanded() {
+        let cell = Collapsible::new("head", "line one\nline two\nline three");
+        // Expanded (default): 1 header + 3 body rows.
+        let expanded = CollapsibleState::default();
+        assert_eq!(cell.desired_height(&expanded, 40), 4);
+        // Collapsed: just the header row.
+        let mut collapsed = CollapsibleState::default();
+        collapsed.set_collapsed(true);
+        assert_eq!(cell.desired_height(&collapsed, 40), 1);
+    }
+
+    #[test]
+    fn desired_height_honors_builder_default_before_first_render() {
+        // A tool cell defaults collapsed; measured before any render (state not yet
+        // initialized), it must report the collapsed height, not the expanded one.
+        let tool = Collapsible::new("h", "a\nb\nc").default_collapsed(true);
+        assert_eq!(tool.desired_height(&CollapsibleState::default(), 40), 1);
+        // An assistant cell defaults expanded.
+        let assistant = Collapsible::new("h", "a\nb\nc");
+        assert_eq!(assistant.desired_height(&CollapsibleState::default(), 40), 4);
     }
 
     #[test]

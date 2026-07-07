@@ -1018,7 +1018,7 @@ where
 enum Wake<M> {
     /// A raw substrate input event from the terminal (boxed: qwertty's event is
     /// larger than the other small variants, so this keeps `Wake` compact).
-    Input(Box<qwertty::InputEvent>),
+    Input(Box<qwertty::Event>),
     /// An effect result (a message or a contained failure).
     Effect(Outbox<M>),
     /// The trailing frame deadline elapsed.

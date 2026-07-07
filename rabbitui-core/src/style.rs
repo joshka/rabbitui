@@ -78,6 +78,17 @@ impl Attrs {
     /// Crossed out (SGR 9).
     pub const STRIKETHROUGH: Self = Self(1 << 5);
 
+    /// Every defined attribute set — the mask [`Not`](core::ops::Not) complements
+    /// over, so a complement never yields an undefined flag.
+    pub const ALL: Self = Self(
+        Self::BOLD.0
+            | Self::DIM.0
+            | Self::ITALIC.0
+            | Self::UNDERLINE.0
+            | Self::REVERSED.0
+            | Self::STRIKETHROUGH.0,
+    );
+
     /// Returns true if every attribute in `other` is set in `self`.
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
@@ -88,6 +99,47 @@ impl Attrs {
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.0 == 0
+    }
+
+    /// Returns `self` with every attribute in `other` also set.
+    ///
+    /// The value companion to [`BitOrAssign`](core::ops::BitOrAssign) for a
+    /// `const` / builder context: `attrs.insert(Attrs::BOLD)` adds a flag without
+    /// a mutable binding. Inserting a flag already present is a no-op.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::style::Attrs;
+    ///
+    /// let attrs = Attrs::BOLD.insert(Attrs::ITALIC);
+    /// assert!(attrs.contains(Attrs::BOLD | Attrs::ITALIC));
+    /// ```
+    #[must_use]
+    pub const fn insert(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Returns `self` with every attribute in `other` cleared.
+    ///
+    /// The complement of [`insert`](Self::insert): `attrs.remove(Attrs::BOLD)`
+    /// drops a flag, leaving the rest untouched. Removing a flag that is not set
+    /// is a no-op. This closes the flagship's hand-rolled `remove` (the markdown
+    /// renderer rebuilt the set from the known flags because `Attrs` had only
+    /// `|`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::style::Attrs;
+    ///
+    /// let attrs = (Attrs::BOLD | Attrs::ITALIC).remove(Attrs::BOLD);
+    /// assert!(attrs.contains(Attrs::ITALIC));
+    /// assert!(!attrs.contains(Attrs::BOLD));
+    /// ```
+    #[must_use]
+    pub const fn remove(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
     }
 }
 
@@ -102,6 +154,36 @@ impl core::ops::BitOr for Attrs {
 impl core::ops::BitOrAssign for Attrs {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
+    }
+}
+
+impl core::ops::BitAnd for Attrs {
+    type Output = Self;
+
+    /// The intersection: the attributes set in *both* operands.
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitAndAssign for Attrs {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
+    }
+}
+
+impl core::ops::Not for Attrs {
+    type Output = Self;
+
+    /// The complement over the defined attribute flags.
+    ///
+    /// Only the bits backing the six defined attributes can ever be set, so the
+    /// complement is masked to them — `!attrs` never yields a phantom flag, and
+    /// `attrs & !other` removes exactly `other` (the identity [`remove`] uses).
+    ///
+    /// [`remove`]: Attrs::remove
+    fn not(self) -> Self {
+        Self(!self.0 & Self::ALL.0)
     }
 }
 
@@ -187,6 +269,43 @@ impl Style {
         self.attrs = Attrs(self.attrs.0 | Attrs::REVERSED.0);
         self
     }
+
+    /// Layers `self` over `base`: `self`'s set fields win, `base` fills the rest.
+    ///
+    /// The composition a span uses against its widget's default (Arc 2B styled
+    /// `Text`): a span carrying only `bold` over a `Role::Text` base keeps the
+    /// role's foreground and adds bold; a span with an explicit `fg` overrides the
+    /// role's. Colors are override-if-set (`self.fg` if `Some`, else `base.fg`);
+    /// attributes **union**, so a bold span over an italic role is both. An empty
+    /// `Style::new()` therefore resolves to exactly `base`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::style::{Attrs, Color, Style};
+    ///
+    /// let base = Style::new().fg(Color::GREEN).italic();
+    /// // A span that only asks for bold keeps the base's green + italic, adds bold.
+    /// let resolved = Style::new().bold().merge_over(base);
+    /// assert_eq!(resolved.fg, Some(Color::GREEN));
+    /// assert!(resolved.attrs.contains(Attrs::BOLD | Attrs::ITALIC));
+    /// // An empty style resolves to the base unchanged.
+    /// assert_eq!(Style::new().merge_over(base), base);
+    /// ```
+    #[must_use]
+    pub const fn merge_over(self, base: Self) -> Self {
+        Self {
+            fg: match self.fg {
+                Some(color) => Some(color),
+                None => base.fg,
+            },
+            bg: match self.bg {
+                Some(color) => Some(color),
+                None => base.bg,
+            },
+            attrs: Attrs(self.attrs.0 | base.attrs.0),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +327,59 @@ mod tests {
         assert_eq!(style.fg, Some(Color::RED));
         assert_eq!(style.bg, Some(Color::BLACK));
         assert!(style.attrs.contains(Attrs::BOLD));
+    }
+
+    #[test]
+    fn insert_adds_a_flag() {
+        let attrs = Attrs::BOLD.insert(Attrs::ITALIC);
+        assert!(attrs.contains(Attrs::BOLD));
+        assert!(attrs.contains(Attrs::ITALIC));
+        // Inserting a present flag is a no-op.
+        assert_eq!(attrs.insert(Attrs::BOLD), attrs);
+    }
+
+    #[test]
+    fn remove_clears_a_flag_and_leaves_the_rest() {
+        let attrs = (Attrs::BOLD | Attrs::ITALIC | Attrs::UNDERLINE).remove(Attrs::ITALIC);
+        assert!(attrs.contains(Attrs::BOLD));
+        assert!(attrs.contains(Attrs::UNDERLINE));
+        assert!(!attrs.contains(Attrs::ITALIC));
+        // Removing an absent flag is a no-op.
+        assert_eq!(attrs.remove(Attrs::STRIKETHROUGH), attrs);
+    }
+
+    #[test]
+    fn bitand_is_the_intersection() {
+        let left = Attrs::BOLD | Attrs::ITALIC;
+        let right = Attrs::ITALIC | Attrs::UNDERLINE;
+        assert_eq!(left & right, Attrs::ITALIC);
+        let mut acc = left;
+        acc &= right;
+        assert_eq!(acc, Attrs::ITALIC);
+    }
+
+    #[test]
+    fn merge_over_layers_set_fields_and_unions_attrs() {
+        let base = Style::new().fg(Color::GREEN).italic();
+        // Only bold set: base fg/italic survive, bold is added.
+        let resolved = Style::new().bold().merge_over(base);
+        assert_eq!(resolved.fg, Some(Color::GREEN));
+        assert!(resolved.attrs.contains(Attrs::BOLD | Attrs::ITALIC));
+        // An explicit fg overrides the base's.
+        let over = Style::new().fg(Color::RED).merge_over(base);
+        assert_eq!(over.fg, Some(Color::RED));
+        // An empty style resolves to exactly the base.
+        assert_eq!(Style::new().merge_over(base), base);
+    }
+
+    #[test]
+    fn not_complements_only_defined_flags() {
+        // The complement of NONE is every defined flag; complementing again
+        // returns to NONE — the involution holds because Not masks to ALL.
+        assert_eq!(!Attrs::NONE, Attrs::ALL);
+        assert_eq!(!Attrs::ALL, Attrs::NONE);
+        // `attrs & !other` is exactly `attrs.remove(other)`.
+        let attrs = Attrs::BOLD | Attrs::ITALIC;
+        assert_eq!(attrs & !Attrs::BOLD, attrs.remove(Attrs::BOLD));
     }
 }

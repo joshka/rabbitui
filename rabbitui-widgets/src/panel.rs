@@ -261,6 +261,16 @@ impl Default for Panel<'_> {
 impl Widget for Panel<'_> {
     type State = ();
 
+    fn desired_height(&self, (): &(), _width: u16) -> u16 {
+        // A panel is a backdrop with no measurable content of its own (the caller
+        // declares content into its `inner` area). Its intrinsic height is the
+        // chrome overhead it needs to read as an empty frame: the border (two rows
+        // when bordered) plus padding on both edges, at least one row.
+        let border: u16 = if self.border { 2 } else { 0 };
+        let padding = self.padding.saturating_mul(2);
+        border.saturating_add(padding).max(1)
+    }
+
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
         // A panel is chrome: never a focus target.
         ctx.focusable(false);
@@ -440,6 +450,19 @@ mod tests {
         let inner = Panel::inner(area, &Panel::new().border(false).padding(2));
         assert_eq!(inner.origin, Position::new(2, 2));
         assert_eq!(inner.size, Size::new(16, 6));
+    }
+
+    #[test]
+    fn desired_height_is_the_chrome_overhead() {
+        use rabbitui_core::widget::Widget;
+        // Bordered, no padding: two border rows.
+        assert_eq!(Panel::new().desired_height(&(), 20), 2);
+        // Bordered + padding 1: two border rows + two padding rows.
+        assert_eq!(Panel::new().padding(1).desired_height(&(), 20), 4);
+        // Borderless, no padding: at least one row.
+        assert_eq!(Panel::new().border(false).desired_height(&(), 20), 1);
+        // Borderless + padding 2: four padding rows.
+        assert_eq!(Panel::new().border(false).padding(2).desired_height(&(), 20), 4);
     }
 
     #[test]

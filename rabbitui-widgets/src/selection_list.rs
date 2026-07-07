@@ -255,6 +255,14 @@ impl<S: ListSource> Widget for SelectionList<S> {
         }
     }
 
+    fn desired_height(&self, _state: &SelectionListState, _width: u16) -> u16 {
+        // One row per item: a list's honest intrinsic height is its full row
+        // count. A container clamps this to its viewport, and the list virtualizes
+        // internally (it only ever paints `offset .. offset + height`), so a
+        // million-row source still reports a million but costs one screenful.
+        u16::try_from(self.source.len()).unwrap_or(u16::MAX)
+    }
+
     fn handle(
         state: &mut SelectionListState,
         event: &InputEvent,
@@ -648,6 +656,14 @@ mod tests {
         state.select(99);
         render(&list, &mut state, 3, true);
         assert_eq!(state.selected(), 9);
+    }
+
+    #[test]
+    fn desired_height_is_the_row_count() {
+        let list = SelectionList::new(items()); // 10 rows
+        assert_eq!(list.desired_height(&SelectionListState::default(), 8), 10);
+        let empty = SelectionList::new(Vec::<String>::new());
+        assert_eq!(empty.desired_height(&SelectionListState::default(), 8), 0);
     }
 
     #[test]

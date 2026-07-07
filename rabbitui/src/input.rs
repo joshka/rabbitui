@@ -8,18 +8,18 @@
 //!
 //! # What maps, and what is dropped
 //!
-//! qwertty's first input layer decodes text, C0 control bytes, the four arrow
-//! keys, and complete-but-uninterpreted CSI sequences
-//! (`docs/adr/0012-terminal-substrate.md`). This module maps:
+//! qwertty's semantic decoder produces an [`Event`](qwertty::Event) of a typed
+//! [`KeyEvent`](qwertty::KeyEvent) or a lossless
+//! [`Syntax`](qwertty::Event::Syntax) passthrough of a complete
+//! [`SyntaxToken`](qwertty::SyntaxToken) (`docs/adr/0012-terminal-substrate.md`).
+//! This module maps a key event's [`Key`](qwertty::Key):
 //!
-//! - [`qwertty::InputEvent::Text`] → [`Key::Char`], except control characters
-//!   (which qwertty also surfaces as `Control`) — a printable scalar becomes a
-//!   char key.
-//! - [`qwertty::InputEvent::Control`] → the matching [`Key`]: `CarriageReturn`
-//!   and `LineFeed` → [`Key::Enter`], `Tab` → [`Key::Tab`], `Backspace` →
-//!   [`Key::Backspace`], `Escape` → [`Key::Escape`], `Delete` →
-//!   [`Key::Backspace`] (DEL is the usual terminal Backspace).
-//! - [`qwertty::KeyInput`] arrows → [`Key::Up`]/[`Key::Down`]/[`Key::Left`]/
+//! - [`qwertty::Key::Char`] → [`Key::Char`] — a printable scalar becomes a char
+//!   key.
+//! - the named controls → the matching core [`Key`]: `Enter` → [`Key::Enter`],
+//!   `Tab` → [`Key::Tab`], `Backspace` → [`Key::Backspace`], `Escape` →
+//!   [`Key::Escape`] (qwertty folds both `BS` and `DEL` into its Backspace key).
+//! - [`qwertty::Key`] arrows → [`Key::Up`]/[`Key::Down`]/[`Key::Left`]/
 //!   [`Key::Right`].
 //!
 //! - A **Ctrl-letter chord** (a raw C0 byte in `0x01..=0x1A`) → the letter
@@ -33,14 +33,17 @@
 //! # Mouse: an SGR bridge over preserved CSI (slice 7)
 //!
 //! qwertty emits no typed mouse events; an SGR mouse report arrives as a
-//! **complete preserved CSI** — `CSI < b ; x ; y M/m`
+//! **complete preserved CSI** — `CSI < b ; x ; y M/m` — inside
+//! [`Event::Syntax`](qwertty::Event::Syntax) as a
+//! [`SyntaxToken::Csi`](qwertty::SyntaxToken::Csi)
 //! (`docs/adr/0006-input-focus-events.md` §5, slice-7 design note). This module
 //! interprets that one complete CSI's already-parsed pieces (private marker,
 //! parameters, final byte) into a core [`MouseEvent`] — the same interim posture
 //! as the SGR *encoder*: qwertty owns byte framing, we bridge semantics until it
 //! grows typed mouse events. This does **not** fork qwertty's byte decoder; it
-//! reads [`CsiInput`]'s fields. Any CSI that is not a well-formed SGR mouse
-//! report falls through to the "dropped" path, unchanged from slice 3.
+//! reads the [`ControlSequence`](qwertty::ControlSequence)'s
+//! [`ControlParams`](qwertty::ControlParams). Any CSI that is not a well-formed
+//! SGR mouse report falls through to the "dropped" path.
 //!
 //! The `b` byte packs button + modifiers + motion/wheel flags: the low two bits
 //! select the button (with wheel/no-button escapes), bit `0x04` is Shift, `0x08`
@@ -59,53 +62,73 @@
 //! discipline). Dropping unmapped input is deliberate: a half-understood escape
 //! sequence must never be mistaken for a binding.
 
-use qwertty::{ControlInput, CsiInput, InputEvent as QwerttyEvent, KeyInput};
+use qwertty::{ControlSequence, Event as QwerttyEvent, Key as QKey, SyntaxToken};
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{
     InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseKind,
 };
 
-/// Maps one qwertty input event to a core [`InputEvent`], or `None` if rabbitui
-/// has no key for it (the event is dropped).
+/// Maps one qwertty semantic [`Event`](qwertty::Event) to a core [`InputEvent`],
+/// or `None` if rabbitui has no key for it (the event is dropped).
+///
+/// qwertty's decoder redesign (M4 semantic layer) replaced the flat
+/// `InputEvent` with an [`Event`](qwertty::Event) of a typed [`KeyEvent`] or a
+/// lossless [`Syntax`](qwertty::Event::Syntax) passthrough; this seam adapts to it
+/// unchanged in behavior: text and named keys map to core keys, a Ctrl-letter
+/// chord surfaces as the letter with the Ctrl modifier, an SGR mouse report (a
+/// preserved CSI in `Syntax`) bridges to a core [`MouseEvent`], and everything
+/// else is dropped.
 ///
 /// # Examples
 ///
 /// ```
-/// use qwertty::{ControlInput, InputEvent as QwerttyEvent};
+/// use qwertty::{Event, Key as QKey, KeyEvent};
 /// use rabbitui::input::from_qwertty;
 /// use rabbitui_core::input::{InputEvent, Key};
 ///
-/// assert_eq!(from_qwertty(&QwerttyEvent::Text('a')), Some(InputEvent::key(Key::Char('a'))));
-/// assert_eq!(
-///     from_qwertty(&QwerttyEvent::Control(ControlInput::Escape)),
-///     Some(InputEvent::key(Key::Escape)),
-/// );
-/// // An unclassified sequence is dropped.
-/// assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Null)), None);
+/// let a = Event::Key(KeyEvent::new(QKey::Char('a')));
+/// assert_eq!(from_qwertty(&a), Some(InputEvent::key(Key::Char('a'))));
 /// ```
 #[must_use]
 pub fn from_qwertty(event: &QwerttyEvent) -> Option<InputEvent> {
+    match event {
+        QwerttyEvent::Key(key_event) => key_from_qwertty(key_event.key()),
+        // A preserved CSI may be an SGR mouse report; bridge those semantics here.
+        // Every other complete/malformed token has no core key.
+        QwerttyEvent::Syntax(SyntaxToken::Csi(csi)) => {
+            mouse_from_csi(csi).map(InputEvent::Mouse)
+        }
+        _ => None,
+    }
+}
+
+/// Maps a qwertty semantic [`Key`](qwertty::Key) to a core [`InputEvent`], or
+/// `None` when there is no core key.
+fn key_from_qwertty(key: QKey) -> Option<InputEvent> {
     // A Ctrl-letter chord arrives as a raw C0 byte in 0x01..=0x1A; surface it as
-    // the letter key with the Ctrl modifier so apps can bind Ctrl-L and friends
-    // (a widget like TextInput leaves ctrl chords for the app — text_input.rs).
-    if let QwerttyEvent::Control(ControlInput::Other(byte @ 0x01..=0x1A)) = event {
+    // the letter key with the Ctrl modifier so apps can bind Ctrl-L and friends (a
+    // widget like TextInput leaves ctrl chords for the app — text_input.rs).
+    if let QKey::Control(byte @ 0x01..=0x1A) = key {
         let letter = (b'a' + (byte - 1)) as char;
         return Some(InputEvent::Key(KeyEvent::new(Key::Char(letter)).ctrl()));
     }
-    // A preserved CSI may be an SGR mouse report; bridge those semantics here.
-    if let QwerttyEvent::Csi(csi) = event {
-        return mouse_from_csi(csi).map(InputEvent::Mouse);
-    }
-    let key = match event {
-        QwerttyEvent::Text(ch) => Key::Char(*ch),
-        QwerttyEvent::Control(control) => control_key(*control)?,
-        QwerttyEvent::Key(key) => arrow_key(*key),
-        // Undecoded bytes have no core key (CSI is handled above).
-        QwerttyEvent::Undecoded(_) => return None,
-        // qwertty's InputEvent is non_exhaustive; unknown future variants drop.
+    let core = match key {
+        QKey::Char(ch) => Key::Char(ch),
+        QKey::Up => Key::Up,
+        QKey::Down => Key::Down,
+        QKey::Left => Key::Left,
+        QKey::Right => Key::Right,
+        QKey::Enter => Key::Enter,
+        QKey::Tab => Key::Tab,
+        QKey::Backspace => Key::Backspace,
+        QKey::Escape => Key::Escape,
+        // Any other C0 control byte (outside the Ctrl-letter range) has no core
+        // key yet; the app reads it via the update fallthrough if it needs it.
+        QKey::Control(_) => return None,
+        // qwertty's Key is non_exhaustive; unknown future variants drop.
         _ => return None,
     };
-    Some(InputEvent::key(key))
+    Some(InputEvent::key(core))
 }
 
 /// Interprets a complete preserved CSI as an SGR mouse report, or `None` if it is
@@ -113,26 +136,26 @@ pub fn from_qwertty(event: &QwerttyEvent) -> Option<InputEvent> {
 ///
 /// An SGR mouse report is `CSI < b ; x ; y M/m`: private marker `<`, three
 /// decimal parameters, and final byte `M` (press/motion) or `m` (release). This
-/// reads [`CsiInput`]'s already-parsed pieces — it does not re-parse bytes. Any
-/// deviation (wrong marker, wrong final byte, non-decimal or missing fields)
-/// returns `None`, leaving the CSI to the "dropped" path.
-fn mouse_from_csi(csi: &CsiInput) -> Option<MouseEvent> {
+/// reads the [`ControlSequence`]'s already-parsed pieces — it does not re-parse
+/// bytes. Any deviation (wrong marker, wrong final byte, non-decimal or missing
+/// fields) returns `None`, leaving the CSI to the "dropped" path.
+fn mouse_from_csi(csi: &ControlSequence) -> Option<MouseEvent> {
+    let params = csi.params();
     // The report must carry the `<` private marker and end in `M` or `m`.
-    if csi.private_marker_bytes() != b"<" {
+    if params.private_markers() != b"<" {
         return None;
     }
-    let release = match csi.final_byte() {
+    let release = match params.final_byte() {
         b'M' => false,
         b'm' => true,
         _ => return None,
     };
-    if !csi.intermediate_bytes().is_empty() {
+    if !params.intermediates().is_empty() {
         return None;
     }
 
-    // Parameters are `<b;x;y`; skip the leading `<` marker, then split on `;`.
-    let params = csi.parameter_bytes();
-    let numeric = params.strip_prefix(b"<")?;
+    // Parameter bytes exclude the leading private marker: they are `b;x;y`.
+    let numeric = params.param_bytes();
     let mut fields = numeric.split(|&byte| byte == b';');
     let b = parse_u32(fields.next()?)?;
     let x = parse_u16(fields.next()?)?;
@@ -195,60 +218,35 @@ fn parse_u16(bytes: &[u8]) -> Option<u16> {
     std::str::from_utf8(bytes).ok()?.parse().ok()
 }
 
-/// Maps a classified C0 control byte to a core [`Key`], or `None` if rabbitui has
-/// no key for it.
-fn control_key(control: ControlInput) -> Option<Key> {
-    Some(match control {
-        // Both CR and LF stand in for Enter in raw mode.
-        ControlInput::CarriageReturn | ControlInput::LineFeed => Key::Enter,
-        ControlInput::Tab => Key::Tab,
-        // BS and DEL both surface as Backspace (DEL is the common terminal
-        // Backspace byte).
-        ControlInput::Backspace | ControlInput::Delete => Key::Backspace,
-        ControlInput::Escape => Key::Escape,
-        // Null and other raw C0 bytes (e.g. Ctrl-C = 0x03) have no core key yet;
-        // apps that need them read the raw event via the update fallthrough.
-        ControlInput::Null | ControlInput::Other(_) => return None,
-        // ControlInput is non_exhaustive.
-        _ => return None,
-    })
-}
-
-/// Maps a qwertty arrow key to the matching core [`Key`].
-fn arrow_key(key: KeyInput) -> Key {
-    match key {
-        KeyInput::Up => Key::Up,
-        KeyInput::Down => Key::Down,
-        KeyInput::Left => Key::Left,
-        KeyInput::Right => Key::Right,
-        // KeyInput is non_exhaustive; treat unknown arrows-family keys as Up is
-        // wrong, so fall back to dropping via a defensive default. In practice
-        // every current variant is covered above.
-        _ => Key::Up,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use qwertty::{KeyEvent, SemanticDecoder};
     use rabbitui_core::input::Key;
+
+    /// Decodes `bytes` through qwertty's semantic decoder and returns the single
+    /// event it produces (the test inputs each decode to exactly one).
+    fn decode_one(bytes: &[u8]) -> QwerttyEvent {
+        let mut decoder = SemanticDecoder::new();
+        let mut events = decoder.feed(bytes);
+        events.extend(decoder.finish());
+        assert_eq!(events.len(), 1, "expected one event from {bytes:?}");
+        events.into_iter().next().unwrap()
+    }
 
     #[test]
     fn text_maps_to_char() {
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Text('z')),
+            from_qwertty(&QwerttyEvent::Key(KeyEvent::new(QKey::Char('z')))),
             Some(InputEvent::key(Key::Char('z')))
         );
     }
 
     #[test]
-    fn carriage_return_and_line_feed_map_to_enter() {
+    fn carriage_return_maps_to_enter() {
+        // CR (0x0d) decodes to the Enter key.
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::CarriageReturn)),
-            Some(InputEvent::key(Key::Enter)),
-        );
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::LineFeed)),
+            from_qwertty(&decode_one(b"\r")),
             Some(InputEvent::key(Key::Enter)),
         );
     }
@@ -256,58 +254,35 @@ mod tests {
     #[test]
     fn tab_and_escape_and_backspace_map() {
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Tab)),
+            from_qwertty(&decode_one(b"\t")),
             Some(InputEvent::key(Key::Tab)),
         );
+        // A lone ESC decodes to Escape once the decoder is flushed.
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Escape)),
+            from_qwertty(&decode_one(b"\x1b")),
             Some(InputEvent::key(Key::Escape)),
         );
+        // Both BS (0x08) and DEL (0x7f) fold into the Backspace key.
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Backspace)),
+            from_qwertty(&decode_one(b"\x08")),
             Some(InputEvent::key(Key::Backspace)),
         );
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Delete)),
+            from_qwertty(&decode_one(b"\x7f")),
             Some(InputEvent::key(Key::Backspace)),
         );
     }
 
     #[test]
     fn arrows_map() {
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Key(KeyInput::Up)),
-            Some(InputEvent::key(Key::Up))
-        );
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Key(KeyInput::Down)),
-            Some(InputEvent::key(Key::Down)),
-        );
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Key(KeyInput::Left)),
-            Some(InputEvent::key(Key::Left)),
-        );
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Key(KeyInput::Right)),
-            Some(InputEvent::key(Key::Right)),
-        );
-    }
-
-    #[test]
-    fn unmapped_input_is_dropped() {
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Null)),
-            None
-        );
-        // A C0 byte outside the Ctrl-letter range (0x01..=0x1A) has no key.
-        assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x1c))),
-            None
-        );
+        assert_eq!(from_qwertty(&decode_one(b"\x1b[A")), Some(InputEvent::key(Key::Up)));
+        assert_eq!(from_qwertty(&decode_one(b"\x1b[B")), Some(InputEvent::key(Key::Down)));
+        assert_eq!(from_qwertty(&decode_one(b"\x1b[D")), Some(InputEvent::key(Key::Left)));
+        assert_eq!(from_qwertty(&decode_one(b"\x1b[C")), Some(InputEvent::key(Key::Right)));
     }
 
     fn csi(bytes: &[u8]) -> QwerttyEvent {
-        QwerttyEvent::Csi(CsiInput::from_bytes(bytes).expect("complete CSI input"))
+        decode_one(bytes)
     }
 
     #[test]
@@ -370,17 +345,23 @@ mod tests {
 
     #[test]
     fn ctrl_letter_c0_bytes_map_to_ctrl_char() {
+        use qwertty::KeyEvent as QKeyEvent;
         use rabbitui_core::input::KeyEvent;
-        // Ctrl-L is byte 0x0c; it surfaces as the letter with the Ctrl modifier so
-        // apps can bind it (and TextInput, which ignores ctrl chords, leaves it).
+        // Ctrl-L is C0 byte 0x0c; it surfaces as the letter with the Ctrl modifier
+        // so apps can bind it (and TextInput, which ignores ctrl chords, leaves it).
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x0c))),
+            from_qwertty(&QwerttyEvent::Key(QKeyEvent::new(QKey::Control(0x0c)))),
             Some(InputEvent::Key(KeyEvent::new(Key::Char('l')).ctrl())),
         );
         // Ctrl-A is 0x01 (the low end of the range).
         assert_eq!(
-            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x01))),
+            from_qwertty(&QwerttyEvent::Key(QKeyEvent::new(QKey::Control(0x01)))),
             Some(InputEvent::Key(KeyEvent::new(Key::Char('a')).ctrl())),
+        );
+        // A C0 byte outside the Ctrl-letter range has no core key.
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Key(QKeyEvent::new(QKey::Control(0x1c)))),
+            None,
         );
     }
 }

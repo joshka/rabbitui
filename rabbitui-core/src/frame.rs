@@ -85,7 +85,7 @@ pub type HandlerMap = HashMap<WidgetId, Handler>;
 /// The wrapper downcasts the erased `&mut dyn Any` back to `W::State`; the state
 /// was stored as `Box<dyn Any>` of exactly that type by the same-id render, so
 /// the downcast cannot fail for a well-formed frame.
-fn handler_thunk<W: Widget>() -> Handler {
+pub(crate) fn handler_thunk<W: Widget>() -> Handler {
     |state, event, ctx| {
         let state = state
             .downcast_mut::<W::State>()
@@ -267,6 +267,156 @@ impl<'a> Frame<'a> {
         self.handlers.insert(id, handler_thunk::<W>());
     }
 
+    /// Measures a widget's [`desired_height`](Widget::desired_height) at `width`,
+    /// against its retained state, **without declaring it**.
+    ///
+    /// The measurement seam (`docs/design/arc2b-measurement-scroll.md`): the id is
+    /// composed from `key` under the current parent — exactly as
+    /// [`widget`](Self::widget) would — so a measured height matches the height the
+    /// same widget will report when it is actually declared. The store is
+    /// *peeked*, not `get_or_default`'d, so measuring never marks the id seen: a
+    /// scroll can measure a thousand candidates and declare only the visible few
+    /// without tripping the duplicate-id assertion or keeping off-screen state
+    /// alive (see [`StateStore::peek`](crate::store::StateStore::peek)).
+    ///
+    /// When the widget has no retained state yet (its first frame, or an
+    /// off-screen item that has never been near the viewport), it is measured
+    /// against `W::State::default()`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::store::StateStore;
+    /// use rabbitui_core::style::Style;
+    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    ///
+    /// struct Para<'a>(&'a str);
+    /// impl Widget for Para<'_> {
+    ///     type State = ();
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
+    ///     }
+    ///     fn desired_height(&self, _s: &(), _width: u16) -> u16 {
+    ///         u16::try_from(self.0.split('\n').count()).unwrap_or(u16::MAX)
+    ///     }
+    /// }
+    ///
+    /// let mut buffer = Buffer::new(Size::new(20, 5));
+    /// let mut store = StateStore::new();
+    /// let frame = Frame::new(&mut buffer, &mut store);
+    /// assert_eq!(frame.measure(key("cell"), 20, &Para("a\nb\nc")), 3);
+    /// # let _ = frame.finish();
+    /// ```
+    #[must_use]
+    pub fn measure<W: Widget>(&self, key: Key, width: u16, widget: &W) -> u16 {
+        let id = self.parent.child(key);
+        match self.store.peek::<W::State>(id) {
+            Some(state) => widget.desired_height(state, width),
+            None => widget.desired_height(&W::State::default(), width),
+        }
+    }
+
+    /// The size of the frame's target buffer, for containers that paint or clip
+    /// against it (the scroll container's scrollbar).
+    pub(crate) fn buffer_size(&self) -> crate::geometry::Size {
+        self.buffer.size()
+    }
+
+    /// The current declaration parent, for containers composing their own scope id.
+    pub(crate) fn parent_id(&self) -> WidgetId {
+        self.parent
+    }
+
+    /// The number of visibility requests recorded so far this frame, so a container
+    /// can tell which requests its own children added (those pushed after this
+    /// mark). See [`Frame::scroll`](Self::scroll)'s scroll-into-view consumption.
+    pub(crate) fn visibility_len(&self) -> usize {
+        self.facts.visibility_requests().count()
+    }
+
+    /// The visibility requests recorded after index `since`, in order — the
+    /// requests a container's children added during its scope.
+    pub(crate) fn visibility_since(&self, since: usize) -> Vec<VisibilityRequest> {
+        self.facts.visibility_requests().skip(since).copied().collect()
+    }
+
+    /// Records a widget fact for a container's own scope id (focusable, at `area`),
+    /// and registers its handler thunk — how a scoped container (the scroll
+    /// container) enters focus traversal and routing without a normal
+    /// [`widget`](Self::widget) call.
+    pub(crate) fn register_container<W: Widget>(&mut self, id: WidgetId, area: Rect) {
+        let bounds = Rect::from_size(self.buffer.size());
+        self.facts.push(FactEntry {
+            id,
+            parent: self.parent,
+            area: area.intersection(bounds),
+            focusable: true,
+            layer: self.layer,
+        });
+        self.handlers.insert(id, handler_thunk::<W>());
+    }
+
+    /// Reads a copy of the retained state for `id`, or its default — for a
+    /// container that computes against its own retained state (scroll offset)
+    /// before deciding what to declare.
+    pub(crate) fn container_state<S: Clone + Default + 'static>(&self, id: WidgetId) -> S {
+        self.store.peek::<S>(id).cloned().unwrap_or_default()
+    }
+
+    /// Writes back a container's retained state, marking it seen. Paired with
+    /// [`container_state`](Self::container_state).
+    pub(crate) fn put_container_state<S: Default + 'static>(&mut self, id: WidgetId, value: S) {
+        *self.store.get_or_default::<S>(id) = value;
+    }
+
+    /// Paints `text` at absolute buffer `position` in `style`, clipped to the
+    /// buffer — the container-level paint primitive (the scroll container's
+    /// scrollbar). Unlike a widget's [`RenderCtx`], a container paints in absolute
+    /// coordinates.
+    pub(crate) fn paint_absolute(
+        &mut self,
+        position: crate::geometry::Position,
+        text: &str,
+        style: crate::style::Style,
+    ) {
+        self.buffer.set_string(position, text, style);
+    }
+
+    /// The active theme, for a container resolving roles to styles at paint time.
+    pub(crate) fn theme_ref(&self) -> &Theme {
+        self.theme
+    }
+
+    /// Runs `scope` against a child [`Frame`] parented at `scope_id`, then reclaims
+    /// the accumulated facts/handlers — the shared body of the scoped containers
+    /// ([`scoped`](Self::scoped), [`layer`](Self::layer), and
+    /// [`scroll`](Self::scroll)).
+    pub(crate) fn with_child_scope<R>(
+        &mut self,
+        scope_id: WidgetId,
+        layer_delta: u8,
+        body: impl FnOnce(&mut Frame<'_>) -> R,
+    ) -> R {
+        let mut child = Frame {
+            buffer: self.buffer,
+            store: self.store,
+            parent: scope_id,
+            focus: self.focus,
+            theme: self.theme,
+            layer: self.layer.saturating_add(layer_delta),
+            facts: std::mem::take(&mut self.facts),
+            handlers: std::mem::take(&mut self.handlers),
+        };
+        let result = body(&mut child);
+        self.facts = child.facts;
+        self.handlers = child.handlers;
+        result
+    }
+
     /// Declares a container scope: widgets declared inside `scope` compose
     /// their identities under `key`, so a reusable view function gets a
     /// distinct identity subtree per call site.
@@ -275,20 +425,7 @@ impl<'a> Frame<'a> {
     /// with the scope id as their parent, preserving the routing path.
     pub fn scoped(&mut self, key: Key, scope: impl FnOnce(&mut Frame<'_>)) {
         let scope_id = self.parent.child(key);
-        let mut child = Frame {
-            buffer: self.buffer,
-            store: self.store,
-            parent: scope_id,
-            focus: self.focus,
-            theme: self.theme,
-            layer: self.layer,
-            facts: std::mem::take(&mut self.facts),
-            handlers: std::mem::take(&mut self.handlers),
-        };
-        scope(&mut child);
-        // Reclaim the accumulated facts and handlers from the child scope.
-        self.facts = child.facts;
-        self.handlers = child.handlers;
+        self.with_child_scope(scope_id, 0, scope);
     }
 
     /// Declares an **overlay layer**: widgets declared inside `scope` land in a
@@ -333,21 +470,10 @@ impl<'a> Frame<'a> {
     /// ```
     pub fn layer(&mut self, key: Key, scope: impl FnOnce(&mut Frame<'_>)) {
         let scope_id = self.parent.child(key);
-        let mut child = Frame {
-            buffer: self.buffer,
-            store: self.store,
-            parent: scope_id,
-            focus: self.focus,
-            theme: self.theme,
-            layer: self.layer.saturating_add(1),
-            facts: std::mem::take(&mut self.facts),
-            handlers: std::mem::take(&mut self.handlers),
-        };
-        scope(&mut child);
-        // Reclaim the accumulated facts and handlers; the base frame's own layer
-        // is unchanged, so widgets declared after this call stay on the base.
-        self.facts = child.facts;
-        self.handlers = child.handlers;
+        // A layer delta of 1 puts the scope's widgets one layer above the base;
+        // the base frame's own layer is unchanged, so widgets declared after this
+        // call stay on the base.
+        self.with_child_scope(scope_id, 1, scope);
     }
 
     /// Ends the declaration and returns the frame's collected facts.
@@ -432,6 +558,86 @@ mod tests {
         fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
             ctx.focusable(true);
         }
+    }
+
+    /// A widget whose desired height is its retained counter value, so a test can
+    /// prove `measure` reads retained state rather than a default.
+    struct StateHeight;
+    impl Widget for StateHeight {
+        type State = CountState;
+        fn render(&self, state: &mut CountState, _ctx: &mut RenderCtx<'_>) {
+            state.renders += 1;
+        }
+        fn desired_height(&self, state: &CountState, _width: u16) -> u16 {
+            // 1 the first frame (no state), then the render count thereafter.
+            state.renders.max(1) as u16
+        }
+    }
+
+    #[test]
+    fn measure_uses_default_when_no_state_and_does_not_declare() {
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let frame = Frame::new(&mut buffer, &mut store);
+        // No state yet → measured against the default (renders = 0 → max(1) = 1).
+        assert_eq!(frame.measure(key("cell"), 8, &StateHeight), 1);
+        let facts = frame.finish();
+        store.end_frame();
+        // Measuring declared nothing: no facts, no stored state.
+        assert!(facts.is_empty());
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn measure_reads_retained_state() {
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        // Frame 1: declare the widget so it retains state (renders = 1).
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        frame.widget(key("cell"), Rect::from_size(Size::new(8, 1)), &StateHeight);
+        let _ = frame.finish();
+        store.end_frame();
+        // Frame 2: measuring now sees the retained render count.
+        store.begin_frame();
+        let frame = Frame::new(&mut buffer, &mut store);
+        assert_eq!(frame.measure(key("cell"), 8, &StateHeight), 1);
+        let _ = frame.finish();
+        store.end_frame();
+    }
+
+    #[test]
+    fn measure_and_declare_agree_on_the_composed_id() {
+        // The height a scope measures must match the height the same-keyed widget
+        // reports when declared under the same parent — measure composes the id
+        // exactly as widget() does.
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        frame.scoped(key("scope"), |f| {
+            // First declare so state exists, then measure the same key.
+            f.widget(key("cell"), Rect::from_size(Size::new(8, 1)), &StateHeight);
+            assert_eq!(f.measure(key("cell"), 8, &StateHeight), 1);
+        });
+        let _ = frame.finish();
+        store.end_frame();
+    }
+
+    struct DefaultHeight;
+    impl Widget for DefaultHeight {
+        type State = ();
+        fn render(&self, _state: &mut (), _ctx: &mut RenderCtx<'_>) {}
+    }
+
+    #[test]
+    fn measure_default_height_is_one_row() {
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        let frame = Frame::new(&mut buffer, &mut store);
+        assert_eq!(frame.measure(key("x"), 8, &DefaultHeight), 1);
+        let _ = frame.finish();
     }
 
     #[test]

@@ -94,6 +94,30 @@ pub trait Widget {
     /// Paints the widget into its area and updates retained state.
     fn render(&self, state: &mut Self::State, ctx: &mut RenderCtx<'_>);
 
+    /// The height this widget wants at `width`, given its retained `state`.
+    ///
+    /// The intrinsic-measurement half of the contract (ADR 0004, deferred there
+    /// and landed in Arc 2B). Containers stack children at their measured heights;
+    /// [`Frame::scroll`](crate::frame::Frame::scroll) virtualizes on it — an item
+    /// outside the viewport is measured (to advance the stacking cursor and size
+    /// the scrollbar) but never painted. It must be **cheap** (called per frame
+    /// per candidate item, including off-screen ones) and must **not paint** — it
+    /// has no [`RenderCtx`], only `state` and `width`.
+    ///
+    /// The default is one row: a label, a button, a single-line field. Widgets
+    /// whose height depends on content or state override it — [`Text`] returns its
+    /// line count (wrapped, when wrap is on), a disclosure cell returns 1 collapsed
+    /// and 1 + body when expanded.
+    ///
+    /// `state` is lent read-only through [`StateStore::peek`](crate::store::StateStore::peek),
+    /// so measuring never marks the widget declared. When the widget has no
+    /// retained state yet (its first frame), the framework measures against
+    /// `State::default()`.
+    fn desired_height(&self, state: &Self::State, width: u16) -> u16 {
+        let _ = (state, width);
+        1
+    }
+
     /// Handles an event routed to this widget.
     ///
     /// This is an **associated function** — it takes no `&self`, so it runs

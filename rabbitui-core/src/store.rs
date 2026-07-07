@@ -129,6 +129,54 @@ impl StateStore {
         self.entries.get_mut(&id).map(|entry| entry.state.as_mut())
     }
 
+    /// Lends read-only access to the state stored for `id`, **without** marking
+    /// it seen.
+    ///
+    /// This is the measurement accessor (`docs/design/arc2b-measurement-scroll.md`):
+    /// [`Frame::measure`](crate::frame::Frame::measure) lends a widget its
+    /// retained state to ask its `desired_height`, but *measuring is not
+    /// declaring* — a measured-but-not-painted item (a scroll candidate outside
+    /// the viewport) must not touch `last_seen`, or peeking it would trip the
+    /// duplicate-declaration `debug_assert!` when it is later declared for real,
+    /// and would keep dropped-widget state alive past its grace period.
+    ///
+    /// Returns `None` when `id` holds no state yet (never declared, or dropped):
+    /// a first-frame widget has no retained state to measure against, so the
+    /// measurer falls back to a default. Unlike
+    /// [`get_or_default`](Self::get_or_default) this neither inserts nor mutates —
+    /// a pure read — so it needs `&self`, not `&mut self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::store::StateStore;
+    ///
+    /// #[derive(Default)]
+    /// struct ScrollState {
+    ///     offset: u16,
+    /// }
+    ///
+    /// let mut store = StateStore::new();
+    /// let id = WidgetId::ROOT.child(key("list"));
+    ///
+    /// // Nothing stored yet: a peek sees no state.
+    /// assert!(store.peek::<ScrollState>(id).is_none());
+    ///
+    /// store.begin_frame();
+    /// store.get_or_default::<ScrollState>(id).offset = 5;
+    /// store.end_frame();
+    ///
+    /// // Now it is peekable — and peeking does not mark the id seen.
+    /// assert_eq!(store.peek::<ScrollState>(id).unwrap().offset, 5);
+    /// ```
+    #[must_use]
+    pub fn peek<S: 'static>(&self, id: WidgetId) -> Option<&S> {
+        self.entries
+            .get(&id)
+            .and_then(|entry| entry.state.downcast_ref::<S>())
+    }
+
     /// Marks the end of a frame and drops state for widgets that have not
     /// been declared within the grace period.
     pub fn end_frame(&mut self) {
@@ -201,6 +249,39 @@ mod tests {
         store.end_frame();
         store.begin_frame();
         assert_eq!(store.get_or_default::<Counter>(id("a")).0, 0);
+    }
+
+    #[test]
+    fn peek_reads_without_marking_seen() {
+        let mut store = StateStore::new();
+        store.grace_frames = 2;
+        store.begin_frame();
+        store.get_or_default::<Counter>(id("a")).0 = 7;
+        store.end_frame();
+        // Peeking sees the stored value.
+        assert_eq!(store.peek::<Counter>(id("a")).unwrap().0, 7);
+        // Peeking every frame does NOT keep the state alive: it never touches
+        // last_seen, so the grace period still elapses and the state drops.
+        for _ in 0..3 {
+            store.begin_frame();
+            let _ = store.peek::<Counter>(id("a"));
+            store.end_frame();
+        }
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn peek_of_absent_or_wrong_type_is_none() {
+        let mut store = StateStore::new();
+        // Never declared.
+        assert!(store.peek::<Counter>(id("a")).is_none());
+        store.begin_frame();
+        store.get_or_default::<Counter>(id("a")).0 = 1;
+        store.end_frame();
+        // A peek of the wrong type is None, not a panic.
+        #[derive(Default)]
+        struct Other(#[allow(dead_code)] bool);
+        assert!(store.peek::<Other>(id("a")).is_none());
     }
 
     #[test]

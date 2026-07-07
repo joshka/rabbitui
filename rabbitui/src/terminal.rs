@@ -11,7 +11,7 @@
 use std::io::Write as _;
 use std::sync::Once;
 
-use qwertty::{InputEvent, ProtocolPosition, TokioTerminalSession, commands};
+use qwertty::{Event, ProtocolPosition, TokioTerminalSession, commands};
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::style::Style;
 
@@ -181,7 +181,7 @@ impl Terminal {
     /// # Errors
     ///
     /// Returns an error if reading from the terminal fails.
-    pub async fn next_event(&mut self) -> Result<InputEvent> {
+    pub async fn next_event(&mut self) -> Result<Event> {
         Ok(self.session_mut().next_event().await?)
     }
 
