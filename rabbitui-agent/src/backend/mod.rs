@@ -16,6 +16,7 @@ use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 
 pub mod replay;
+pub mod sse;
 
 /// A boxed event stream for one request/response turn.
 ///

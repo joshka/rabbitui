@@ -110,6 +110,16 @@ training priors.
 2. **Anthropic wire.** `AnthropicBackend`, SSE parser (unit-tested on recorded fixtures), auth
    resolution, error/stop_reason cells, record mode. Record 2–3 real fixtures (short exchanges),
    scrub nothing secret into them (no keys in fixtures), commit them for CI.
+
+   _Partial landing (2026-07-07):_ the **SSE decoder** (`backend/sse.rs`) landed first, in
+   isolation — it is the most error-prone part (block-index↔tool-id correlation, threading
+   `stop_reason`/`usage` from `message_delta` to `message_stop`, incremental line buffering across
+   byte chunks) and is fully offline-testable (7 unit tests against synthetic wire transcripts). The
+   remainder — the `reqwest` client (rustls, streaming), auth resolution, and recording real
+   fixtures — was **deferred** because it can only be verified against a live endpoint (needs the
+   user's key/network), which an unattended session cannot do. Slice 2's client becomes thin glue:
+   `reqwest` byte stream → `SseDecoder::push` → `StreamEvent`s. Do not add `reqwest` to the
+   workspace until you can run a live smoke call to confirm the whole path.
 3. **Markdown.** Parser + streaming block-commit rendering; thinking cells as collapsed-by-default
    Collapsible (Muted body); code fences as Panel-backed blocks.
 4. **Tools.** Tool declarations, confirmation modal, status cells (pending→running→done/error),
