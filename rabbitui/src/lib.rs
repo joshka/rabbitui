@@ -31,6 +31,7 @@
 pub use rabbitui_core as core;
 
 pub mod app;
+pub mod effect;
 mod encode;
 pub mod engine;
 pub mod input;

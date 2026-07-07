@@ -50,6 +50,7 @@
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::commit::CommitLine;
@@ -60,10 +61,13 @@ use rabbitui_core::id::{Key, WidgetId};
 use rabbitui_core::input::InputEvent;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
+use rabbitui_core::pending::Pending as WidgetPending;
 use rabbitui_core::routing::{Focus, route};
 use rabbitui_core::store::StateStore;
 use rabbitui_core::theme::Theme;
+use rabbitui_core::widget::Widget;
 
+use crate::effect::{Cmd, Effects, EffectError, Outbox};
 use crate::engine::{AltEngine, InlineEngine};
 use crate::terminal::Terminal;
 
@@ -83,44 +87,88 @@ pub use crate::terminal::{Error, Result};
 /// mapped qwertty's decoded event into rabbitui's substrate-free vocabulary and
 /// routed it through the frame; the app sees it only if no widget consumed it.
 ///
+/// # Messages and effects (slice 6)
+///
+/// An app that spawns effects (ADR 0005) defines a message type `M` and receives
+/// effect results as [`Event::Message`]. A panicking effect is contained at the
+/// tokio task boundary and surfaced as [`Event::EffectFailed`] rather than
+/// swallowed. Message-less apps use the default `M = ()` and compile unchanged —
+/// they simply never see `Message`.
+///
 /// # Examples
 ///
 /// ```
 /// use rabbitui::app::Event;
 /// use rabbitui_core::geometry::Size;
 ///
-/// let event = Event::Resize(Size::new(80, 24));
+/// let event: Event = Event::Resize(Size::new(80, 24));
 /// assert!(matches!(event, Event::Resize(_)));
 /// ```
-#[derive(Debug, Clone, Copy)]
-pub enum Event {
+#[derive(Debug, Clone)]
+pub enum Event<M = ()> {
     /// A decoded, unconsumed input event (a key). Consumed events (a button
     /// press, a Tab that moved focus) never reach the app as `Input`; their
     /// effect arrives as an [`Outcome`] instead.
     Input(InputEvent),
     /// The terminal was resized to this new size, detected by polling.
     Resize(Size),
+    /// A message an effect the app spawned produced (ADR 0005). Arrives in
+    /// completion order, re-entering the one serialized `update`.
+    Message(M),
+    /// An effect task panicked; contained and reported rather than crashing the
+    /// loop. Carries the effect's group (if any) and the failure text.
+    EffectFailed(EffectError),
 }
 
-/// Buffered side effects an `update` requested: lines to commit into scrollback
-/// and a mode switch, applied by the runtime between frames.
+/// Buffered side effects an `update` requested: lines to commit into scrollback,
+/// a mode switch, effects to spawn, and between-frames widget commands / a focus
+/// request — all applied by the runtime after `update` returns.
 ///
 /// Per the slice-5 design note, committing and mode switching are *update-time*
 /// actions (event-driven, naturally once), never view-time ones — a view re-runs
-/// every frame and would double-emit. [`Update::commit`] and
-/// [`Update::set_mode`] record here; the loop drains this after `update` returns
-/// and hands it to the active engine (commits flush *before* an alt-screen entry
-/// so nothing is lost behind the alternate screen).
+/// every frame and would double-emit. Slice 6 adds three more update-time actions
+/// on the same buffering principle: [`Update::spawn`] queues a [`Cmd`] the runtime
+/// hands to its [`Effects`] runtime, and [`Update::widget`] / [`Update::focus`]
+/// record into a [`core::pending`](rabbitui_core::pending) set the runtime applies
+/// between frames through the *same* function [`TestApp`] uses.
 ///
 /// This type is opaque: construct it with [`Default::default`] (a test builds one
 /// to pass to [`Update::new`]) and read it back only through the runtime. Its
 /// fields are private and may change.
-#[derive(Debug, Default)]
-pub struct Pending {
+///
+/// [`TestApp`]: https://docs.rs/rabbitui-testing/latest/rabbitui_testing/struct.TestApp.html
+pub struct Pending<M = ()> {
     /// Lines committed this update, in call order.
     commits: Vec<CommitLine>,
     /// The last mode requested this update, if any (later calls win).
     set_mode: Option<Mode>,
+    /// Effects to spawn after `update` returns, in call order.
+    effects: Vec<Cmd<M>>,
+    /// Between-frames widget commands and a deferred focus request, applied by the
+    /// shared [`core::pending`](rabbitui_core::pending) function.
+    widget: WidgetPending,
+}
+
+impl<M> Default for Pending<M> {
+    fn default() -> Self {
+        Self {
+            commits: Vec::new(),
+            set_mode: None,
+            effects: Vec::new(),
+            widget: WidgetPending::new(),
+        }
+    }
+}
+
+impl<M> std::fmt::Debug for Pending<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pending")
+            .field("commits", &self.commits.len())
+            .field("set_mode", &self.set_mode)
+            .field("effects", &self.effects.len())
+            .field("widget", &self.widget)
+            .finish()
+    }
 }
 
 /// One call into the app's `update`: the event that occurred, the typed outcomes
@@ -148,19 +196,19 @@ pub struct Pending {
 /// let id = WidgetId::ROOT.child(key("ok"));
 /// let outcomes = [(id, Outcome::Activated)];
 /// let pending = RefCell::new(Default::default());
-/// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
+/// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
 ///
 /// assert_eq!(update.outcome_for(&[key("ok")]), Some(&Outcome::Activated));
 /// assert_eq!(update.outcome_for(&[key("cancel")]), None);
 /// ```
-#[derive(Debug, Clone, Copy)]
-pub struct Update<'a> {
-    event: Event,
+#[derive(Debug)]
+pub struct Update<'a, M = ()> {
+    event: Event<M>,
     outcomes: &'a [(WidgetId, Outcome)],
-    pending: &'a RefCell<Pending>,
+    pending: &'a RefCell<Pending<M>>,
 }
 
-impl<'a> Update<'a> {
+impl<'a, M> Update<'a, M> {
     /// Builds an update from an event, the outcomes routing produced, and a
     /// pending-effects sink.
     ///
@@ -169,9 +217,9 @@ impl<'a> Update<'a> {
     /// ignores commits and mode switches.
     #[must_use]
     pub fn new(
-        event: Event,
+        event: Event<M>,
         outcomes: &'a [(WidgetId, Outcome)],
-        pending: &'a RefCell<Pending>,
+        pending: &'a RefCell<Pending<M>>,
     ) -> Self {
         Self { event, outcomes, pending }
     }
@@ -198,7 +246,7 @@ impl<'a> Update<'a> {
     /// use rabbitui_core::input::{InputEvent, Key};
     ///
     /// let pending = RefCell::new(Default::default());
-    /// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
     /// update.commit("build finished");
     /// ```
     pub fn commit(&self, line: impl Into<CommitLine>) {
@@ -222,17 +270,80 @@ impl<'a> Update<'a> {
     /// use rabbitui_core::mode::Mode;
     ///
     /// let pending = RefCell::new(Default::default());
-    /// let update = Update::new(Event::Input(InputEvent::key(Key::Char('m'))), &[], &pending);
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Char('m'))), &[], &pending);
     /// update.set_mode(Mode::inline(4));
     /// ```
     pub fn set_mode(&self, mode: Mode) {
         self.pending.borrow_mut().set_mode = Some(mode);
     }
 
+    /// Commands the declared widget of type `W` at the given root-relative key
+    /// path, applied between frames (slice 6).
+    ///
+    /// The app mutates a widget's retained state without owning its type: `f`
+    /// runs against the concrete `W::State` when the runtime applies the pending
+    /// set after the *next* frame is declared. This is the controlled-input path
+    /// — `update.widget::<TextInput>(&[key("search")], |s| s.clear())` clears a
+    /// field on submit, replacing the slice-4 re-keying workaround. Commanding a
+    /// widget that was never declared is an app bug: the command is dropped with a
+    /// `debug_assert` (see [`core::pending`](rabbitui_core::pending)).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::input::{InputEvent, Key};
+    /// use rabbitui_widgets::TextInput;
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+    /// update.widget::<TextInput>(&[key("search")], |state| state.clear());
+    /// ```
+    pub fn widget<W>(&self, path: &[Key], f: impl FnOnce(&mut W::State) + 'static)
+    where
+        W: Widget,
+    {
+        let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
+        self.pending.borrow_mut().widget.command::<W>(id, f);
+    }
+
+    /// Requests focus move to the widget at the given root-relative key path,
+    /// applied against the *next* frame's facts (slice 6).
+    ///
+    /// Reveal-or-fail (ADR 0006 amendment): the request is honored if the target
+    /// is present-and-focusable in the frame the command triggers (covering the
+    /// declare-then-focus case), and dropped with a `debug_assert` naming the path
+    /// otherwise. Later calls in one update win.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::input::{InputEvent, Key};
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Tab)), &[], &pending);
+    /// update.focus(&[key("search")]);
+    /// ```
+    pub fn focus(&self, path: &[Key]) {
+        let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
+        self.pending.borrow_mut().widget.request_focus(id);
+    }
+
     /// The event this update is delivering.
+    ///
+    /// Returned by reference: the event may carry a message payload (`M`) which
+    /// need not be `Copy`. Match on it in place — `if let Event::Input(input) =
+    /// update.event()` binds `input` by reference.
     #[must_use]
-    pub fn event(&self) -> Event {
-        self.event
+    pub fn event(&self) -> &Event<M> {
+        &self.event
     }
 
     /// Every outcome routing produced this event, keyed by the emitting widget.
@@ -263,7 +374,7 @@ impl<'a> Update<'a> {
     /// let id = WidgetId::ROOT.child(key("panel")).child(key("ok"));
     /// let outcomes = [(id, Outcome::Activated)];
     /// let pending = RefCell::new(Default::default());
-    /// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
     ///
     /// assert_eq!(update.outcome_for(&[key("panel"), key("ok")]), Some(&Outcome::Activated));
     /// ```
@@ -271,6 +382,34 @@ impl<'a> Update<'a> {
     pub fn outcome_for(&self, path: &[Key]) -> Option<&Outcome> {
         let target = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
         self.outcomes.iter().find(|(id, _)| *id == target).map(|(_, outcome)| outcome)
+    }
+}
+
+impl<M: Send + 'static> Update<'_, M> {
+    /// Spawns an async effect (ADR 0005), buffered like a commit and handed to the
+    /// runtime's [`Effects`] after `update` returns.
+    ///
+    /// The command's messages re-enter the loop as [`Event::Message`] in
+    /// completion order; a grouped command applies cancel-previous against the
+    /// runtime's group table (the debounced-search pattern). Multiple `spawn`
+    /// calls in one update are queued in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui::effect::Cmd;
+    /// use rabbitui_core::input::{InputEvent, Key};
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update: Update<'_, u32> =
+    ///     Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+    /// update.spawn(Cmd::future(async { 42 }));
+    /// ```
+    pub fn spawn(&self, cmd: Cmd<M>) {
+        self.pending.borrow_mut().effects.push(cmd);
     }
 }
 
@@ -331,11 +470,14 @@ impl<'a> Update<'a> {
 /// .await
 /// # }
 /// ```
-pub async fn run<S>(
+pub async fn run<S, M>(
     state: S,
-    update: impl FnMut(&mut S, Update<'_>) -> ControlFlow<()>,
+    update: impl FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
     view: impl Fn(&S, &mut Frame<'_>),
-) -> Result<()> {
+) -> Result<()>
+where
+    M: Send + 'static,
+{
     App::new(state, update, view).run().await
 }
 
@@ -351,6 +493,7 @@ pub async fn run<S>(
 /// use std::ops::ControlFlow;
 ///
 /// use rabbitui::App;
+/// use rabbitui::app::Update;
 /// use rabbitui_core::frame::Frame;
 /// use rabbitui_core::id::key;
 /// use rabbitui_core::theme::Theme;
@@ -359,7 +502,7 @@ pub async fn run<S>(
 /// # async fn demo() -> rabbitui::app::Result<()> {
 /// App::new(
 ///     (),
-///     |_state: &mut (), _update| ControlFlow::Break(()),
+///     |_state: &mut (), _update: Update<'_>| ControlFlow::Break(()),
 ///     |_state: &(), frame: &mut Frame<'_>| {
 ///         frame.widget(key("hi"), frame.area(), &Text::new("hi"));
 ///     },
@@ -378,19 +521,23 @@ pub async fn run<S>(
 /// Theming is also opt-in — most apps never set it — so it belongs on a builder
 /// whose defaults reproduce `run` exactly. `run` stays as the terse entry point
 /// and simply delegates to `App::new(...).run()`, so there is one loop, not two.
-pub struct App<S, U, V> {
+pub struct App<S, U, V, M = ()> {
     state: S,
     update: U,
     view: V,
     theme: Theme,
     theme_file: Option<PathBuf>,
     mode: Mode,
+    /// Ties the app to its message type without owning one; the `fn() -> M`
+    /// form keeps `App` `Send`-agnostic and variance-correct.
+    _marker: std::marker::PhantomData<fn() -> M>,
 }
 
-impl<S, U, V> App<S, U, V>
+impl<S, U, V, M> App<S, U, V, M>
 where
-    U: FnMut(&mut S, Update<'_>) -> ControlFlow<()>,
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
     V: Fn(&S, &mut Frame<'_>),
+    M: Send + 'static,
 {
     /// Creates an app from owned `state`, an `update`, and a `view`, using the
     /// default theme, no theme file, and the default screen [`Mode`]
@@ -407,6 +554,7 @@ where
             theme: Theme::default(),
             theme_file: None,
             mode: Mode::default(),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -426,12 +574,13 @@ where
     /// use std::ops::ControlFlow;
     ///
     /// use rabbitui::App;
+    /// use rabbitui::app::Update;
     /// use rabbitui_core::frame::Frame;
     /// use rabbitui_core::mode::Mode;
     ///
     /// let app = App::new(
     ///     (),
-    ///     |_: &mut (), _| ControlFlow::Break(()),
+    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
     ///     |_: &(), _: &mut Frame<'_>| {},
     /// )
     /// .mode(Mode::inline(3));
@@ -455,12 +604,13 @@ where
     /// use std::ops::ControlFlow;
     ///
     /// use rabbitui::App;
+    /// use rabbitui::app::Update;
     /// use rabbitui_core::frame::Frame;
     /// use rabbitui_core::theme::Theme;
     ///
     /// let app = App::new(
     ///     (),
-    ///     |_: &mut (), _| ControlFlow::Break(()),
+    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
     ///     |_: &(), _: &mut Frame<'_>| {},
     /// )
     /// .theme(Theme::catppuccin_mocha());
@@ -507,7 +657,7 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
-        let App { mut state, mut update, view, theme: base_theme, theme_file, mode } = self;
+        let App { mut state, mut update, view, theme: base_theme, theme_file, mode, .. } = self;
 
         // Load the initial theme from the file (if any), layered over the base.
         // A startup error is fatal; a mid-run reload error is not (see below).
@@ -524,6 +674,11 @@ where
         let mut store = StateStore::new();
         let mut focus = Focus::new();
 
+        // The effect runtime (ADR 0005): spawn tables, group abort, and the
+        // mailbox. It touches no terminal, so it is one `select!` arm below and is
+        // unit-tested headless in `crate::effect`.
+        let mut effects: Effects<M> = Effects::new();
+
         // Buffers are sized for the mode: the full viewport in alt-screen, or the
         // bounded live-tail height in inline. `front` is what the terminal shows,
         // `back` the frame being built. `apply_mode_switch` and the resize branch
@@ -539,78 +694,187 @@ where
         terminal.write_bytes(&engine.render(&back, &front, &[])).await?;
         std::mem::swap(&mut front, &mut back);
 
-        loop {
-            let input = terminal.next_event().await?;
+        // The frame budget (~60fps): the earliest instant a redraw may paint. A
+        // burst of stream messages is absorbed into one frame — after handling an
+        // event the loop drains everything already queued before painting, and if
+        // the budget has not elapsed it arms a trailing deadline so the last state
+        // always paints (ADR 0005 / tui2's coalescing requester).
+        let frame_budget = Duration::from_micros(16_667);
+        // When `Some`, a paint is pending and must land at this instant at the
+        // latest; the `select!` arms a sleep to it.
+        let mut next_paint: Option<tokio::time::Instant> = None;
+        // Whether state changed since the last paint (a redraw is owed).
+        let mut dirty = false;
+        let mut last_paint = tokio::time::Instant::now();
 
+        // Commits and a requested mode switch accumulate across every `update`
+        // handled since the last paint (an input, plus a coalesced burst of effect
+        // messages), then flush together when the frame lands.
+        let mut commits_buf: Vec<CommitLine> = Vec::new();
+        let mut set_mode_buf: Option<Mode> = None;
+
+        loop {
             // Debug-build hot reload: one stat per iteration. On a changed mtime,
             // re-read and re-parse; keep the old theme on any reload error.
             if watcher.poll_changed() {
                 theme = watcher.theme();
+                dirty = true;
             }
 
-            // Buffered side effects the app requests this iteration (commits, a
-            // mode switch). Drained after `update` and applied between frames.
-            let pending = RefCell::new(Pending::default());
-
-            // Poll for a resize (substrate has no resize event; see `Event`). On a
-            // change, re-lay-out for the new viewport (a full repaint) and deliver
-            // the resize to `update`.
-            let new_viewport = terminal.size()?;
-            if new_viewport != viewport {
-                viewport = new_viewport;
-                let size = engine.buffer_size(viewport);
-                front.resize(size);
-                back.resize(size);
-                // The live tail re-lays-out to the new width and fully repaints;
-                // committed history is the terminal's problem (it reflows).
-                engine.force_repaint();
-                let ctx = Update::new(Event::Resize(viewport), &[], &pending);
-                if let ControlFlow::Break(()) = update(&mut state, ctx) {
-                    return leave(terminal, &mut engine).await;
+            // Wait for the next wake: an input event, an effect result, or the
+            // trailing paint deadline. Biased so input and effects are preferred
+            // over the timer, and effects are drained ahead of blocking on input.
+            let wake = {
+                let deadline = next_paint;
+                tokio::select! {
+                    biased;
+                    // An effect produced a message or failed.
+                    item = effects.recv() => match item {
+                        Some(outbox) => Wake::Effect(outbox),
+                        // The mailbox can only close if every sender is gone, which
+                        // cannot happen while `effects` holds its own `tx`; treat a
+                        // close defensively as "nothing to do, keep waiting on input".
+                        None => Wake::Idle,
+                    },
+                    // A decoded input event (or a resize the size-poll synthesizes).
+                    input = terminal.next_event() => Wake::Input(Box::new(input?)),
+                    // The trailing frame deadline elapsed; time to paint.
+                    () = sleep_until(deadline), if deadline.is_some() => Wake::Paint,
                 }
-            }
+            };
 
-            // Map the substrate event into the core vocabulary; unmapped input is
-            // dropped (see `crate::input`), so the loop simply repaints and waits.
-            if let Some(event) = crate::input::from_qwertty(&input) {
-                // Route through the previous frame's facts and handlers. The app
-                // always sees the event plus any outcomes in one `Update`; a
-                // consumed event still carries context, and its effect is
-                // delivered as an outcome rather than a raw key to re-interpret.
-                let result = route(&facts, &handlers, &mut focus, &mut store, &event);
-                let ctx = Update::new(Event::Input(event), &result.outcomes, &pending);
-                if let ControlFlow::Break(()) = update(&mut state, ctx) {
-                    // Flush any commits made in this final update into scrollback
-                    // before leaving (they belong in history), then tear down.
-                    let Pending { commits, set_mode } = pending.into_inner();
-                    let remaining = apply_mode_switch(
-                        &mut terminal,
-                        &mut engine,
-                        set_mode,
-                        commits,
-                        viewport,
-                        &mut front,
-                        &mut back,
-                    )
-                    .await?;
-                    if !remaining.is_empty() {
-                        // Land any commits still pending as one last inline frame
-                        // (an empty tail — the app is quitting).
-                        let empty = Buffer::new(Size::new(viewport.width, 0));
-                        terminal
-                            .write_bytes(&engine.render(&empty, &front, &remaining))
-                            .await?;
+            // Fold this wake into state through `update`. Each event source builds
+            // one `Update`; the pending sink buffers commits, mode switches,
+            // effects, and between-frames widget commands / focus.
+            let mut broke = false;
+            match wake {
+                Wake::Idle => {}
+                Wake::Paint => {
+                    // The deadline fired; fall through to the paint below.
+                    next_paint = None;
+                }
+                Wake::Input(input) => {
+                    // Poll for a resize (substrate has no resize event; see
+                    // `Event`). On a change, re-lay-out for the new viewport and
+                    // deliver the resize before the input.
+                    let new_viewport = terminal.size()?;
+                    if new_viewport != viewport {
+                        viewport = new_viewport;
+                        let size = engine.buffer_size(viewport);
+                        front.resize(size);
+                        back.resize(size);
+                        engine.force_repaint();
+                        let pending = RefCell::new(Pending::default());
+                        let ctx = Update::new(Event::Resize(viewport), &[], &pending);
+                        broke = update(&mut state, ctx).is_break();
+                        drain_pending(
+                            pending.into_inner(),
+                            &mut effects,
+                            &mut store,
+                            &facts,
+                            &mut focus,
+                            &mut commits_buf,
+                            &mut set_mode_buf,
+                        );
+                        dirty = true;
                     }
-                    return leave(terminal, &mut engine).await;
+
+                    if !broke {
+                        if let Some(event) = crate::input::from_qwertty(&input) {
+                            let result =
+                                route(&facts, &handlers, &mut focus, &mut store, &event);
+                            let pending = RefCell::new(Pending::default());
+                            let ctx =
+                                Update::new(Event::Input(event), &result.outcomes, &pending);
+                            broke = update(&mut state, ctx).is_break();
+                            drain_pending(
+                                pending.into_inner(),
+                                &mut effects,
+                                &mut store,
+                                &facts,
+                                &mut focus,
+                                &mut commits_buf,
+                                &mut set_mode_buf,
+                            );
+                            dirty = true;
+                        }
+                    }
+                }
+                Wake::Effect(outbox) => {
+                    broke = deliver_effect(
+                        outbox,
+                        &mut state,
+                        &mut update,
+                        &mut effects,
+                        &mut store,
+                        &facts,
+                        &mut focus,
+                        &mut commits_buf,
+                        &mut set_mode_buf,
+                    );
+                    dirty = true;
+
+                    // Coalescing drain: absorb every already-queued effect result
+                    // into this one frame with a biased `try_recv` loop, so a flood
+                    // of stream messages is one render, not one render per message.
+                    while !broke {
+                        let Some(next) = effects.try_recv() else { break };
+                        broke = deliver_effect(
+                            next,
+                            &mut state,
+                            &mut update,
+                            &mut effects,
+                            &mut store,
+                            &facts,
+                            &mut focus,
+                            &mut commits_buf,
+                            &mut set_mode_buf,
+                        );
+                    }
                 }
             }
 
-            let Pending { commits, set_mode } = pending.into_inner();
+            if broke {
+                // Flush any commits made in this final update into scrollback
+                // before leaving (they belong in history), then tear down.
+                let commits = std::mem::take(&mut commits_buf);
+                let set_mode = set_mode_buf.take();
+                let remaining = apply_mode_switch(
+                    &mut terminal,
+                    &mut engine,
+                    set_mode,
+                    commits,
+                    viewport,
+                    &mut front,
+                    &mut back,
+                )
+                .await?;
+                if !remaining.is_empty() {
+                    let empty = Buffer::new(Size::new(viewport.width, 0));
+                    terminal.write_bytes(&engine.render(&empty, &front, &remaining)).await?;
+                }
+                return leave(terminal, &mut engine).await;
+            }
 
-            // Apply a requested mode switch, flushing pending commits into
-            // scrollback *before* an alt-screen entry so nothing is lost behind
-            // it. Returns the commits that the frame render should still flush
-            // (for an inline target; empty otherwise).
+            if !dirty {
+                continue;
+            }
+
+            // Respect the frame budget: if the last paint was recent, arm a
+            // trailing deadline instead of painting now, so a burst coalesces into
+            // one frame at the budget boundary. When the deadline (or the next
+            // event) arrives, `dirty` is still set and we paint.
+            let now = tokio::time::Instant::now();
+            if now.duration_since(last_paint) < frame_budget {
+                next_paint = Some(last_paint + frame_budget);
+                continue;
+            }
+
+            // Apply any buffered mode switch, flushing pending commits into
+            // scrollback *before* an alt-screen entry. Returns the commits the
+            // frame render should still flush (inline target; empty otherwise).
+            let commits = std::mem::take(&mut commits_buf);
+            let set_mode = set_mode_buf.take();
             let frame_commits = apply_mode_switch(
                 &mut terminal,
                 &mut engine,
@@ -622,9 +886,9 @@ where
             )
             .await?;
 
-            // Repaint from scratch, capturing this frame's facts for the next
-            // event. A hot-reloaded theme repaints the whole frame (the diff
-            // against the front buffer recovers exactly the changed cells).
+            // Draw the next frame, apply between-frames widget commands and the
+            // focus request against its facts (the shared `core::pending` path,
+            // identical to `TestApp`), then paint.
             back.reset();
             let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
             facts = drawn.0;
@@ -632,8 +896,102 @@ where
             focus.reconcile(&facts);
             terminal.write_bytes(&engine.render(&back, &front, &frame_commits)).await?;
             std::mem::swap(&mut front, &mut back);
+
+            dirty = false;
+            next_paint = None;
+            last_paint = tokio::time::Instant::now();
         }
     }
+}
+
+/// What woke the loop's `select!`: an input, an effect result, the paint
+/// deadline, or a spurious idle (a defensively-handled closed mailbox).
+enum Wake<M> {
+    /// A raw substrate input event from the terminal (boxed: qwertty's event is
+    /// larger than the other small variants, so this keeps `Wake` compact).
+    Input(Box<qwertty::InputEvent>),
+    /// An effect result (a message or a contained failure).
+    Effect(Outbox<M>),
+    /// The trailing frame deadline elapsed.
+    Paint,
+    /// Nothing to do (the mailbox closed, which cannot happen in practice).
+    Idle,
+}
+
+/// Sleeps until `deadline`, or parks forever if there is none.
+///
+/// The trailing-paint arm of the loop's `select!` is guarded by
+/// `if deadline.is_some()`, so the `None` branch here never actually runs; it
+/// exists only so the arm has a concrete future to name.
+async fn sleep_until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Drains one update's [`Pending`] into the running loop: queues effects onto the
+/// runtime, applies between-frames widget commands and the focus request through
+/// the shared [`core::pending`](rabbitui_core::pending) path, and accumulates
+/// commits / a mode switch for the next paint.
+///
+/// Widget commands and focus apply against the *last drawn* frame's `facts` and
+/// the store immediately (a redraw follows because the loop marks itself dirty),
+/// so a cleared field or a moved focus shows on the next frame — the between-frames
+/// semantics, using the exact function `TestApp` uses.
+#[allow(clippy::too_many_arguments)]
+fn drain_pending<M: Send + 'static>(
+    pending: Pending<M>,
+    effects: &mut Effects<M>,
+    store: &mut StateStore,
+    facts: &FrameFacts,
+    focus: &mut Focus,
+    commits_buf: &mut Vec<CommitLine>,
+    set_mode_buf: &mut Option<Mode>,
+) {
+    let Pending { commits, set_mode, effects: cmds, widget } = pending;
+    for cmd in cmds {
+        effects.spawn(cmd);
+    }
+    widget.apply(store, facts, focus);
+    commits_buf.extend(commits);
+    if set_mode.is_some() {
+        *set_mode_buf = set_mode;
+    }
+}
+
+/// Delivers one effect result to `update` and drains its pending, returning
+/// whether the app asked to break.
+///
+/// A [`Outbox::Message`] becomes [`Event::Message`]; a [`Outbox::Failed`] becomes
+/// [`Event::EffectFailed`]. Either way the app's `update` sees it in the one
+/// serialized loop, exactly like an input event, and may itself spawn more
+/// effects or command widgets.
+#[allow(clippy::too_many_arguments)]
+fn deliver_effect<S, M, U>(
+    outbox: Outbox<M>,
+    state: &mut S,
+    update: &mut U,
+    effects: &mut Effects<M>,
+    store: &mut StateStore,
+    facts: &FrameFacts,
+    focus: &mut Focus,
+    commits_buf: &mut Vec<CommitLine>,
+    set_mode_buf: &mut Option<Mode>,
+) -> bool
+where
+    M: Send + 'static,
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
+{
+    let event = match outbox {
+        Outbox::Message(message) => Event::Message(message),
+        Outbox::Failed(error) => Event::EffectFailed(error),
+    };
+    let pending = RefCell::new(Pending::default());
+    let ctx = Update::new(event, &[], &pending);
+    let broke = update(state, ctx).is_break();
+    drain_pending(pending.into_inner(), effects, store, facts, focus, commits_buf, set_mode_buf);
+    broke
 }
 
 /// Writes the active engine's teardown bytes, then closes the terminal.
@@ -894,10 +1252,10 @@ mod tests {
 
     #[test]
     fn resize_event_carries_the_new_size() {
-        let event = Event::Resize(Size::new(120, 40));
+        let event: Event = Event::Resize(Size::new(120, 40));
         match event {
             Event::Resize(size) => assert_eq!(size, Size::new(120, 40)),
-            Event::Input(_) => panic!("expected a resize event"),
+            _ => panic!("expected a resize event"),
         }
     }
 
@@ -905,7 +1263,7 @@ mod tests {
     fn outcome_for_matches_root_level_key_path() {
         let id = WidgetId::ROOT.child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
-        let pending = RefCell::new(Pending::default());
+        let pending = RefCell::new(Pending::<()>::default());
         let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
         assert_eq!(update.outcome_for(&[key("ok")]), Some(&Outcome::Activated));
         assert_eq!(update.outcome_for(&[key("nope")]), None);
@@ -915,7 +1273,7 @@ mod tests {
     fn outcome_for_matches_nested_key_path() {
         let id = WidgetId::ROOT.child(key("panel")).child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
-        let pending = RefCell::new(Pending::default());
+        let pending = RefCell::new(Pending::<()>::default());
         let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
         assert_eq!(update.outcome_for(&[key("panel"), key("ok")]), Some(&Outcome::Activated));
         // The wrong depth does not match.
@@ -924,7 +1282,7 @@ mod tests {
 
     #[test]
     fn commit_and_set_mode_are_buffered() {
-        let pending = RefCell::new(Pending::default());
+        let pending = RefCell::new(Pending::<()>::default());
         let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
         update.commit("first");
         update.commit("second");

@@ -22,12 +22,19 @@
 //! - [`qwertty::KeyInput`] arrows → [`Key::Up`]/[`Key::Down`]/[`Key::Left`]/
 //!   [`Key::Right`].
 //!
+//! - A **Ctrl-letter chord** (a raw C0 byte in `0x01..=0x1A`) → the letter
+//!   [`Key::Char`] with the Ctrl [`Modifiers`](rabbitui_core::input::Modifiers)
+//!   set — so an app can bind `Ctrl-L` (clear the input) even though qwertty has
+//!   no modifier protocol yet, and a widget that ignores ctrl chords (TextInput)
+//!   leaves them for the app. `Ctrl-I`/`Ctrl-M` are indistinguishable from
+//!   Tab/Enter at the byte level and stay Tab/Enter, as every terminal treats
+//!   them.
+//!
 //! Everything else is **dropped** (mapped to `None`): unclassified CSI
 //! sequences, undecoded bytes, and control bytes rabbitui has no key for yet.
-//! qwertty does not yet decode Shift-Tab, Home/End, Page Up/Down, a forward
-//! Delete key, or keyboard modifiers, so [`Key::BackTab`], [`Key::Home`],
-//! [`Key::End`], [`Key::PageUp`], [`Key::PageDown`], [`Key::Delete`], and any
-//! non-empty [`Modifiers`](rabbitui_core::input::Modifiers) never arise from
+//! qwertty does not yet decode Shift-Tab, Home/End, Page Up/Down, or a forward
+//! Delete key, so [`Key::BackTab`], [`Key::Home`], [`Key::End`],
+//! [`Key::PageUp`], [`Key::PageDown`], and [`Key::Delete`] never arise from
 //! this mapping in slice 3 — the core vocabulary is ahead of the substrate on
 //! purpose, so widget code written against it needs no revision when qwertty
 //! lands those protocols (ADR 0006 §9's "decode on top, delete module-by-module"
@@ -35,7 +42,7 @@
 //! sequence must never be mistaken for a binding.
 
 use qwertty::{ControlInput, InputEvent as QwerttyEvent, KeyInput};
-use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::input::{InputEvent, Key, KeyEvent};
 
 /// Maps one qwertty input event to a core [`InputEvent`], or `None` if rabbitui
 /// has no key for it (the event is dropped).
@@ -57,6 +64,13 @@ use rabbitui_core::input::{InputEvent, Key};
 /// ```
 #[must_use]
 pub fn from_qwertty(event: &QwerttyEvent) -> Option<InputEvent> {
+    // A Ctrl-letter chord arrives as a raw C0 byte in 0x01..=0x1A; surface it as
+    // the letter key with the Ctrl modifier so apps can bind Ctrl-L and friends
+    // (a widget like TextInput leaves ctrl chords for the app — text_input.rs).
+    if let QwerttyEvent::Control(ControlInput::Other(byte @ 0x01..=0x1A)) = event {
+        let letter = (b'a' + (byte - 1)) as char;
+        return Some(InputEvent::Key(KeyEvent::new(Key::Char(letter)).ctrl()));
+    }
     let key = match event {
         QwerttyEvent::Text(ch) => Key::Char(*ch),
         QwerttyEvent::Control(control) => control_key(*control)?,
@@ -164,6 +178,23 @@ mod tests {
     #[test]
     fn unmapped_input_is_dropped() {
         assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Null)), None);
-        assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x03))), None);
+        // A C0 byte outside the Ctrl-letter range (0x01..=0x1A) has no key.
+        assert_eq!(from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x1c))), None);
+    }
+
+    #[test]
+    fn ctrl_letter_c0_bytes_map_to_ctrl_char() {
+        use rabbitui_core::input::KeyEvent;
+        // Ctrl-L is byte 0x0c; it surfaces as the letter with the Ctrl modifier so
+        // apps can bind it (and TextInput, which ignores ctrl chords, leaves it).
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x0c))),
+            Some(InputEvent::Key(KeyEvent::new(Key::Char('l')).ctrl())),
+        );
+        // Ctrl-A is 0x01 (the low end of the range).
+        assert_eq!(
+            from_qwertty(&QwerttyEvent::Control(ControlInput::Other(0x01))),
+            Some(InputEvent::Key(KeyEvent::new(Key::Char('a')).ctrl())),
+        );
     }
 }

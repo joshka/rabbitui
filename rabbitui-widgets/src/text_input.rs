@@ -18,12 +18,12 @@ use unicode_width::UnicodeWidthStr;
 /// (uncontrolled): `TextInput::new()` takes no value, the widget owns the edited
 /// string in its [`TextInputState`], and the app learns it through
 /// [`Outcome::Changed`] on every edit and [`Outcome::Submitted`] on Enter.
-/// Programmatic set/clear needs commands-to-widgets (slice 6); until then an app
-/// that must force a value re-keys the widget (a new [`key`] gives fresh state).
-/// This is a recorded delta against ADR 0001's `TextInput::new(&value)` sketch,
-/// folded back when widget commands land.
-///
-/// [`key`]: rabbitui_core::id::key
+/// Programmatic set/clear is now a **widget command** (slice 6): the app forces
+/// the value with `update.widget::<TextInput>(path, |s| s.clear())` (or
+/// [`set_value`](TextInputState::set_value)), applied between frames. This
+/// replaces slice 4's re-keying workaround and folds back the ADR 0001 delta —
+/// the value stays uncontrolled at *event* time (races are impossible) but is
+/// controllable at *command* time (the app owns clears and sets).
 ///
 /// # Editing
 ///
@@ -142,6 +142,56 @@ impl TextInputState {
     pub fn insert_str(&mut self, text: &str) {
         self.value.insert_str(self.cursor, text);
         self.cursor += text.len();
+    }
+
+    /// Clears the value and resets the cursor and scroll to the start.
+    ///
+    /// The programmatic reset a widget command drives (slice 6): the app clears
+    /// the field on submit with
+    /// `update.widget::<TextInput>(path, |s| s.clear())`, replacing the slice-4
+    /// re-keying workaround. Because it is a controlled mutation the app owns the
+    /// timing, not the field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::text_input::TextInputState;
+    ///
+    /// let mut state = TextInputState::default();
+    /// state.insert_str("draft");
+    /// state.clear();
+    /// assert_eq!(state.value(), "");
+    /// assert_eq!(state.cursor(), 0);
+    /// ```
+    pub fn clear(&mut self) {
+        self.value.clear();
+        self.cursor = 0;
+        self.scroll = 0;
+    }
+
+    /// Replaces the value with `value` and places the cursor at its end.
+    ///
+    /// The controlled-set companion to [`clear`](Self::clear): a widget command
+    /// forces the field's content (a recalled draft, a completion). The cursor
+    /// lands at the end (a grapheme boundary by construction); the scroll offset
+    /// is recomputed at the next render to keep the cursor in view.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::text_input::TextInputState;
+    ///
+    /// let mut state = TextInputState::default();
+    /// state.set_value("hello");
+    /// assert_eq!(state.value(), "hello");
+    /// assert_eq!(state.cursor(), "hello".len());
+    /// ```
+    pub fn set_value(&mut self, value: impl Into<String>) {
+        self.value = value.into();
+        self.cursor = self.value.len();
+        // The next render recomputes scroll against the area width; resetting it
+        // here avoids a stale offset if the new value is shorter.
+        self.scroll = 0;
     }
 
     /// Deletes the grapheme immediately before the cursor (Backspace), if any.
@@ -577,6 +627,27 @@ mod tests {
         let buffer = render_state(&mut state, 4, true);
         assert_eq!(state.scroll, 0);
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().symbol, "a");
+    }
+
+    #[test]
+    fn clear_resets_value_cursor_and_scroll() {
+        let mut state = TextInputState::default();
+        type_str(&mut state, "abcdefgh");
+        render_state(&mut state, 4, true);
+        assert_eq!(state.scroll, 5);
+        state.clear();
+        assert_eq!(state.value(), "");
+        assert_eq!(state.cursor(), 0);
+        assert_eq!(state.scroll, 0);
+    }
+
+    #[test]
+    fn set_value_replaces_and_places_cursor_at_end() {
+        let mut state = TextInputState::default();
+        type_str(&mut state, "old");
+        state.set_value("hello");
+        assert_eq!(state.value(), "hello");
+        assert_eq!(state.cursor(), "hello".len());
     }
 
     #[test]

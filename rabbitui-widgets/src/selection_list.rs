@@ -167,6 +167,29 @@ impl SelectionListState {
         self.offset
     }
 
+    /// Sets the selected row index programmatically.
+    ///
+    /// The controlled-selection surface a widget command drives (slice 6): the
+    /// app moves the selection with
+    /// `update.widget::<SelectionList<_>>(path, |s| s.select(i))` — resetting to
+    /// the top after a filter, jumping to a search hit. The index is re-clamped
+    /// into `0..len` at the next render (as event-time movement already is), and
+    /// scroll-into-view follows, so an out-of-range `i` is corrected rather than
+    /// dangling.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::selection_list::SelectionListState;
+    ///
+    /// let mut state = SelectionListState::default();
+    /// state.select(3);
+    /// assert_eq!(state.selected(), 3);
+    /// ```
+    pub fn select(&mut self, index: usize) {
+        self.selected = index;
+    }
+
     /// Clamps the selection into `0..len` (or 0 when empty).
     ///
     /// Called at render time so a source that shrank between frames never leaves
@@ -444,6 +467,23 @@ mod tests {
         let buffer = render(&list, &mut state, 5, false);
         let selected_style = buffer.get(Position::new(0, 1)).unwrap().style;
         assert_eq!(selected_style, Theme::default().style(Role::Muted));
+    }
+
+    #[test]
+    fn select_sets_index_and_render_clamps_and_scrolls() {
+        let list = SelectionList::new(items()); // 10 rows
+        let mut state = SelectionListState::default();
+        // Select a mid-list row programmatically (a widget command would do this).
+        state.select(7);
+        assert_eq!(state.selected(), 7);
+        let buffer = render(&list, &mut state, 3, true);
+        // Scroll-into-view brought row 7 to the bottom of a 3-row window.
+        assert_eq!(state.offset(), 5);
+        assert_eq!(row(&buffer, 2), "item7");
+        // An out-of-range selection is re-clamped at render, like event movement.
+        state.select(99);
+        render(&list, &mut state, 3, true);
+        assert_eq!(state.selected(), 9);
     }
 
     #[test]

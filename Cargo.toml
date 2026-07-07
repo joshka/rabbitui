@@ -16,7 +16,8 @@ rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
 # Path dependency during development; switches to a git (then crates.io) dependency
 # when qwertty publishes. See docs/adr/0012-terminal-substrate.md.
 qwertty = { path = "../../../qwertty", features = ["tokio"] }
-tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
+futures-core = { version = "0.3", default-features = false }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }

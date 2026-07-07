@@ -88,6 +88,7 @@ use rabbitui_core::frame::{Frame, HandlerMap};
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::WidgetId;
 use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::pending::Pending;
 use rabbitui_core::routing::{Focus, RouteResult, route};
 use rabbitui_core::store::StateStore;
 use rabbitui_core::theme::Theme;
@@ -377,6 +378,115 @@ impl<S> TestApp<S> {
         self.send_event(InputEvent::key(key))
     }
 
+    /// Injects a message the way the runtime delivers an effect result, folding it
+    /// into state and re-rendering.
+    ///
+    /// The runtime turns an effect's [`Event::Message`] into a `update` call; a
+    /// headless test has no async runtime, so it drives the message-fold directly:
+    /// `update` mutates the state as the app's `update` would on
+    /// `Event::Message(m)`, and the frame that follows renders the new state. This
+    /// is the `send_message`-equivalent the effects slice needs — the same shape
+    /// as [`send`](Self::send), named for injecting effect results rather than
+    /// arranging preconditions.
+    ///
+    /// [`Event::Message`]: https://docs.rs/rabbitui/latest/rabbitui/app/enum.Event.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::style::Style;
+    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_testing::TestApp;
+    ///
+    /// struct Label<'a>(&'a str);
+    /// impl Widget for Label<'_> {
+    ///     type State = ();
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
+    ///     }
+    /// }
+    ///
+    /// fn view(results: &Vec<String>, frame: &mut Frame<'_>) {
+    ///     let text = results.join(",");
+    ///     frame.widget(key("out"), frame.area(), &Label(&text));
+    /// }
+    ///
+    /// // A fetch "message" arrives and the app folds it into state.
+    /// let mut app = TestApp::new(Size::new(8, 1), Vec::<String>::new());
+    /// app.inject(|results| results.push("hit".to_string()), view);
+    /// app.assert_buffer_lines(&["hit"]);
+    /// ```
+    pub fn inject(
+        &mut self,
+        update: impl FnOnce(&mut S),
+        view: impl FnOnce(&S, &mut Frame<'_>),
+    ) {
+        self.send(update, view);
+    }
+
+    /// Records between-frames widget commands and a focus request, applies them
+    /// against the last rendered frame through the shared [`Pending::apply`], then
+    /// re-renders through `view`.
+    ///
+    /// This is the *same* [`core::pending`](rabbitui_core::pending) apply the
+    /// runtime runs — the harness and runtime cannot drift by construction (the
+    /// ADR 0006 requirement extended to focus and widget commands). `build`
+    /// records commands (`p.command::<W>(id, f)`) and at most one focus request
+    /// (`p.request_focus(id)`) into a fresh [`Pending`]; they apply against the
+    /// facts and store from the most recent [`render`](Self::render) (commanding a
+    /// widget that was never declared, or focusing a non-focusable one, trips a
+    /// `debug_assert`, exactly as in the runtime), then the frame re-renders so the
+    /// mutation is visible.
+    ///
+    /// [`Pending::apply`]: rabbitui_core::pending::Pending::apply
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::style::Style;
+    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_testing::TestApp;
+    ///
+    /// #[derive(Default)]
+    /// struct Field {
+    ///     value: String,
+    /// }
+    /// struct Input;
+    /// impl Widget for Input {
+    ///     type State = Field;
+    ///     fn render(&self, state: &mut Field, ctx: &mut RenderCtx<'_>) {
+    ///         ctx.set_string(Position::ORIGIN, &state.value, Style::new());
+    ///     }
+    /// }
+    ///
+    /// fn view(_s: &(), frame: &mut Frame<'_>) {
+    ///     frame.widget(key("field"), frame.area(), &Input);
+    /// }
+    ///
+    /// let mut app = TestApp::new(Size::new(8, 1), ());
+    /// app.render(view);
+    /// // Force the field's value via a widget command, applied between frames.
+    /// let id = WidgetId::ROOT.child(key("field"));
+    /// app.apply_pending(|p| p.command::<Input>(id, |s| s.value = "hi".into()), view);
+    /// app.assert_buffer_lines(&["hi"]);
+    /// ```
+    pub fn apply_pending(
+        &mut self,
+        build: impl FnOnce(&mut Pending),
+        view: impl FnOnce(&S, &mut Frame<'_>),
+    ) {
+        let mut pending = Pending::new();
+        build(&mut pending);
+        pending.apply(&mut self.store, &self.facts, &mut self.focus);
+        self.render(view);
+    }
+
     /// The rendered buffer as text: rows joined by `'\n'`, each row's trailing
     /// spaces trimmed.
     ///
@@ -602,5 +712,42 @@ mod tests {
         let mut app = TestApp::new(Size::new(3, 1), ());
         app.render(label_view("no"));
         app.assert_buffer_lines(&["yes"]);
+    }
+
+    /// A focusable widget owning a mutable string, to exercise the between-frames
+    /// widget-command and focus apply through the shared `core::pending` path.
+    #[derive(Default)]
+    struct FieldState {
+        value: String,
+    }
+    struct Field;
+    impl Widget for Field {
+        type State = FieldState;
+        fn render(&self, state: &mut FieldState, ctx: &mut RenderCtx<'_>) {
+            ctx.focusable(true);
+            ctx.set_string(Position::ORIGIN, &state.value, Style::new());
+        }
+    }
+
+    fn field_view((): &(), frame: &mut Frame<'_>) {
+        frame.widget(key("field"), frame.area(), &Field);
+    }
+
+    #[test]
+    fn apply_pending_runs_a_widget_command_between_frames() {
+        let mut app = TestApp::new(Size::new(6, 1), ());
+        app.render(field_view);
+        let id = rabbitui_core::id::WidgetId::ROOT.child(key("field"));
+        app.apply_pending(|p| p.command::<Field>(id, |s| s.value = "set".into()), field_view);
+        app.assert_buffer_lines(&["set"]);
+    }
+
+    #[test]
+    fn apply_pending_honors_a_focus_request() {
+        let mut app = TestApp::new(Size::new(6, 1), ());
+        app.render(field_view);
+        let id = rabbitui_core::id::WidgetId::ROOT.child(key("field"));
+        app.apply_pending(|p| p.request_focus(id), field_view);
+        assert_eq!(app.focus(), Some(id));
     }
 }

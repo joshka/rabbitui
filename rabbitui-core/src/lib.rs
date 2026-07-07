@@ -25,6 +25,7 @@ pub mod input;
 pub mod layout;
 pub mod mode;
 pub mod outcome;
+pub mod pending;
 pub mod routing;
 pub mod store;
 pub mod style;

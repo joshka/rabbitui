@@ -93,3 +93,76 @@ by construction, exactly like `routing::route`. TestApp gains
 `send_message`-equivalent state mutation plus the same between-frames apply.
 Todo example migrates to widget-command clear; its integration test updates
 accordingly.
+
+## Implementation deltas
+
+Recorded during implementation; decisions favor the simplest option consistent
+with ADR 0005/0006.
+
+- **`Event<M>` / `Update<'a, M>` lost `Copy`.** `Event::Message(M)` and
+  `Event::EffectFailed(EffectError)` are not `Copy` (`M` is arbitrary,
+  `EffectError` owns a `String`), so `Event<M>` derives only `Clone` (bounded on
+  `M: Clone`) and `Update` derives only `Debug`. Consequently `Update::event()`
+  now returns `&Event<M>` rather than `Event` by value. All call sites match on
+  the reference (`if let Event::Input(input) = update.event()` binds by ref),
+  which the examples already did, so the fallout was mechanical.
+- **`App<S, U, V, M = ()>` carries a `PhantomData<fn() -> M>`.** `M` appears only
+  in the `update` closure's parameter, not in a field, so the struct needs a
+  marker to name it; `fn() -> M` keeps `App` variance-correct and `Send`-agnostic.
+- **The loop is a `select!` with a `Wake` enum.** Rather than nest the three arm
+  bodies, each arm maps to a `Wake<M>` value (`Input(Box<qwertty::InputEvent>)`,
+  `Effect(Outbox<M>)`, `Paint`, `Idle`) that a `match` below folds into state.
+  The input is boxed because qwertty's event is far larger than the other
+  variants. The trailing-paint arm is guarded `if deadline.is_some()`; a helper
+  `sleep_until(Option<Instant>)` gives it a concrete future (the `None` branch
+  parks forever and never runs under the guard).
+- **Frame budget = 16_667µs (~60fps), dirty flag + `next_paint` deadline.** After
+  any state change the loop marks itself dirty; if the last paint was within the
+  budget it arms a trailing `Instant` deabline instead of painting, so a burst
+  coalesces into one frame at the budget boundary. Effect results additionally
+  drain in a biased `try_recv` loop (`deliver_effect` per item) before the paint,
+  so a stream flood is one render. Proven by
+  `effect::tests::flood_of_stream_messages_drains_in_one_burst`.
+- **Widget commands apply against the *last drawn* frame's facts, immediately in
+  `drain_pending`, with a redraw following.** `core::pending::Pending::apply`
+  couples commands (store-only) and focus (facts) into one call. Applying against
+  the last frame's facts + store and then repainting (the loop is always dirty
+  after an update) is equivalent to "between frames" for every case where the
+  commanded/focused widget was declared in the previous frame — the flagship
+  cases (clear-on-submit, focus an existing field). The one edge it does *not*
+  cover is declare-then-focus of a widget that appears only in the frame the
+  command triggers; that would need the *next* frame's facts, and merging several
+  updates' `WidgetPending` (which has no extend API) across a paint. Deferred as
+  a known limitation; the `debug_assert` in `apply` still fires loudly if such a
+  focus target never materializes.
+- **`Ctrl-L` required a substrate-bridge in `rabbitui::input`.** qwertty has no
+  modifier protocol, so a Ctrl-letter chord arrives as a raw C0 byte
+  (`ControlInput::Other(0x01..=0x1A)`). The mapper now surfaces those as the
+  letter `Key::Char` with the Ctrl modifier set, so an app can bind `Ctrl-L` and
+  `TextInput` (which already ignores ctrl chords) leaves it for the app. This is
+  a behavior change: `Ctrl-C` etc. now reach the app instead of being dropped.
+  `Ctrl-I`/`Ctrl-M` stay Tab/Enter (byte-identical, as in every terminal).
+- **`Cmd::stream` bound is `futures_core::Stream`; no `tokio-stream`/`async-stream`.**
+  The stream task hand-rolls a `poll_fn` forwarding loop; the fetch ticker
+  hand-rolls a `Ticker: Stream` over `tokio::time::Interval::poll_tick` (~15
+  lines), exactly as specified.
+- **Panic text extraction.** `Effects::watch` distinguishes a cancel-previous
+  abort (`JoinError::is_cancelled` → report nothing) from a real panic (downcast
+  the payload to `&str`/`String`, else a generic message) so
+  `Event::EffectFailed` carries readable text.
+- **TestApp gained `apply_pending(build, view)` and `inject(update, view)`.**
+  `apply_pending` records into a fresh `core::pending::Pending`, applies it
+  through the *same* `Pending::apply` the runtime uses, and re-renders — the
+  harness/runtime cannot drift. `inject` is the `send_message`-equivalent (a thin
+  alias of `send`, named for folding an effect result).
+- **Fixed inherited failing tests.** `pending.rs`'s two unit tests and its
+  module doctest read/seeded widget state via `get_or_default` *after* the
+  declaring frame ended, tripping the store's per-frame duplicate-id assert. They
+  were shipped compiling-but-failing; switched to `get_dyn_mut` (the between-frames
+  accessor that does not touch `last_seen`), matching how the runtime reaches
+  retained state.
+- **The old todo re-keying is gone.** `examples/todo.rs` and `tests/todo_flow.rs`
+  now use a stable input key and clear on submit via a widget command
+  (`update.widget::<TextInput>` / `TestApp::apply_pending`). A consequence the
+  test now asserts: the input *keeps focus* across a submit (its identity no
+  longer churns).

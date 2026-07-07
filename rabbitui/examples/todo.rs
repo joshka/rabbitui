@@ -16,14 +16,15 @@
 //! - Theme roles end to end (the whole UI is styled by role, re-skinnable with a
 //!   theme file — see `App::theme` / `App::theme_file`).
 //!
-//! # The uncontrolled-input workaround, honestly
+//! # Controlled clear via a widget command (slice 6)
 //!
 //! The value lives in the [`TextInput`]'s retained state, not the app (slice-4
-//! design note). The app cannot force-clear it until widget commands land (slice
-//! 6), so after a submit it **re-keys** the input: the key carries a generation
-//! counter, and bumping it gives the widget fresh (empty) state. This is the
-//! documented interim pattern; it works cleanly here because a submit is exactly
-//! when a fresh field is wanted.
+//! design note). On a submit the app **clears** the field with a widget command —
+//! `update.widget::<TextInput>(&[key("input")], |s| s.clear())` — applied between
+//! frames through the shared [`core::pending`](rabbitui_core::pending) path. This
+//! replaces the slice-4 generation-counter re-keying workaround: the key is now
+//! stable, and the app owns the clear's timing (the value stays uncontrolled at
+//! *event* time, so races are impossible, but is controllable at *command* time).
 //!
 //! Note (substrate gap): qwertty does not yet decode Shift-Tab, Home/End, or a
 //! forward Delete key, so backward traversal and those edit keys are unavailable
@@ -42,16 +43,14 @@ use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::{Role, Theme};
 use rabbitui_widgets::{SelectionList, Text, TextInput};
 
-/// The app's owned state: the todos, the current input draft, and the input's
-/// generation (bumped to re-key — and thus clear — the input after a submit).
+/// The app's owned state: the todos, the current input draft, and the list's
+/// selection.
 #[derive(Default)]
 struct App0 {
     todos: Vec<String>,
     /// The current text of the input, tracked from `Changed` outcomes so a
     /// `Submitted` (which carries no payload) can commit it.
     draft: String,
-    /// Bumped on submit to re-key the `TextInput`, giving it fresh empty state.
-    input_generation: u64,
     /// The list's selected index, mirrored from `Selected` outcomes so `d`
     /// deletes the highlighted row.
     selected: usize,
@@ -71,17 +70,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Folds one update into the app.
 fn update(app: &mut App0, update: Update<'_>) -> ControlFlow<()> {
     // Track the input's draft on every edit; commit it on submit.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[input_key(app)]) {
+    if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
         app.draft = value.clone();
     }
-    if update.outcome_for(&[input_key(app)]) == Some(&Outcome::Submitted) {
+    if update.outcome_for(&[key("input")]) == Some(&Outcome::Submitted) {
         let todo = app.draft.trim().to_string();
         if !todo.is_empty() {
             app.todos.push(todo);
         }
-        // Re-key the input to clear it (uncontrolled workaround) and reset the
-        // draft we track alongside it.
-        app.input_generation += 1;
+        // Clear the field via a widget command (applied between frames) and reset
+        // the draft we track alongside it.
+        update.widget::<TextInput>(&[key("input")], |state| state.clear());
         app.draft.clear();
     }
 
@@ -120,8 +119,9 @@ fn view(app: &App0, frame: &mut Frame<'_>) {
         Constraint::Length(1),
     ]);
 
-    // The input is re-keyed by generation so a submit clears it.
-    frame.widget(input_key(app), input_row, &TextInput::new().placeholder("Add a todo…"));
+    // A stable key: the field is cleared on submit by a widget command, not by
+    // re-keying, so its identity (and thus focus) survives across submits.
+    frame.widget(key("input"), input_row, &TextInput::new().placeholder("Add a todo…"));
 
     // The list borrows the app's todos as its source.
     frame.widget(key("list"), list_area, &SelectionList::new(app.todos.clone()));
@@ -134,10 +134,4 @@ fn view(app: &App0, frame: &mut Frame<'_>) {
         hint_row,
         &Text::new("Tab: focus  Enter: add  d: delete  q: quit").role(Role::Muted),
     );
-}
-
-/// The input's key for this frame, carrying the generation so a submit re-keys
-/// (and clears) it.
-fn input_key(app: &App0) -> rabbitui_core::id::Key {
-    key("input").index(usize::try_from(app.input_generation).unwrap_or(usize::MAX))
 }
