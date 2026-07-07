@@ -21,26 +21,77 @@ Date: 2026-07-06 · **Progress tracker** (updated as each slice commits):
 | 8     | Agent-chrome flagship                  | ✅ done                                           |
 | 9     | Bridge, docs pass, 0.1                 | ✅ done — 0.1 gated on qwertty publish + ADR 0014 |
 
-## Arc 2 — after the walking skeleton (adjudicated 2026-07-07)
+## Arc 2 — make the product match the architecture (adjudicated 2026-07-07, expanded same day)
 
-Arc 1 proved the architecture. Arc 2 is chosen by the survival evidence from our own research
-(prior-art's laws, the wave's demand survey, Textual's moat) rather than by what is fun to build:
+Flagship decision (author): **the agent client** — the app whose requirements are the library's
+pitch. The arcs below are sized for continuous work (no stopping points); ordering is driven by the
+three field documents (both field reports and the terminal gap analysis) and the middle-piece audit.
+Standing non-functional rule (author): **examples and apps must look good, coherent, well laid out,
+well themed — and achieving that must be easy.** Every arc carries that requirement; Arc 2A exists
+to make it structural.
 
-| #   | Arc                                | Why now                                                                                                                                                                                                                                                                                                                               | Status |
-| --- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 2.0 | CI scaffolding + fmt               | Cheap; guards everything after; ratatui-informed practice                                                                                                                                                                                                                                                                             | 🔨     |
-| 2.1 | Middle-piece audit                 | One honest doc driving 2.2-2.5: surface vs. the wave's demand list, cross-cutting concerns (errors, tracing, suspend, config, perf, a11y posture)                                                                                                                                                                                     | ✅     |
-| 2.2 | The binding constraint             | `desired_height(width)` + ScrollView + styled-span Text (the strain trio), plus the audit's additions: a logging/tracing seam (a TUI that cannot log blocks its own flagship), a benchmark harness (ADR 0001's "microseconds" claim is unmeasured — its own revisit trigger), Attrs::remove, Nord/Dracula presets (DESIGN.md promise) | ⬜     |
-| 2.3 | Flagship application               | Survival law #1: a real maintained app as permanent acceptance test. Candidate decision with the author (see below)                                                                                                                                                                                                                   | ⬜     |
-| 2.4 | Story: comparisons + composability | The same small app written in ratatui/Bubble Tea/Textual/rabbitui, honestly compared; a widget-author + composability guide; the agent skill                                                                                                                                                                                          | ⬜     |
-| 2.5 | Design-debt spikes                 | Key/WidgetId debuggability (hashes lose names — devtools and any a11y export need them back); WidthPolicy (waits on qwertty Phase 3); block-level commit                                                                                                                                                                              | ⬜     |
+### Arc 2A — aesthetics as a system (make "looks good" the default)
 
-Ordering: 2.0/2.1 immediately (cheap, parallel); 2.2 before 2.3 (the app is impossible without the
-scroll/measurement trio); 2.4 after 2.2 proves the shapes it would demonstrate; 2.5 as spikes
-whenever blocked elsewhere. Flagship candidates for the author to pick: grow the agent chrome into a
-real client against a real backend; a jj-adjacent viewer (dogfoods daily); a betamax tape UI. Deeper
-docs (mdbook-style concept guide a la ratatui.rs) starts once 2.4's material exists — tutorials
-written before the API stops moving are churn.
+| Item                                                                                  | Status |
+| ------------------------------------------------------------------------------------- | ------ |
+| Panel widget (bg fill, border, title, padding) + center/inset layout helpers          | 🔨     |
+| All nine examples restyled to README-screenshot bar (betamax PNGs as acceptance)      | 🔨     |
+| Nord + Dracula presets; Theme::default retuned; role coverage audit across widgets    | ⬜     |
+| Design tokens beyond color: spacing/density constants, standard gaps, panel patterns  | ⬜     |
+| Screenshot pipeline: tapes render the README/gallery images (just target)             | ⬜     |
+| Gallery example: every widget, every theme, one screen (doubles as visual regression) | ⬜     |
+
+### Arc 2B — the binding constraint (unblocks the flagship)
+
+| Item                                                                                                                                                      | Status |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `desired_height(width)` intrinsic measurement in the widget contract + layout                                                                             | ⬜     |
+| ScrollView container (consumes visibility requests; keyboard+wheel; scrollbar)                                                                            | ⬜     |
+| Styled-span Text (unify core::text spans with widget text; wrap included)                                                                                 | ⬜     |
+| Attrs::remove / BitAnd / Not                                                                                                                              | ⬜     |
+| Logging/tracing seam: `tracing` subscriber writing into a framework buffer + an overlay                                                                   | ⬜     |
+| Benchmark harness: view-construction + full-frame + diff costs on large synthetic views (tests ADR 0001's "microseconds" claim — its own revisit trigger) | ⬜     |
+| Block-level early commit for bounded inline tails                                                                                                         | ⬜     |
+
+### Arc 3 — the flagship: a real agent client (`rabbit` — name TBD by author)
+
+Grows from examples/agent.rs into its own crate/binary, maintained permanently as the acceptance
+test (prior-art's survival law). Anthropic-API-backed with a fake/replay backend for tests and
+demos. Items: streaming markdown over a real wire; tool-call cells with live status; session
+transcript persistence + resume; keybinding help overlay; theme file support end to end;
+inline-first with alt-screen browse mode; betamax tapes as its e2e suite; the audit's markdown
+widget and modal/menu widgets get built HERE and extracted to the catalog once proven (toolong's
+lesson inverted: extract from the app, don't guess in the library).
+
+### Arc 4 — non-functional spine (the audit's cross-cutting list, scheduled)
+
+| Item                                                                                                                                                               | Status |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| Error story: update/view panic policy, EffectFailed UX pattern, error overlay widget                                                                               | ⬜     |
+| Suspend/resume + $EDITOR handoff surface (waits on qwertty R-SES-5/6; our API sketch now)                                                                          | ⬜     |
+| Keybinding/config layer: declarative keymap, user remapping, help overlay generated from it                                                                        | ⬜     |
+| Performance: budget assertions in CI from the 2B harness; CompactString cell optimization                                                                          | ⬜     |
+| Accessibility groundwork: roles/labels on specs recorded into facts (the a11y export needs them; both field reports name a11y the likely architectural tiebreaker) | ⬜     |
+| Key/WidgetId debuggability: recover names for devtools + a11y (interning or label capture)                                                                         | ⬜     |
+| Devtools: facts inspector (dump the frame facts tree, live overlay toggle)                                                                                         | ⬜     |
+| qwertty Phase 3 adoption: FakeDevice in testing, RestoreHandle, then the KeyEvent/TextPayload pre-pin migration                                                    | ⬜     |
+
+### Arc 5 — field leadership (what the field reports say would move the field)
+
+| Item                                                                                                                                                           | Status |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Public conformance story: PTY-matrix harness grown from our vt100+betamax layers; publish results (both reports: "whoever publishes the harness sets the bar") | ⬜     |
+| Inline mode as a named, specified discipline: extract our invariant into a standalone doc/spec others can implement (Fable report move #2)                     | ⬜     |
+| Comparisons: the same app in ratatui / Bubble Tea / Textual / rabbitui, honestly written                                                                       | ⬜     |
+| Agent-legibility: shipped agent skill for rabbitui + evals (ratatui-kit precedent)                                                                             | ⬜     |
+| Concept docs/book (ratatui.rs-style site) once 2B/3 stop moving the API                                                                                        | ⬜     |
+| Terminal-gap advocacy: file the gap-analysis shortlist as upstream issues (regions, scroll decoupling) where maintainers engage                                | ⬜     |
+| CI growth: msrv job, cargo-semver-checks, release automation, tape job when qwertty publishes                                                                  | ⬜     |
+
+Sequencing: 2A and 2B interleave now (2A is in flight); Arc 3 starts the moment 2B's trio lands and
+proceeds in vertical slices like Arc 1; Arc 4 items slot in whenever an Arc 3 slice needs them
+(error story and keymaps will be pulled early by the flagship); Arc 5 items are parallel-friendly
+docs/harness work for gaps between build slices.
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
