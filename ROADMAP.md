@@ -26,21 +26,21 @@ Date: 2026-07-06 · **Progress tracker** (updated as each slice commits):
 Arc 1 proved the architecture. Arc 2 is chosen by the survival evidence from our own research
 (prior-art's laws, the wave's demand survey, Textual's moat) rather than by what is fun to build:
 
-| #   | Arc                              | Why now                                                                | Status |
-| --- | -------------------------------- | ---------------------------------------------------------------------- | ------ |
-| 2.0 | CI scaffolding + fmt             | Cheap; guards everything after; ratatui-informed practice              | 🔨     |
-| 2.1 | Middle-piece audit               | One honest doc driving 2.2-2.5: surface vs. the wave's demand list, cross-cutting concerns (errors, tracing, suspend, config, perf, a11y posture) | 🔨     |
-| 2.2 | The binding constraint           | `desired_height(width)` measurement + a real ScrollView + styled-span Text — the flagship strain findings; nothing bigger ships without them | ⬜     |
-| 2.3 | Flagship application             | Survival law #1: a real maintained app as permanent acceptance test. Candidate decision with the author (see below) | ⬜     |
-| 2.4 | Story: comparisons + composability | The same small app written in ratatui/Bubble Tea/Textual/rabbitui, honestly compared; a widget-author + composability guide; the agent skill | ⬜     |
-| 2.5 | Design-debt spikes               | Key/WidgetId debuggability (hashes lose names — devtools and any a11y export need them back); WidthPolicy (waits on qwertty Phase 3); block-level commit | ⬜     |
+| #   | Arc                                | Why now                                                                                                                                                                                                                                                                                                                               | Status |
+| --- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 2.0 | CI scaffolding + fmt               | Cheap; guards everything after; ratatui-informed practice                                                                                                                                                                                                                                                                             | 🔨     |
+| 2.1 | Middle-piece audit                 | One honest doc driving 2.2-2.5: surface vs. the wave's demand list, cross-cutting concerns (errors, tracing, suspend, config, perf, a11y posture)                                                                                                                                                                                     | ✅     |
+| 2.2 | The binding constraint             | `desired_height(width)` + ScrollView + styled-span Text (the strain trio), plus the audit's additions: a logging/tracing seam (a TUI that cannot log blocks its own flagship), a benchmark harness (ADR 0001's "microseconds" claim is unmeasured — its own revisit trigger), Attrs::remove, Nord/Dracula presets (DESIGN.md promise) | ⬜     |
+| 2.3 | Flagship application               | Survival law #1: a real maintained app as permanent acceptance test. Candidate decision with the author (see below)                                                                                                                                                                                                                   | ⬜     |
+| 2.4 | Story: comparisons + composability | The same small app written in ratatui/Bubble Tea/Textual/rabbitui, honestly compared; a widget-author + composability guide; the agent skill                                                                                                                                                                                          | ⬜     |
+| 2.5 | Design-debt spikes                 | Key/WidgetId debuggability (hashes lose names — devtools and any a11y export need them back); WidthPolicy (waits on qwertty Phase 3); block-level commit                                                                                                                                                                              | ⬜     |
 
-Ordering: 2.0/2.1 immediately (cheap, parallel); 2.2 before 2.3 (the app is impossible without
-the scroll/measurement trio); 2.4 after 2.2 proves the shapes it would demonstrate; 2.5 as
-spikes whenever blocked elsewhere. Flagship candidates for the author to pick: grow the agent
-chrome into a real client against a real backend; a jj-adjacent viewer (dogfoods daily); a
-betamax tape UI. Deeper docs (mdbook-style concept guide a la ratatui.rs) starts once 2.4's
-material exists — tutorials written before the API stops moving are churn.
+Ordering: 2.0/2.1 immediately (cheap, parallel); 2.2 before 2.3 (the app is impossible without the
+scroll/measurement trio); 2.4 after 2.2 proves the shapes it would demonstrate; 2.5 as spikes
+whenever blocked elsewhere. Flagship candidates for the author to pick: grow the agent chrome into a
+real client against a real backend; a jj-adjacent viewer (dogfoods daily); a betamax tape UI. Deeper
+docs (mdbook-style concept guide a la ratatui.rs) starts once 2.4's material exists — tutorials
+written before the API stops moving are churn.
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
@@ -48,7 +48,8 @@ wheel normalization, hardware-cursor via facts, WidthPolicy seam (waits on qwert
 kitty-shaped KeyEvent adaptation (pre-pin blocker), macOS /dev/tty workaround upstreaming. Slice-8
 strain findings (slice-9 inputs): variable-height measurement + a real scroll container (the
 fixed-slot Collapsible stack wastes rows), styled-span soft wrap (Text takes one style while commits
-are `Vec<Span>` — styling pops at commit), Attrs::remove, block-level early commit for bounded tails.
+are `Vec<Span>` — styling pops at commit), Attrs::remove, block-level early commit for bounded
+tails.
 
 ## Slice 0 — Substrate smoke (`examples/smoke.rs`)
 
