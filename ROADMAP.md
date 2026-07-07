@@ -32,10 +32,12 @@ to make it structural.
 
 ### Arc 2A — aesthetics as a system (make "looks good" the default)
 
+Execution plan: `docs/plans/arc2a-aesthetics.md` (decisions pre-made; read it before starting).
+
 | Item                                                                                  | Status |
 | ------------------------------------------------------------------------------------- | ------ |
-| Panel widget (bg fill, border, title, padding) + center/inset layout helpers          | 🔨     |
-| All nine examples restyled to README-screenshot bar (betamax PNGs as acceptance)      | 🔨     |
+| Panel widget (bg fill, border, title, padding) + center/inset layout helpers          | ✅     |
+| All nine examples restyled to README-screenshot bar (betamax PNGs as acceptance)      | ✅     |
 | Nord + Dracula presets ✅; Theme::default retune + role coverage audit remaining      | 🔨     |
 | Design tokens beyond color: spacing/density constants, standard gaps, panel patterns  | ⬜     |
 | Screenshot pipeline: tapes render the README/gallery images (just target)             | ⬜     |
@@ -45,17 +47,19 @@ to make it structural.
 
 | Item                                                                                                                                                      | Status |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `desired_height(width)` intrinsic measurement in the widget contract + layout                                                                             | ⬜     |
-| ScrollView container (consumes visibility requests; keyboard+wheel; scrollbar)                                                                            | ⬜     |
-| Styled-span Text (unify core::text spans with widget text; wrap included)                                                                                 | ⬜     |
-| Attrs::remove / BitAnd / Not                                                                                                                              | ⬜     |
-| Logging/tracing seam: `tracing` subscriber writing into a framework buffer + an overlay                                                                   | ⬜     |
-| Benchmark harness: view-construction + full-frame + diff costs on large synthetic views (tests ADR 0001's "microseconds" claim — its own revisit trigger) | ⬜     |
-| Block-level early commit for bounded inline tails                                                                                                         | ⬜     |
+| `desired_height(width)` intrinsic measurement in the widget contract + layout                                                                             | ✅     |
+| ScrollView container (consumes visibility requests; keyboard+wheel; scrollbar)                                                                            | ✅     |
+| Styled-span Text (unify core::text spans with widget text; wrap included)                                                                                 | ✅     |
+| Attrs::remove / BitAnd / Not                                                                                                                              | ✅     |
+| Logging/tracing seam: `tracing` subscriber writing into a framework buffer + an overlay                                                                   | ✅     |
+| Benchmark harness: view-construction + full-frame + diff costs on large synthetic views (tests ADR 0001's "microseconds" claim — its own revisit trigger) | ✅     |
+| Block-level early commit for bounded inline tails (moved to the deferred ledger)                                                                          | ⬜     |
 
 ### Arc 3 — the flagship: a real agent client (`rabbit` — name TBD by author)
 
-Grows from examples/agent.rs into its own crate/binary, maintained permanently as the acceptance
+Execution plan: `docs/plans/arc3-agent-client.md` (backend trait, wire shape, slice order — all
+decided there). Grows from examples/agent.rs into its own crate/binary, maintained permanently as
+the acceptance
 test (prior-art's survival law). Anthropic-API-backed with a fake/replay backend for tests and
 demos. Items: streaming markdown over a real wire; tool-call cells with live status; session
 transcript persistence + resume; keybinding help overlay; theme file support end to end;
@@ -64,6 +68,9 @@ widget and modal/menu widgets get built HERE and extracted to the catalog once p
 lesson inverted: extract from the app, don't guess in the library).
 
 ### Arc 4 — non-functional spine (the audit's cross-cutting list, scheduled)
+
+Execution plan: `docs/plans/arc4-spine.md` (a design position per item; qwertty adoption order and
+gates live there).
 
 | Item                                                                                                                                                               | Status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
@@ -78,6 +85,8 @@ lesson inverted: extract from the app, don't guess in the library).
 
 ### Arc 5 — field leadership (what the field reports say would move the field)
 
+Execution plan: `docs/plans/arc5-field.md`.
+
 | Item                                                                                                                                                           | Status |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | Public conformance story: PTY-matrix harness grown from our vt100+betamax layers; publish results (both reports: "whoever publishes the harness sets the bar") | ⬜     |
@@ -88,10 +97,12 @@ lesson inverted: extract from the app, don't guess in the library).
 | Terminal-gap advocacy: file the gap-analysis shortlist as upstream issues (regions, scroll decoupling) where maintainers engage                                | ⬜     |
 | CI growth: msrv job, cargo-semver-checks, release automation, tape job when qwertty publishes                                                                  | ⬜     |
 
-Sequencing: 2A and 2B interleave now (2A is in flight); Arc 3 starts the moment 2B's trio lands and
-proceeds in vertical slices like Arc 1; Arc 4 items slot in whenever an Arc 3 slice needs them
-(error story and keymaps will be pulled early by the flagship); Arc 5 items are parallel-friendly
-docs/harness work for gaps between build slices.
+Sequencing (updated 2026-07-07): 2B is done; Arc 3 is unblocked and starts next, in vertical slices
+like Arc 1, alongside the 2A remainder; Arc 4 items slot in whenever an Arc 3 slice needs them
+(error story and keymaps are pulled early by the flagship); Arc 5 items are parallel-friendly
+docs/harness work for gaps between build slices. **Session hand-off note:** the per-arc execution
+plans in `docs/plans/` (start with `00-execution-playbook.md`) carry the pre-made design decisions
+and working method — read the playbook first in every new session.
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
