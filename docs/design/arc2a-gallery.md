@@ -14,11 +14,12 @@ Plan: `docs/plans/arc2a-aesthetics.md` §3–4.
 - **Four theme tapes** (`tapes/gallery-{dark,catppuccin,nord,dracula}.tape`) — each launches the
   gallery under one preset and captures a top screenshot and a scrolled "roles" screenshot.
 - **`just screenshots`** — validates and runs the gallery tapes, then copies the final-frame PNGs
-  into `docs/images/` under stable names. The PNGs are human-reviewed acceptance artifacts committed
-  when they change meaningfully; there is deliberately **no** pixel-diffing in CI (betamax rendering
-  is not pixel-stable across hosts).
-- **README** gains a Gallery section embedding the dark screenshot, plus a refreshed crate table and
-  run line.
+  into `docs/images/` under stable names. `docs/images/` is **git-ignored**: the PNGs are a local
+  review artifact, not committed — binaries bloat git history irreversibly (jj's git-LFS support is
+  not there yet), so screenshots are regenerated and eyeballed locally rather than versioned. No
+  pixel-diffing in CI (betamax rendering is not pixel-stable across hosts).
+- **README** gains a Gallery section (run instructions, no committed image) plus a refreshed crate
+  table.
 
 ## Key decision: theme chosen at startup, not switched at runtime
 

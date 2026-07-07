@@ -22,9 +22,8 @@ in vertical slices ([ROADMAP.md](ROADMAP.md)). Nothing is published yet.
 
 Every widget and every theme role on one screen — run `cargo run --example gallery`, or pick a
 preset with `GALLERY_THEME=nord cargo run --example gallery` (`dark`, `catppuccin`, `nord`,
-`dracula`):
-
-![The rabbitui widget gallery under the default dark theme](docs/images/gallery-dark-top.png)
+`dracula`). `just screenshots` renders it under each theme into `docs/images/` (git-ignored — a
+local review artifact, not committed).
 
 ## Workspace
 
