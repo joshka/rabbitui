@@ -193,3 +193,14 @@ Normatively:
 - **Bridge maintenance cost exceeds its value.** If ratatui's churn makes `rabbitui-ratatui`
   expensive to maintain relative to how much the ecosystem is actually used through it (measured via
   reference-app and adopter usage), reopen the soft-goal premise itself.
+
+## Amendments
+
+- **2026-07-07 (bridge implementation):** The Context's claim that ratatui marks wide-grapheme
+  continuation cells with an empty symbol was true of ratatui 0.29 but not 0.30, where the
+  continuation cell reports a space. The bridge therefore detects continuation by grapheme width
+  (advance two past a wide lead), not by empty symbol. The convertibility-by-construction bet
+  otherwise held exactly as decided: total per-cell copy, no failure path;
+  SLOW_BLINK/RAPID_BLINK/HIDDEN/underline_color narrow (dropped with doc notes). The bridge crate
+  carries rust-version 1.88 (ratatui 0.30's MSRV), insulating the rest of the workspace per this
+  ADR's leaf-crate rationale.

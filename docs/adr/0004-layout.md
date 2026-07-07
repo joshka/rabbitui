@@ -159,3 +159,11 @@ division for fractional splits — tui2's `desired_height(width)` + `Column`/`Fl
   contract (ADR 0008).
 - **Exact-fraction distribution still leaves gaps in production** — the arithmetic is wrong and must
   be fixed first.
+
+## Amendments
+
+- **2026-07-07 (slice 8):** The flagship confirmed the deferred intrinsic measurement is now the
+  binding constraint: variable-height content (collapsed/expanded Collapsible cells) plus the
+  absence of a scroll container forced a hand-rolled fixed-slot stack in examples/agent.rs.
+  `desired_height(width)` measurement and a measuring scroll container are the next layout work,
+  ahead of any catalog growth (see ROADMAP ledger).

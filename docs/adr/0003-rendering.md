@@ -210,3 +210,12 @@ _Neutral:_
 - **A run-based ratatui successor** changes the interop cell model such that convert-by-construction
   no longer holds, which would force a re-evaluation of the cell-vs-run tradeoff at the bridge
   boundary (ADR 0010).
+
+## Amendments
+
+- **2026-07-07 (slice 7):** The z-ordered-layers decision is realized at the facts level, not as
+  buffer compositing: declaration order in a single buffer is already the painter's algorithm;
+  `FactEntry.layer` + top-layer-restricted focus and top-first hit-testing deliver modal containment
+  with no compositing pass. Buffer-level compositing (true transparency, effects) remains available
+  under this decision but is deferred until a widget genuinely needs it. Details:
+  docs/design/slice7-overlays-mouse.md deltas.
