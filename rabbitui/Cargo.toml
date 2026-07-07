@@ -22,6 +22,10 @@ rabbitui-testing.workspace = true
 # timing is deterministic; `rt-multi-thread` lets a `#[tokio::test]` spawn effect
 # tasks. Dev-only: the facade itself needs neither.
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
+# Markdown parsing for the agent-chrome flagship example (slice 8). App-land
+# rendering: markdown → spans lives in the example, not the framework, so the
+# framework's dependency budget is untouched (`docs/design/slice8-agent-chrome.md`).
+pulldown-cmark = { version = "0.12", default-features = false }
 
 [features]
 default = ["themes"]

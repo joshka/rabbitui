@@ -21,3 +21,17 @@ fn multi_line_text_snapshot() {
     });
     assert_snapshot!("text_multi_line", app.buffer_text());
 }
+
+#[test]
+fn soft_wrap_text_snapshot() {
+    // A paragraph and a run of wide graphemes, soft-wrapped to a narrow area, so
+    // the snapshot pins word-boundary wrapping and wide-grapheme handling.
+    let mut app = TestApp::new(Size::new(12, 6), ());
+    app.render(|(), frame| {
+        let content =
+            "the quick brown fox jumps over\n世界語のテスト";
+        let text = Text::new(content).wrap(true);
+        frame.widget(key("wrapped"), frame.area(), &text);
+    });
+    assert_snapshot!("text_soft_wrap", app.buffer_text());
+}

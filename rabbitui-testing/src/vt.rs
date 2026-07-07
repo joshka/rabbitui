@@ -83,6 +83,45 @@ impl VtScreen {
         (self.rows, self.cols)
     }
 
+    /// The `(symbol, foreground)` of every cell in row `y` of the *visible*
+    /// screen, left to right, up to and including the last non-blank cell.
+    ///
+    /// The escape-level surface for **per-span** color assertions: buffer
+    /// equality sees the glyphs, but only the emulated cell colors prove that a
+    /// multi-span committed line emitted a distinct SGR per span. The foreground
+    /// is reported as a substrate-free [`VtColor`] so tests never name the
+    /// `vt100` types directly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_testing::vt::{VtColor, VtScreen};
+    ///
+    /// let mut screen = VtScreen::new(8, 1);
+    /// // ANSI green foreground (SGR 32) then "hi".
+    /// screen.feed(b"\x1b[32mhi\x1b[0m");
+    /// let cells = screen.row_cells(0);
+    /// assert_eq!(cells[0].0, "h");
+    /// assert_eq!(cells[0].1, VtColor::Ansi(2));
+    /// ```
+    #[must_use]
+    pub fn row_cells(&self, y: u16) -> Vec<(String, VtColor)> {
+        let screen = self.parser.screen();
+        let mut cells: Vec<(String, VtColor)> = Vec::new();
+        for x in 0..self.cols {
+            let Some(cell) = screen.cell(y, x) else { break };
+            cells.push((cell.contents().to_string(), VtColor::from(cell.fgcolor())));
+        }
+        // Trim trailing blank cells (space glyph, default color).
+        while cells
+            .last()
+            .is_some_and(|(sym, color)| (sym.is_empty() || sym == " ") && *color == VtColor::Default)
+        {
+            cells.pop();
+        }
+        cells
+    }
+
     /// Row `y` of the *visible* screen as text, trailing spaces trimmed.
     ///
     /// # Examples
@@ -202,6 +241,42 @@ impl VtScreen {
 
         self.parser.screen_mut().set_scrollback(previous);
         trim_blank_ends(lines)
+    }
+}
+
+/// A cell foreground color as the emulator resolved it, substrate-free.
+///
+/// The `vt100` crate's own color type is not re-exported by the harness so tests
+/// stay decoupled from it; [`VtScreen::row_cells`] maps it onto this. The
+/// variants mirror what a terminal distinguishes: the terminal default, one of
+/// the 256 palette indices (which covers the 16 ANSI colors as indices 0–15), or
+/// a truecolor value.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_testing::vt::VtColor;
+///
+/// assert_eq!(VtColor::Ansi(2), VtColor::Ansi(2));
+/// assert_ne!(VtColor::Ansi(2), VtColor::Ansi(1));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VtColor {
+    /// The terminal's default foreground.
+    Default,
+    /// A palette index (0–15 are the ANSI colors, 16–255 the extended palette).
+    Ansi(u8),
+    /// A 24-bit truecolor value.
+    Rgb(u8, u8, u8),
+}
+
+impl From<vt100::Color> for VtColor {
+    fn from(color: vt100::Color) -> Self {
+        match color {
+            vt100::Color::Default => VtColor::Default,
+            vt100::Color::Idx(index) => VtColor::Ansi(index),
+            vt100::Color::Rgb(r, g, b) => VtColor::Rgb(r, g, b),
+        }
     }
 }
 

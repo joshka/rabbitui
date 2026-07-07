@@ -12,7 +12,7 @@ use rabbitui_core::id::{WidgetId, key};
 use rabbitui_core::style::{Attrs, Color};
 use rabbitui_core::theme::Theme;
 use rabbitui_testing::{TestApp, assert_snapshot};
-use rabbitui_widgets::{SelectionList, TextInput};
+use rabbitui_widgets::{Collapsible, SelectionList, TextInput};
 
 /// Renders `buffer` as glyph rows followed by a legend: for each non-blank cell,
 /// its position and a terse style description. This makes a themed snapshot
@@ -129,4 +129,45 @@ fn selection_list_unfocused_snapshot() {
         frame.widget(key("list"), frame.area(), &SelectionList::new(items.clone()));
     });
     assert_snapshot!("selection_list_unfocused", styled_snapshot(app.buffer()));
+}
+
+fn collapsible_id() -> WidgetId {
+    WidgetId::ROOT.child(key("cell"))
+}
+
+/// A tool-style collapsible, default-collapsed: the snapshot pins the collapsed
+/// header (marker + summary, no body).
+#[test]
+fn collapsible_collapsed_snapshot() {
+    let mut app = TestApp::new(Size::new(24, 4), ()).with_theme(Theme::catppuccin_mocha());
+    app.render(|_s, frame| {
+        frame.widget(
+            key("cell"),
+            frame.area(),
+            &Collapsible::new("ran cargo test — 396 passed", "…full output…").default_collapsed(true),
+        );
+    });
+    assert_snapshot!("collapsible_collapsed", styled_snapshot(app.buffer()));
+}
+
+/// The same cell, toggled open by Enter while focused: the snapshot pins the
+/// expanded marker, the highlighted focused header, and the muted body — and that
+/// the toggle survived by identity across re-renders.
+#[test]
+fn collapsible_expanded_focused_snapshot() {
+    let mut app = TestApp::new(Size::new(24, 4), ()).with_theme(Theme::catppuccin_mocha());
+    let view = |_s: &(), frame: &mut rabbitui_core::frame::Frame<'_>| {
+        frame.widget(
+            key("cell"),
+            frame.area(),
+            &Collapsible::new("ran cargo test — 396 passed", "test one\ntest two").default_collapsed(true),
+        );
+    };
+    app.render(view);
+    app.set_focus(Some(collapsible_id()));
+    app.render(view);
+    // Enter toggles the default-collapsed cell open; the state is retained by id.
+    app.send_key(rabbitui_core::input::Key::Enter);
+    app.render(view);
+    assert_snapshot!("collapsible_expanded_focused", styled_snapshot(app.buffer()));
 }

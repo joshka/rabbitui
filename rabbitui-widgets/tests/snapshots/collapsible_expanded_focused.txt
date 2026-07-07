@@ -1,0 +1,46 @@
+▾ ran cargo test — 396 p
+test one                
+test two                
+                        
+---
+(0,0) "▾" = fg=#11111b bg=#cba6f7
+(1,0) " " = fg=#11111b bg=#cba6f7
+(2,0) "r" = fg=#11111b bg=#cba6f7
+(3,0) "a" = fg=#11111b bg=#cba6f7
+(4,0) "n" = fg=#11111b bg=#cba6f7
+(5,0) " " = fg=#11111b bg=#cba6f7
+(6,0) "c" = fg=#11111b bg=#cba6f7
+(7,0) "a" = fg=#11111b bg=#cba6f7
+(8,0) "r" = fg=#11111b bg=#cba6f7
+(9,0) "g" = fg=#11111b bg=#cba6f7
+(10,0) "o" = fg=#11111b bg=#cba6f7
+(11,0) " " = fg=#11111b bg=#cba6f7
+(12,0) "t" = fg=#11111b bg=#cba6f7
+(13,0) "e" = fg=#11111b bg=#cba6f7
+(14,0) "s" = fg=#11111b bg=#cba6f7
+(15,0) "t" = fg=#11111b bg=#cba6f7
+(16,0) " " = fg=#11111b bg=#cba6f7
+(17,0) "—" = fg=#11111b bg=#cba6f7
+(18,0) " " = fg=#11111b bg=#cba6f7
+(19,0) "3" = fg=#11111b bg=#cba6f7
+(20,0) "9" = fg=#11111b bg=#cba6f7
+(21,0) "6" = fg=#11111b bg=#cba6f7
+(22,0) " " = fg=#11111b bg=#cba6f7
+(23,0) "p" = fg=#11111b bg=#cba6f7
+(0,1) "t" = fg=#7f849c
+(1,1) "e" = fg=#7f849c
+(2,1) "s" = fg=#7f849c
+(3,1) "t" = fg=#7f849c
+(4,1) " " = fg=#7f849c
+(5,1) "o" = fg=#7f849c
+(6,1) "n" = fg=#7f849c
+(7,1) "e" = fg=#7f849c
+(0,2) "t" = fg=#7f849c
+(1,2) "e" = fg=#7f849c
+(2,2) "s" = fg=#7f849c
+(3,2) "t" = fg=#7f849c
+(4,2) " " = fg=#7f849c
+(5,2) "t" = fg=#7f849c
+(6,2) "w" = fg=#7f849c
+(7,2) "o" = fg=#7f849c
+

@@ -22,6 +22,10 @@
 //!   [`ListSource`], emitting
 //!   [`Outcome::Selected`](rabbitui_core::outcome::Outcome::Selected) and
 //!   [`Outcome::Activated`](rabbitui_core::outcome::Outcome::Activated).
+//! - [`Collapsible`] — a header + body disclosure cell whose collapsed state is
+//!   retained by identity; Enter or a header click toggles it, emitting
+//!   [`Outcome::Toggled`](rabbitui_core::outcome::Outcome::Toggled). The
+//!   transcript's alt-screen cell (slice 8).
 //!
 //! Every widget references semantic [`Role`]s rather than hard-coded colors, so
 //! the active [`Theme`] re-skins the whole catalog (ADR 0007).
@@ -42,11 +46,13 @@
 //! ```
 
 pub mod button;
+pub mod collapsible;
 pub mod selection_list;
 pub mod text;
 pub mod text_input;
 
 pub use button::Button;
+pub use collapsible::Collapsible;
 pub use selection_list::{ListSource, SelectionList};
 pub use text::Text;
 pub use text_input::TextInput;

@@ -8,23 +8,26 @@ the flagship app is a coding-agent chrome (the workload of the era).
 
 Date: 2026-07-06 · **Progress tracker** (updated as each slice commits):
 
-| Slice | What                                    | Status                                       |
-| ----- | --------------------------------------- | -------------------------------------------- |
-| 0     | Substrate smoke                         | ✅ done                                      |
-| 1     | Walking skeleton                        | ✅ done                                      |
-| 2     | Declared frame + testing floor          | ✅ done                                      |
-| 3     | Identity, focus, outcomes               | ✅ done                                      |
-| 4     | TextInput, SelectionList, theming       | ✅ done                                      |
-| 5     | Inline mode + vt100 harness             | ✅ done                                      |
-| 6     | Async effects, coalescing, widget cmds  | ✅ done                                      |
-| 7     | Overlays, mouse, forms                  | ✅ done                                      |
-| 8     | Agent-chrome flagship                   | 🔨 in progress                               |
-| 9     | Bridge, docs pass, 0.1                  | ⬜ next (positioning decision → author)      |
+| Slice | What                                   | Status                                         |
+| ----- | -------------------------------------- | ---------------------------------------------- |
+| 0     | Substrate smoke                        | ✅ done                                        |
+| 1     | Walking skeleton                       | ✅ done                                        |
+| 2     | Declared frame + testing floor         | ✅ done                                        |
+| 3     | Identity, focus, outcomes              | ✅ done                                        |
+| 4     | TextInput, SelectionList, theming      | ✅ done                                        |
+| 5     | Inline mode + vt100 harness            | ✅ done                                        |
+| 6     | Async effects, coalescing, widget cmds | ✅ done                                        |
+| 7     | Overlays, mouse, forms                 | ✅ done                                        |
+| 8     | Agent-chrome flagship                  | ✅ done                                        |
+| 9     | Bridge, docs pass, 0.1                 | 🔨 in progress (positioning decision → author) |
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
 wheel normalization, hardware-cursor via facts, WidthPolicy seam (waits on qwertty Phase 3),
-kitty-shaped KeyEvent adaptation (pre-pin blocker), macOS /dev/tty workaround upstreaming.
+kitty-shaped KeyEvent adaptation (pre-pin blocker), macOS /dev/tty workaround upstreaming. Slice-8
+strain findings (slice-9 inputs): variable-height measurement + a real scroll container (the
+fixed-slot Collapsible stack wastes rows), styled-span soft wrap (Text takes one style while commits
+are Vec<Span> — styling pops at commit), Attrs::remove, block-level early commit for bounded tails.
 
 ## Slice 0 — Substrate smoke (`examples/smoke.rs`)
 

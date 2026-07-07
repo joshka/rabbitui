@@ -29,5 +29,6 @@ pub mod pending;
 pub mod routing;
 pub mod store;
 pub mod style;
+pub mod text;
 pub mod theme;
 pub mod widget;

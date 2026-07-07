@@ -181,9 +181,14 @@ impl InlineEngine {
         frame.bytes(encode::ERASE_BELOW);
 
         // Flush commits: each scrolls the erased region up into native history.
+        // A committed line is a run of styled spans; emit each span's SGR then
+        // its text, so per-span styling (a bold heading, dim code, plain prose)
+        // survives into scrollback, then reset and terminate the line with CRLF.
         for commit in commits {
-            frame.bytes(encode::sgr(commit.style()));
-            frame.text(commit.text());
+            for span in commit.spans() {
+                frame.bytes(encode::sgr(span.style));
+                frame.text(&span.text);
+            }
             frame.bytes(encode::SGR_RESET);
             frame.bytes(encode::CARRIAGE_RETURN);
             frame.bytes(b"\n");
@@ -458,5 +463,26 @@ mod tests {
         // Green foreground SGR (32) precedes the committed text.
         assert!(text.contains("32"));
         assert!(text.contains("ok"));
+    }
+
+    #[test]
+    fn multi_span_commit_emits_one_sgr_per_span() {
+        use rabbitui_core::text::Span;
+        let mut engine = InlineEngine::new();
+        let _ = engine.enter();
+        // Two spans in one line: bold "warn:" then red " boom".
+        let commits = [CommitLine::from_spans([
+            Span::styled("warn:", Style::new().bold()),
+            Span::styled(" boom", Style::new().fg(Color::RED)),
+        ])];
+        let bytes = engine.render(&tail(&["x"], 8), &commits);
+        let text = String::from_utf8_lossy(&bytes);
+        // The bold SGR (1) precedes "warn:", the red SGR (31) precedes " boom",
+        // in that order, and one reset ends the line.
+        let bold_at = text.find("warn:").expect("first span text present");
+        let red_at = text.find(" boom").expect("second span text present");
+        assert!(bold_at < red_at, "spans emit in order");
+        assert!(text.contains(";1m") || text.contains("[0;1m"), "bold SGR present: {text:?}");
+        assert!(text.contains("31m"), "red SGR present: {text:?}");
     }
 }

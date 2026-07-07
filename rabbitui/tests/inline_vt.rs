@@ -12,7 +12,7 @@ use rabbitui_core::buffer::Buffer;
 use rabbitui_core::commit::CommitLine;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::style::{Color, Style};
-use rabbitui_testing::vt::VtScreen;
+use rabbitui_testing::vt::{VtColor, VtScreen};
 
 /// Builds a `width`-by-`height` buffer with each string in `rows` on its own row
 /// from column 0, unstyled.
@@ -299,4 +299,32 @@ fn inline_commit_style_reaches_the_terminal() {
     // all_lines pulls it from scrollback; find its row, then inspect the cell.
     let lines = screen.all_lines();
     assert!(lines.iter().any(|l| l == "green"), "styled commit present: {lines:?}");
+}
+
+#[test]
+fn inline_multi_span_commit_carries_per_span_color_through_vt100() {
+    use rabbitui_core::text::Span;
+
+    let mut engine = InlineEngine::new();
+    // A two-row screen: the committed line lands on visible row 0, the one-row
+    // tail below it on row 1, so vt100 exposes the commit's per-cell colors
+    // directly without walking scrollback.
+    let mut screen = VtScreen::new(20, 2);
+    screen.feed(&engine.enter());
+
+    // "OK" in green then "ERR" in red, one committed line, two spans.
+    let commits = [CommitLine::from_spans([
+        Span::styled("OK", Style::new().fg(Color::GREEN)),
+        Span::styled("ERR", Style::new().fg(Color::RED)),
+    ])];
+    screen.feed(&engine.render(&buffer(&["tail"], 20), &commits));
+
+    // The committed line reads "OKERR" and each half kept its own color: cell 0
+    // (the 'O') is green (ANSI 2), cell 2 (the 'E') is red (ANSI 1) — proving
+    // per-span SGR, not one style for the whole line.
+    let cells = screen.row_cells(0);
+    let text: String = cells.iter().map(|(sym, _)| sym.as_str()).collect();
+    assert_eq!(text, "OKERR");
+    assert_eq!(cells[0].1, VtColor::Ansi(2), "first span painted green");
+    assert_eq!(cells[2].1, VtColor::Ansi(1), "second span painted red");
 }
