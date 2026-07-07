@@ -1,19 +1,32 @@
 # rabbitui
 
-A Rust crate for full terminal user interfaces, synthesizing the best ideas from existing
-TUI frameworks (Textual, Ink, Bubble Tea, Ratatui) and the lessons of the Rust-native GUI
-world (Xilem, Masonry, Druid, Dioxus).
+A Rust terminal UI framework synthesizing the best ideas of existing TUI frameworks
+(Textual, Ink, Bubble Tea, Ratatui, Brick, …) and the lessons of Rust-native GUI work
+(Xilem, Masonry, Druid) — built research-first.
 
 ## Status
 
-**Research phase.** No usable framework code exists yet. This project is deliberately
-research-first: durable design documents are a first-class deliverable.
+**Early implementation.** The research and design phases are complete; the framework is
+being built in vertical slices ([ROADMAP.md](ROADMAP.md)). Nothing is published yet.
 
-- [`docs/research/`](docs/research/) — survey memos on prior art, each ending with concrete
-  implications for this project
-- [`docs/adr/`](docs/adr/) — architecture decision records (Phase 1, not started)
-- `DESIGN.md` — narrative design summary (Phase 1, not started)
-- `ROADMAP.md` — vertical-slice implementation plan (Phase 2, not started)
+- [DESIGN.md](DESIGN.md) — the architecture in one read: a *declared-frame* model
+  (app-owned state, framework-owned widget identity and frame facts, commands-only async
+  effects) on a cell-buffer diff renderer with inline and alt-screen as peer modes
+- [docs/adr/](docs/adr/) — one ADR per design decision, with alternatives and evidence
+- [docs/research/](docs/research/) — the survey memos the design is grounded in
+  (13 studies: the major frameworks, the Rust GUI literature, the terminal substrate,
+  prior next-gen attempts, the 2024–26 framework wave, and Codex's tui2)
+- [docs/field-report.md](docs/field-report.md) — a shareable state-of-the-field synthesis
+
+## Workspace
+
+| Crate | Purpose |
+|---|---|
+| `rabbitui-core` | Runtime-free foundation: geometry, styles, buffer, identity, facts, widget contract |
+| `rabbitui` | The facade: async event loop, terminal session, rendering |
+| `rabbitui-testing` | Headless driver and PTY-level test harness |
+
+Try it: `cargo run --example smoke` (or `hello`, once slice 1 lands).
 
 ## License
 

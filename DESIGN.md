@@ -27,11 +27,13 @@ The framework retains what must persist; the app retains what it owns. Concretel
   or adapts application state. The app is free to be an async state machine consuming
   messages — the model the maintainer's own experiments (ratatui-labs) validated and the
   one that composes best with async Rust.
-- **Widgets have stable identity.** Every widget instance is addressed by a `WidgetId`
-  derived from user keys composed into id-paths (parent/child nesting, Xilem-style).
-  The framework keeps a per-ID state store across frames: focus, scroll offsets, cursor,
-  collapsed/expanded, reported extents, caches. Identity is the one problem the research
-  says transfers from GUI undiminished; it is framework-owned here, from v0.1.
+- **Widgets have stable identity (ADR 0002).** Every widget instance is addressed by a
+  `WidgetId` derived from user keys composed into id-paths (parent/child nesting,
+  Xilem-style). The framework keeps a per-ID state store across frames: focus, scroll
+  offsets, cursor, collapsed/expanded, reported extents, caches. Identity is the one
+  problem the research says transfers from GUI undiminished; it is framework-owned here,
+  from v0.1. (The declared-frame contract is ADR 0001; framework-owned identity and the
+  per-ID store are split out into their own decision, ADR 0002.)
 - **Rendering produces facts.** A frame render emits, besides cells: hit regions, focus
   order, cursor candidates, extents, and visibility requests — a queryable record of what
   was actually shown ("frame facts").
