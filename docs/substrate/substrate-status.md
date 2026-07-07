@@ -123,22 +123,6 @@ state.
 
 ## 6. Incoming requirements from rabbitui
 
-# rabbitui substrate-requirements dispositions (preservation copy)
-
-**Provenance note (2026-07-06):** these dispositions were written into
-`~/local/rabbitui/work/qwertty/substrate-status.md` §6 during this session, per the standing
-obligation. That entire drop-box folder (`work/qwertty/`, containing substrate-status.md and
-substrate-requirements.md) **disappeared later in the session** — deleted or moved by something
-outside this session (rabbitui's `work/` is its jj-workspaces root; a concurrent rabbitui session
-may have reorganized it). Rather than silently recreate a folder another agent may have
-intentionally removed, the disposition content is preserved here for the maintainer to re-place. The
-requirements memo itself was a verbatim copy of the "Requirements handover" section of
-`~/local/rabbitui/work/default/docs/research/terminal-substrate.md`, which still exists in
-rabbitui's tree.
-
-Disposition of all 20 memo items + contract asks, against qwertty Phase 1 requirements
-(maintainer-reviewed) and the Phase 2 design set (gate-pending):
-
 | #   | Item                                                                                                 | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | SGR styling (16/256/truecolor, underline styles incl. 4:3 + 58)                                      | **Accepted (P0)** — R-OUT-2 verbatim, encode-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
