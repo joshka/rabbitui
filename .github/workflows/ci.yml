@@ -1,0 +1,64 @@
+# CI scaffolding. NOTE: the workspace lives at work/default and depends on
+# qwertty as a path dependency three levels up; until qwertty publishes (see
+# RELEASE-CHECKLIST.md) CI clones it to the expected sibling location. If the
+# clone is unavailable this workflow fails visibly — that is the checklist
+# item, not a CI bug.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  WORKSPACE: work/default
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../qwertty-shim" && ln -sfn "$GITHUB_WORKSPACE/../qwertty-shim" ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Test
+        run: cargo test --workspace
+        working-directory: ${{ env.WORKSPACE }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Format
+        run: cargo fmt --check
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          globs: |
+            work/default/**/*.md
+            !work/default/target/**
