@@ -76,12 +76,11 @@ alternate screen. RUST_LOG-style filtering via the standard EnvFilter.
 
 ## Benchmark harness
 
-`rabbitui-core/benches` + `rabbitui/benches` on criterion (dev-dep only): buffer `set_string`
-
-- full diff at 240×70; layout splits; `StateStore` churn; and the honest one — full declared frame
-  of a synthetic 1,000-widget view (declare → facts → paint) plus the same with 10,000, measuring
-  view-construction cost vs. ADR 0001's "microseconds" claim. Results recorded in the design note
-  deltas; CI budget assertions are Arc 4 (need baseline data first).
+`rabbitui-core/benches` and `rabbitui/benches` on criterion (dev-dep only): buffer `set_string`
+plus full diff at 240×70; layout splits; `StateStore` churn; and the honest one — a full declared
+frame of a synthetic 1,000-widget view (declare → facts → paint) plus the same at 10,000, measuring
+view-construction cost against ADR 0001's "microseconds" claim. Results are recorded in this note's
+deltas; CI budget assertions are Arc 4 (baseline data first).
 
 ## Block-level commit (small)
 
