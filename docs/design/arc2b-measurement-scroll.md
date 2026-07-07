@@ -178,3 +178,46 @@ above:
   ctrl-letter chords, SGR mouse bridged from a preserved CSI now inside `Event::Syntax`). This is a
   substrate-layer adaptation forced by external drift, not Arc 2B design work; it is noted here for
   the record.
+
+## Benchmark results (2026-07-07)
+
+First criterion run of the Arc 2B harness (`rabbitui-core/benches/core.rs`,
+`rabbitui/benches/frame.rs`). Machine context: **Apple M2 Max (12 cores), macOS
+15.7.7, rustc 1.96.1, `--release`**, single-threaded bench bodies. Numbers are the
+criterion median (with the low/high estimate bracket); a laptop-class result, not
+a server baseline — treat as an order-of-magnitude reading, not a regression gate
+(the CI budget is Arc 4).
+
+Core primitives:
+
+| Benchmark | Median | Notes |
+| --- | --- | --- |
+| `buffer/set_string_240x70` | **1.08 ms** | Fill a 240×70 (16,800-cell) buffer with styled text. |
+| `buffer/full_diff_240x70` | **0.93 ms** | Worst-case diff: every non-continuation cell changed vs. a blank frame. |
+| `layout/split_rows_x1000` | **6.9 µs** | 1,000 five-band row splits (Length + Fill mix). |
+| `layout/split_columns_x1000` | **4.6 µs** | 1,000 three-band column splits. |
+| `store/churn_500_widgets` | **9.6 µs** | One begin/declare-500/end `StateStore` frame cycle. |
+
+Full declared frame (declare → facts → paint → `into_parts`, into a 240×70 buffer):
+
+| Benchmark | Median | Notes |
+| --- | --- | --- |
+| `frame/declared_1000_widgets` | **0.51 ms** | 1,000 leaf widgets declared, facts collected, painted (most clipped). |
+| `frame/declared_10000_widgets` | **1.69 ms** | 10,000 leaf widgets — the honest scale test. |
+| `frame/scroll_10000_items` | **1.29 ms** | 10,000 items through `frame.scroll`: measured twice (measure pass + paint pass), only a screenful painted. |
+
+**Does ADR 0001's "on a ≤100k-cell grid full re-render is microseconds" claim
+hold at 1k and at 10k widgets?** Directionally yes, literally no: a full frame is
+**sub-millisecond at 1,000 widgets (~0.51 ms) and low-milliseconds at 10,000
+(~1.69 ms)** — tens to hundreds of *microseconds* would be the claim's word, but
+the reality is a few hundred µs to ~2 ms, and even the bare buffer diff the ADR
+points at is ~0.9 ms at 16.8k cells, not "microseconds." The claim's *conclusion*
+still stands — every measured case is well inside the 16.7 ms frame budget, so
+incrementality remains unnecessary — but the honest magnitude is "sub-millisecond
+to low-milliseconds," not microseconds; the ADR's figure is optimistic by roughly
+an order of magnitude. Two useful reads fall out: the buffer fill+diff (~2 ms
+combined) dominates a large frame, not view construction (1,000 widgets declare in
+~0.5 ms); and the measure-twice scroll cost part 1 flagged is *cheaper* than the
+equivalent flat 10k-widget frame (1.29 ms vs. 1.69 ms), because virtualization
+paints only a screenful — measuring 10k items twice costs less than declaring and
+painting-clipping 10k. Measurement caching is not warranted on this evidence.

@@ -167,6 +167,20 @@
 //! surfaced as [`Event::EffectFailed`](app::Event::EffectFailed) rather than
 //! crashing the loop. See [`effect`].
 //!
+//! # Logging
+//!
+//! rabbitui integrates [`tracing`](https://docs.rs/tracing): with the default-on
+//! `tracing` feature, [`App::tracing`](app::App::tracing) installs a
+//! [`log::Collector`] as the global-default subscriber — debug builds on, release
+//! off — that formats events into a bounded ring the runtime owns. Nothing is
+//! written to the terminal while the app owns it; on close, `WARN` and above flush
+//! to stderr *after* the terminal is restored, so errors survive the alternate
+//! screen. `RABBITUI_LOG` (falling back to `RUST_LOG`) filters via the standard
+//! `EnvFilter`. The `LogOverlay` widget renders the ring's tail in a
+//! [`layer`](rabbitui_core::frame::Frame::layer) — it reads the *core* ring
+//! handle, so the widgets crate never pulls `tracing` in. Installing over an
+//! existing global default is a no-op, never a panic. See [`log`].
+//!
 //! # Inline vs alt-screen
 //!
 //! rabbitui renders into one of two peer [`Mode`](rabbitui_core::mode::Mode)s over
@@ -230,6 +244,8 @@ pub mod effect;
 mod encode;
 pub mod engine;
 pub mod input;
+#[cfg(feature = "tracing")]
+pub mod log;
 mod terminal;
 #[cfg(feature = "themes")]
 pub mod theme;

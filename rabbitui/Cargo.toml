@@ -14,6 +14,8 @@ rustix.workspace = true
 tokio.workspace = true
 futures-core.workspace = true
 toml = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 rabbitui-widgets.workspace = true
@@ -26,13 +28,26 @@ tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
 # rendering: markdown → spans lives in the example, not the framework, so the
 # framework's dependency budget is untouched (`docs/design/slice8-agent-chrome.md`).
 pulldown-cmark = { version = "0.12", default-features = false }
+# Benchmark harness (Arc 2B): the full declared-frame benches live here.
+criterion = { workspace = true }
+
+[[bench]]
+name = "frame"
+harness = false
 
 [features]
-default = ["themes"]
+default = ["themes", "tracing"]
 # TOML theme-file loading and debug-build hot reload. On by default; disabling it
 # drops the `toml` dependency and the `theme` module (ADR 0007: file loading lives
 # in the facade, core stays dep-free).
 themes = ["dep:toml"]
+# `tracing` integration: the `log` module's Collector (a tracing_subscriber Layer)
+# and `App::tracing`, which installs it as the global default. On by default;
+# disabling it drops the `tracing`/`tracing-subscriber` dependencies and the `log`
+# module (the logging seam, `docs/design/arc2b-measurement-scroll.md`). The widget
+# side (`LogOverlay`) is gated by rabbitui-widgets' matching `tracing` feature but
+# depends only on the core handle, so it never pulls `tracing` in.
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
 [lints]
 workspace = true

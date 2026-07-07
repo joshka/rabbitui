@@ -23,6 +23,14 @@ rustix = { version = "1", default-features = false, features = ["std", "termios"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# `env-filter` gives RABBITUI_LOG / RUST_LOG parsing; `fmt` is not pulled — the
+# Collector formats events itself into the ring and only writes stderr on close.
+# Default features are trimmed per the publish checklist's default-features-false rule.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "env-filter"] }
+# Benchmark harness (Arc 2B). Dev-dependency only; `default-features = false`
+# drops the optional `rayon`/plotting stack we do not use (no HTML reports).
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

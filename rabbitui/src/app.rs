@@ -564,6 +564,15 @@ pub struct App<S, U, V, M = ()> {
     /// Whether to capture the mouse, or `None` to default by mode (on in
     /// alt-screen, off in inline). See [`mouse`](Self::mouse).
     mouse: Option<bool>,
+    /// Whether to install the tracing collector, or `None` to default by build
+    /// profile (on in debug, off in release). See [`tracing`](Self::tracing).
+    #[cfg(feature = "tracing")]
+    tracing: Option<bool>,
+    /// The ring the collector writes into, if the app supplied one to share with a
+    /// `LogOverlay`. When `None`, [`run`](Self::run) makes its own so the
+    /// close-flush still works. See [`log_handle`](Self::log_handle).
+    #[cfg(feature = "tracing")]
+    log_handle: Option<rabbitui_core::log::LogHandle>,
     /// Ties the app to its message type without owning one; the `fn() -> M`
     /// form keeps `App` `Send`-agnostic and variance-correct.
     _marker: std::marker::PhantomData<fn() -> M>,
@@ -591,8 +600,97 @@ where
             theme_file: None,
             mode: Mode::default(),
             mouse: None,
+            #[cfg(feature = "tracing")]
+            tracing: None,
+            #[cfg(feature = "tracing")]
+            log_handle: None,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Supplies the [`LogHandle`](rabbitui_core::log::LogHandle) the tracing
+    /// collector writes into, so the app can render its tail with a `LogOverlay`.
+    ///
+    /// The runtime owns and shares the log ring (`docs/design/arc2b-measurement-scroll.md`):
+    /// pass a clone here and keep another clone in your state, and the collector's
+    /// events land in the same ring your `view` reads. Without this, [`run`](Self::run)
+    /// still makes an internal ring so the close-flush works — an app just cannot
+    /// display the overlay, since it never sees the handle.
+    ///
+    /// Only meaningful alongside [`tracing`](Self::tracing) (or its debug-build
+    /// default); a supplied handle with tracing off is simply never written.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use rabbitui::App;
+    /// use rabbitui::app::Update;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::log::LogHandle;
+    ///
+    /// let logs = LogHandle::with_capacity(256);
+    /// let app = App::new(
+    ///     logs.clone(), // the app keeps a clone in its state for the overlay
+    ///     |_: &mut LogHandle, _: Update<'_>| ControlFlow::Break(()),
+    ///     |_: &LogHandle, _: &mut Frame<'_>| {},
+    /// )
+    /// .log_handle(logs);
+    /// let _ = app;
+    /// ```
+    #[cfg(feature = "tracing")]
+    #[must_use]
+    pub fn log_handle(mut self, handle: rabbitui_core::log::LogHandle) -> Self {
+        self.log_handle = Some(handle);
+        self
+    }
+
+    /// Sets whether the app installs rabbitui's [`tracing`](crate::log) collector
+    /// as the global-default subscriber, overriding the by-profile default.
+    ///
+    /// The collector formats `tracing` events into a bounded ring the runtime
+    /// owns; the `LogOverlay` widget renders that ring's tail. By default it is
+    /// installed in **debug builds** and skipped in **release** builds (a dev
+    /// affordance, off in shipped binaries) — pass `true` to force it on in
+    /// release, or `false` to opt out in debug.
+    ///
+    /// # Install-once, never panic
+    ///
+    /// Installation is **only** attempted if no global-default subscriber is
+    /// already set (`docs/design/arc2b-measurement-scroll.md`): if a host app, a
+    /// test harness, or a prior `App` already installed one, this is a silent
+    /// no-op, never a panic. So a program that sets up its own `tracing` stack and
+    /// then runs a rabbitui `App` keeps its subscriber — but then the `LogOverlay`
+    /// shows nothing, since rabbitui's ring never receives events.
+    ///
+    /// The filter honors `RABBITUI_LOG`, falling back to `RUST_LOG`
+    /// ([`log::env_filter`](crate::log::env_filter)). On close, buffered `WARN` and
+    /// above flush to stderr after the terminal is restored, so errors survive the
+    /// alternate screen.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use rabbitui::App;
+    /// use rabbitui::app::Update;
+    /// use rabbitui_core::frame::Frame;
+    ///
+    /// let app = App::new(
+    ///     (),
+    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
+    ///     |_: &(), _: &mut Frame<'_>| {},
+    /// )
+    /// .tracing(true); // force the collector on, even in release
+    /// let _ = app;
+    /// ```
+    #[cfg(feature = "tracing")]
+    #[must_use]
+    pub fn tracing(mut self, tracing: bool) -> Self {
+        self.tracing = Some(tracing);
+        self
     }
 
     /// Sets whether the app captures the mouse, overriding the by-mode default.
@@ -732,6 +830,15 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
+        // Install the tracing collector before anything opens the terminal, so
+        // startup events are captured. The default is by build profile (debug on,
+        // release off); an explicit `.tracing(bool)` overrides it. Installation is
+        // a no-op if a global default is already set — never a panic. The returned
+        // handle (if we installed and hold one) is flushed on close, after the
+        // terminal is restored, so WARN+ survives the alternate screen.
+        #[cfg(feature = "tracing")]
+        let flush_handle = install_tracing(self.tracing, self.log_handle.clone());
+
         let App {
             mut state,
             mut update,
@@ -953,7 +1060,14 @@ where
                         .write_bytes(&engine.render(&empty, &front, &remaining))
                         .await?;
                 }
-                return leave(terminal, &mut engine).await;
+                let result = leave(terminal, &mut engine).await;
+                // Now that the terminal is restored, flush buffered WARN+ to
+                // stderr so errors and warnings survive the alternate screen.
+                #[cfg(feature = "tracing")]
+                if let Some(handle) = &flush_handle {
+                    crate::log::flush_warnings(handle);
+                }
+                return result;
             }
 
             if !dirty {
@@ -1010,6 +1124,38 @@ where
             next_paint = None;
             last_paint = tokio::time::Instant::now();
         }
+    }
+}
+
+/// Installs the tracing collector per the app's setting, returning the ring
+/// handle to flush on close (or `None` when tracing is off, or when a global
+/// default was already installed and we hold no shared handle).
+///
+/// The on/off default is by build profile: debug on, release off. When on, the
+/// collector writes into the app's supplied [`LogHandle`] if it gave one
+/// ([`App::log_handle`]), else an internal ring made here so the close-flush still
+/// works. Installation is attempted only if no global default is set; a loss is
+/// silent (`docs/design/arc2b-measurement-scroll.md`).
+///
+/// The returned handle is flushed for WARN+ on close only when *this* call
+/// installed the collector — if a global default already existed, our ring never
+/// received events, so there is nothing of ours to flush.
+#[cfg(feature = "tracing")]
+fn install_tracing(
+    setting: Option<bool>,
+    supplied: Option<rabbitui_core::log::LogHandle>,
+) -> Option<rabbitui_core::log::LogHandle> {
+    let on = setting.unwrap_or(cfg!(debug_assertions));
+    if !on {
+        return None;
+    }
+    let handle = supplied.unwrap_or_default();
+    if crate::log::try_install(handle.clone()) {
+        // We won the install: our ring receives events, so flush it on close.
+        Some(handle)
+    } else {
+        // A global default already exists; our ring stays empty. Nothing to flush.
+        None
     }
 }
 

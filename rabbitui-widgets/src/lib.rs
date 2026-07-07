@@ -26,6 +26,12 @@
 //!   retained by identity; Enter or a header click toggles it, emitting
 //!   [`Outcome::Toggled`](rabbitui_core::outcome::Outcome::Toggled). The
 //!   transcript's alt-screen cell (slice 8).
+//! - `LogOverlay` — a debug readout that renders the tail of a
+//!   [`LogHandle`](rabbitui_core::log::LogHandle) ring in a themed panel, meant
+//!   for a [`Frame::layer`](rabbitui_core::frame::Frame::layer). Behind the
+//!   `tracing` feature (matching the facade), but it depends only on the *core*
+//!   handle — no `tracing` in this crate (the logging seam,
+//!   `docs/design/arc2b-measurement-scroll.md`).
 //! - [`Panel`] — a container-look *backdrop*: a role-filled surface with an
 //!   optional light-box border, a title in the top border, and inner padding.
 //!   Because widgets cannot nest yet, it paints behind content declared into its
@@ -52,6 +58,8 @@
 
 pub mod button;
 pub mod collapsible;
+#[cfg(feature = "tracing")]
+pub mod log_overlay;
 pub mod panel;
 pub mod selection_list;
 pub mod text;
@@ -59,6 +67,8 @@ pub mod text_input;
 
 pub use button::Button;
 pub use collapsible::Collapsible;
+#[cfg(feature = "tracing")]
+pub use log_overlay::LogOverlay;
 pub use panel::Panel;
 pub use selection_list::{ListSource, SelectionList};
 pub use text::{Content, Text};

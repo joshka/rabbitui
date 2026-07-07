@@ -23,6 +23,7 @@ pub mod geometry;
 pub mod id;
 pub mod input;
 pub mod layout;
+pub mod log;
 pub mod mode;
 pub mod outcome;
 pub mod pending;

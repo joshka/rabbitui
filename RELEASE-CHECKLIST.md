@@ -82,8 +82,14 @@ whole checklist.
 - [ ] CI is configured and green (no `.github/workflows/` exists yet). CI should
       run, at minimum, `check`, `clippy`, `test --workspace`, `doc`, and
       `markdownlint-cli2` on the tracked markdown.
-- [ ] MSRV is verified in CI (workspace `rust-version = "1.85"`; the ratatui
+- [ ] MSRV is verified in CI (workspace `rust-version = "1.85"`, the ratatui
       bridge at 1.88), per the "stable minus one" policy in ADR 0011.
+- [ ] Performance-budget assertions run in CI (Arc 4). The Arc 2B benchmark
+      harness (`rabbitui-core/benches/core.rs`, `rabbitui/benches/frame.rs`)
+      establishes the baseline; wiring a budget check into CI so a regression
+      fails the build is deferred to Arc 4, once the baseline data is trusted (see
+      the "Benchmark results" section of
+      `docs/design/arc2b-measurement-scroll.md`).
 - [ ] The positioning decision (ADR 0014) is made and the crate names finalized
       (see Known blockers).
 

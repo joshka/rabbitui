@@ -48,7 +48,7 @@
 //!
 //! Every surface references a [`Role`], never a raw color (ADR 0007): the fill is
 //! [`Role::Surface`] by default, the border [`Role::Border`], and a *focused*
-//! panel's border switches to [`Role::Highlight`] so focus reads at the
+//! panel's border switches to [`Role::Accent`] so focus reads at the
 //! container level. The title paints in the border's style. Swap the theme and
 //! the whole panel re-skins.
 //!
@@ -177,7 +177,7 @@ impl<'a> Panel<'a> {
         self
     }
 
-    /// Marks the panel as focused, painting its border in [`Role::Highlight`].
+    /// Marks the panel as focused, painting its border in [`Role::Accent`].
     ///
     /// The app passes `true` when the content *inside* the panel holds focus, so
     /// the container reads as active. A panel never takes focus itself (it is
@@ -293,7 +293,9 @@ impl Widget for Panel<'_> {
 
         // 2. Draw the border. A focused panel highlights its frame.
         let border_style = if self.focused {
-            ctx.style(Role::Highlight)
+            // Accent, not Highlight: Highlight carries a background, which
+            // paints the whole border as a thick colored band (user report).
+            ctx.style(Role::Accent)
         } else {
             ctx.style(Role::Border)
         };
@@ -530,7 +532,7 @@ mod tests {
         // The top-left corner glyph carries the highlight style, not the border.
         let corner = buffer.get(Position::ORIGIN).unwrap();
         assert_eq!(corner.symbol, "┌");
-        assert_eq!(corner.style, theme.style(Role::Highlight));
+        assert_eq!(corner.style, theme.style(Role::Accent));
     }
 
     #[test]
@@ -571,7 +573,7 @@ mod tests {
         let theme = Theme::catppuccin_mocha();
         assert_eq!(
             buffer.get(Position::ORIGIN).unwrap().style,
-            theme.style(Role::Highlight)
+            theme.style(Role::Accent)
         );
         assert_eq!(
             buffer.get(Position::new(1, 1)).unwrap().style,

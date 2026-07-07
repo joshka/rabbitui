@@ -20,11 +20,20 @@
 //!
 //! Run with `cargo run --example fetch`. Type to search; watch the completed
 //! counter lag far behind your keystrokes; press `t` to toggle the clock; `Ctrl-L`
-//! to clear; `q` to quit.
+//! to clear; `~` to toggle the debug **log overlay**; `q` to quit.
 //!
 //! Note (substrate gap): the input is reached via Tab; while it is focused it
-//! consumes printable keys, so app-level `t`/`q` require Tab-ing focus away first.
-//! `Ctrl-L` works while focused (TextInput leaves ctrl chords for the app).
+//! consumes printable keys, so app-level `t`/`q`/`~` require Tab-ing focus away
+//! first. `Ctrl-L` works while focused (TextInput leaves ctrl chords for the app).
+//!
+//! # The log overlay (Arc 2B logging seam)
+//!
+//! This example demonstrates rabbitui's tracing integration. The app supplies a
+//! shared [`LogHandle`] to [`App::log_handle`]; the runtime's collector writes
+//! every `tracing::info!` / `warn!` into that ring, and `~` toggles a
+//! [`LogOverlay`] declared into a `frame.layer` that renders the ring's tail. The
+//! `update` emits a couple of traces (a search start, a clock toggle) so the
+//! overlay shows real content.
 
 use std::ops::ControlFlow;
 use std::pin::Pin;
@@ -39,9 +48,10 @@ use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
 use rabbitui_core::layout::{Constraint, center, split_rows};
+use rabbitui_core::log::LogHandle;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_widgets::{Panel, SelectionList, Text, TextInput};
+use rabbitui_widgets::{LogOverlay, Panel, SelectionList, Text, TextInput};
 
 /// A message an effect produces, re-entering the loop as [`Event::Message`].
 #[derive(Debug, Clone)]
@@ -68,11 +78,26 @@ struct Fetch {
     ticks: u64,
     /// The last effect failure, shown on the status line (contained, not fatal).
     last_error: Option<String>,
+    /// The shared log ring the runtime's tracing collector writes into; the
+    /// overlay renders its tail. A clone lives in the runtime too (via
+    /// [`App::log_handle`]), so both view the same events.
+    logs: LogHandle,
+    /// Whether the debug log overlay is toggled on (the `~` key).
+    show_logs: bool,
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    App::new(Fetch::default(), update, view).run().await?;
+    let app = Fetch::default();
+    // Share the app's log ring with the runtime so the collector's events land
+    // where the overlay reads them. `.tracing(true)` forces the collector on even
+    // in a release build of the example.
+    let logs = app.logs.clone();
+    App::new(app, update, view)
+        .log_handle(logs)
+        .tracing(true)
+        .run()
+        .await?;
     Ok(())
 }
 
@@ -85,6 +110,7 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
     if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
         app.draft = value.clone();
         let query = app.draft.clone();
+        tracing::info!(query = %query, "search started");
         update.spawn(fake_fetch(query).group("search"));
     }
 
@@ -100,6 +126,7 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
         }
         Event::Message(Msg::Tick(n)) => app.ticks = *n,
         Event::EffectFailed(error) => {
+            tracing::warn!(error = %error, "effect failed");
             app.last_error = Some(error.to_string());
         }
         _ => {}
@@ -119,6 +146,7 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 // input consumes printables while focused (Update::consumed).
                 Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
                     app.ticking = !app.ticking;
+                    tracing::info!(ticking = app.ticking, "clock toggled");
                     if app.ticking {
                         // Start the ticker under the "clock" group so it can be
                         // aborted on demand.
@@ -130,6 +158,11 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                         // without replacing it (the stream-stop primitive).
                         update.spawn(Cmd::cancel_group("clock"));
                     }
+                }
+                // Toggle the debug log overlay. Guarded on `!consumed()` so it does
+                // not fire while `~` is typed into the focused search field.
+                Key::Char('~') if !update.consumed() => {
+                    app.show_logs = !app.show_logs;
                 }
                 Key::Char('q') | Key::Escape => return ControlFlow::Break(()),
                 _ => {}
@@ -193,8 +226,21 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus   type: search   Ctrl-L: clear   t: clock   q: quit").role(Role::Muted),
+        &Text::new("Tab: focus   type: search   Ctrl-L: clear   t: clock   ~: logs   q: quit")
+            .role(Role::Muted),
     );
+
+    // The debug log overlay: a themed panel over the bottom third of the screen,
+    // declared into its own layer so it sits above the app and (per ADR 0003's
+    // layer semantics) contains its own input. It renders the shared log ring's
+    // tail — the tracing events the update emits.
+    if app.show_logs {
+        let log_h = full.size.height.saturating_sub(2).clamp(3, 10);
+        let log_area = split_rows(full, [Constraint::Fill(1), Constraint::Length(log_h)])[1];
+        frame.layer(key("logs"), |overlay| {
+            overlay.widget(key("overlay"), log_area, &LogOverlay::new(&app.logs));
+        });
+    }
 }
 
 /// A simulated ~300ms fetch that returns a few result rows for `query`.

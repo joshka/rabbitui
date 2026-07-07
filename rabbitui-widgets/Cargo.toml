@@ -12,6 +12,14 @@ rabbitui-core.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
+[features]
+# Gates the `LogOverlay` widget so its presence matches the facade's `tracing`
+# feature (on by default there). The widget itself pulls in no new dependency —
+# it reads the *core* `LogHandle`, keeping `tracing` out of this crate (ADR 0011).
+# On by default so the default catalog includes the overlay.
+default = ["tracing"]
+tracing = []
+
 [dev-dependencies]
 rabbitui-testing.workspace = true
 
