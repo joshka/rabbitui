@@ -8,3 +8,11 @@ config:
   table-column-style:
     style: aligned
     aligned_delimiter: true
+  # Bold pseudo-headings ("**Sources**", "**Verdict:**") are a deliberate memo
+  # idiom; prettier emits underscore emphasis.
+  no-emphasis-as-heading: false
+  emphasis-style:
+    style: underscore
+ignores:
+  - target/**
+  - docs/research/tui-framework-field-report-2026.md

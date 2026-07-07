@@ -1,78 +1,214 @@
 # OpenTUI (TypeScript + Zig) — research memo
 
-**Verdict:** The most instructive greenfield TUI of 2024–25: a frontend-agnostic retained scene graph over a native cell-buffer core is the right shape, but OpenTUI drew its scripting/native boundary wrong and is now paying for a v1.0 "move everything native" rewrite — rabbitui gets that end-state for free by being single-language.
+**Verdict:** The most instructive greenfield TUI of 2024–25: a frontend-agnostic retained scene
+graph over a native cell-buffer core is the right shape, but OpenTUI drew its scripting/native
+boundary wrong and is now paying for a v1.0 "move everything native" rewrite — rabbitui gets that
+end-state for free by being single-language.
 
 Date: 2026-07-06
 
 **Sources**
-- Repo (cloned at commit `5803b2c`, `@opentui/core` 0.4.3): https://github.com/sst/opentui (now redirects to `anomalyco/opentui`). File paths below are relative to the clone.
-- README.md (fetched): "native terminal UI core written in Zig with TypeScript bindings… exposes a C ABI… powers OpenCode in production today and will also power terminal.shop"
-- Docs: https://opentui.com/docs/getting-started
-- Roadmap: https://github.com/anomalyco/opentui/issues/821
-- dax (opencode) on why not Ink/Bubble Tea: https://x.com/thdxr/status/1959934254126669998 , https://x.com/thdxr/status/1989181213605581118 , HN "Opencode Is Moving to Opentui" https://news.ycombinator.com/item?id=45186969
-- HN comments: https://news.ycombinator.com/item?id=46700179 (Ink clear+redraw flicker, user EMM_386), https://news.ycombinator.com/item?id=46689516 (dax interview: Ink "more like a proof of concept"), https://news.ycombinator.com/item?id=48692202, https://news.ycombinator.com/item?id=47512526 (Gridland author on OpenTUI canvas renderer)
-- Issues cited: anomalyco/opentui #1187, #1191, #1185, #1147, #1110, #1087, #560, #514, #1149 (PR); anomalyco/opencode #3798
-- Secondary (marketing-flavored, treat claims skeptically): https://www.stork.ai/blog/the-tui-library-thats-killing-ink
-- `@opentui/vue` community reconciler on npm: https://registry.npmjs.org/@opentui/vue
+
+- Repo (cloned at commit `5803b2c`, `@opentui/core` 0.4.3): <https://github.com/sst/opentui> (now
+  redirects to `anomalyco/opentui`). File paths below are relative to the clone.
+- README.md (fetched): "native terminal UI core written in Zig with TypeScript bindings… exposes a C
+  ABI… powers OpenCode in production today and will also power terminal.shop"
+- Docs: <https://opentui.com/docs/getting-started>
+- Roadmap: <https://github.com/anomalyco/opentui/issues/821>
+- dax (opencode) on why not Ink/Bubble Tea: <https://x.com/thdxr/status/1959934254126669998> ,
+  <https://x.com/thdxr/status/1989181213605581118> , HN "Opencode Is Moving to Opentui"
+  <https://news.ycombinator.com/item?id=45186969>
+- HN comments: <https://news.ycombinator.com/item?id=46700179> (Ink clear+redraw flicker, user
+  EMM_386), <https://news.ycombinator.com/item?id=46689516> (dax interview: Ink "more like a proof
+  of concept"), <https://news.ycombinator.com/item?id=48692202>,
+  <https://news.ycombinator.com/item?id=47512526> (Gridland author on OpenTUI canvas renderer)
+- Issues cited: anomalyco/opentui #1187, #1191, #1185, #1147, #1110, #1087, #560, #514, #1149 (PR);
+  anomalyco/opencode #3798
+- Secondary (marketing-flavored, treat claims skeptically):
+  <https://www.stork.ai/blog/the-tui-library-thats-killing-ink>
+- `@opentui/vue` community reconciler on npm: <https://registry.npmjs.org/@opentui/vue>
 
 ## Core architecture
 
 Two layers, one retained tree:
 
-- **Zig native core** (`packages/core/src/zig/`): cell buffers, frame diffing, text (rope, graphemes, UTF-8 width), an entire editor (`edit-buffer.zig`, `editor-view.zig`, `rope.zig`, `split-scrollback.zig`), Yoga bindings (`yoga.zig`), terminal I/O backends (`renderer-output.zig`: stdout / buffered / feed — the feed backend powers `@opentui/ssh` and the web package). Exposes a C ABI; TS talks to it over Bun FFI (`packages/core/src/zig.ts`).
-- **TypeScript retained tree**: `Renderable` (packages/core/src/Renderable.ts) is the widget base class. Every renderable owns a Yoga node (`Renderable.ts:262,314`), a `zIndex` with per-parent sorted children (`Renderable.ts:680`), and setters that call `this.requestRender()` (dozens of call sites, e.g. `Renderable.ts:631–658`). Widgets draw by implementing `renderSelf(buffer)` (`Renderable.ts:1535`) against a native `OptimizedBuffer` — every `setCell`/`drawText`/`fillRect` is an FFI call into Zig (`packages/core/src/buffer.ts:230–247`), with raw char/fg/bg/attr arrays also mapped back into TS as typed arrays (`buffer.ts:80–83`).
-- **Frame pipeline**: classic double buffer in native. `prepareRenderFrameWithWriter` (`zig/renderer.zig:1321–1420`) diffs `currentRenderBuffer` vs `nextRenderBuffer` cell-by-cell, batches same-attribute cells into runs, and — crucially — has "lazy frame start": if nothing changed, *zero bytes* are emitted (`renderer.zig:1327–1331`). Cells are RGBA with alpha blending (`bufferSetCellWithAlphaBlending`, `buffer.ts:247`), so layers composite like a compositor, not like curses.
-- **Scheduling**: on-demand, not a fixed loop. `requestRender()` coalesces invalidations into one frame, clamped by a target frame time (default `_targetFps = 30`, `renderer.ts:736,1121`), with explicit backpressure states ("backpressured", feed-idle retry) (`renderer.ts:1447,1482–1525`). Output writing can run on a native thread — default **on**, except disabled on Linux (`renderer.ts:1053–1055`).
-- **Frontends over one core**: `@opentui/react` is a ~200-line react-reconciler host config mapping createInstance/appendChild/commitUpdate onto Renderables (`packages/react/src/reconciler/host-config.ts:48,67,165`); `@opentui/solid` does the same with Solid's universal renderer; a community `@opentui/vue` exists on npm. The imperative core is a documented first-class API, not an internal detail.
-- **Input**: hand-written stdin parser with kitty keyboard protocol support (`lib/stdin-parser.ts:44–56,345–378`; key events carry `source: "raw" | "kitty"`, `lib/KeyHandler.ts:15`), bubbling with stopPropagation (KeyHandler tests), and a **native mouse hit grid** with scissor rects (`renderer.ts:1371–1379`) — picking is a buffer lookup, not a tree walk.
-- **Focus**: single-owner, subscription-based, **no built-in traversal**. `Renderable` has a `focusable` flag and `focus()`/`blur()` (`Renderable.ts:247–248,399`); `focus()` registers the renderable as a listener on the global key stream and the renderer tracks one `_currentFocusedRenderable`, emitting focus-change events and blurring the previous owner (`renderer.ts:1322–1354`). Focus state propagates up as `_hasFocusedDescendant` on ancestors (`Renderable.ts:432`), and left-click walks up to the nearest focusable ancestor when `autoFocus` is on (`renderer.ts:3391–3400`). But there is no tab order, `tabIndex`, or `focusNext` anywhere in core — grep comes up empty; OpenTUI's own examples hand-roll Tab cycling in app state (`packages/react/examples/basic.tsx:13`), and even the keymap package's integration test builds its own `focusables` array with modulo cycling bound to tab/shift+tab (`packages/keymap/src/addons/tests/integration.test.ts:56–65,131–132`).
-- **Selection**: renderer-owned. Mouse drag asks renderables `shouldStartSelection`, then broadcasts `onSelectionChanged` down the tree; each widget contributes `getSelectedText()` (`lib/selection.ts:27,113,193`; `renderer.ts:3466,4619–4749`). Cross-widget text selection actually works — almost no TUI framework has this.
-- **Scrolling**: `ScrollBox` is composed from plain renderables (root/wrapper/viewport/content + `ScrollBarRenderable`) with viewport culling via `getObjectsInViewport` (`renderables/ScrollBox.ts:39–53`), sticky-scroll for streaming, and pluggable scroll acceleration (`lib/scroll-acceleration.ts`, macOS-style inertia).
-- **Testing**: `createTestRenderer`, mock keys/mouse, `ManualClock`, `TestRecorder` capturing frames, snapshot dirs (`packages/core/src/testing/`, `__snapshots__/`). The roadmap lists "remove non-determinism from the frame pipeline with an injectable Clock" as in progress (#821).
+- **Zig native core** (`packages/core/src/zig/`): cell buffers, frame diffing, text (rope,
+  graphemes, UTF-8 width), an entire editor (`edit-buffer.zig`, `editor-view.zig`, `rope.zig`,
+  `split-scrollback.zig`), Yoga bindings (`yoga.zig`), terminal I/O backends (`renderer-output.zig`:
+  stdout / buffered / feed — the feed backend powers `@opentui/ssh` and the web package). Exposes a
+  C ABI; TS talks to it over Bun FFI (`packages/core/src/zig.ts`).
+- **TypeScript retained tree**: `Renderable` (packages/core/src/Renderable.ts) is the widget base
+  class. Every renderable owns a Yoga node (`Renderable.ts:262,314`), a `zIndex` with per-parent
+  sorted children (`Renderable.ts:680`), and setters that call `this.requestRender()` (dozens of
+  call sites, e.g. `Renderable.ts:631–658`). Widgets draw by implementing `renderSelf(buffer)`
+  (`Renderable.ts:1535`) against a native `OptimizedBuffer` — every `setCell`/`drawText`/`fillRect`
+  is an FFI call into Zig (`packages/core/src/buffer.ts:230–247`), with raw char/fg/bg/attr arrays
+  also mapped back into TS as typed arrays (`buffer.ts:80–83`).
+- **Frame pipeline**: classic double buffer in native. `prepareRenderFrameWithWriter`
+  (`zig/renderer.zig:1321–1420`) diffs `currentRenderBuffer` vs `nextRenderBuffer` cell-by-cell,
+  batches same-attribute cells into runs, and — crucially — has "lazy frame start": if nothing
+  changed, _zero bytes_ are emitted (`renderer.zig:1327–1331`). Cells are RGBA with alpha blending
+  (`bufferSetCellWithAlphaBlending`, `buffer.ts:247`), so layers composite like a compositor, not
+  like curses.
+- **Scheduling**: on-demand, not a fixed loop. `requestRender()` coalesces invalidations into one
+  frame, clamped by a target frame time (default `_targetFps = 30`, `renderer.ts:736,1121`), with
+  explicit backpressure states ("backpressured", feed-idle retry) (`renderer.ts:1447,1482–1525`).
+  Output writing can run on a native thread — default **on**, except disabled on Linux
+  (`renderer.ts:1053–1055`).
+- **Frontends over one core**: `@opentui/react` is a ~200-line react-reconciler host config mapping
+  createInstance/appendChild/commitUpdate onto Renderables
+  (`packages/react/src/reconciler/host-config.ts:48,67,165`); `@opentui/solid` does the same with
+  Solid's universal renderer; a community `@opentui/vue` exists on npm. The imperative core is a
+  documented first-class API, not an internal detail.
+- **Input**: hand-written stdin parser with kitty keyboard protocol support
+  (`lib/stdin-parser.ts:44–56,345–378`; key events carry `source: "raw" | "kitty"`,
+  `lib/KeyHandler.ts:15`), bubbling with stopPropagation (KeyHandler tests), and a **native mouse
+  hit grid** with scissor rects (`renderer.ts:1371–1379`) — picking is a buffer lookup, not a tree
+  walk.
+- **Focus**: single-owner, subscription-based, **no built-in traversal**. `Renderable` has a
+  `focusable` flag and `focus()`/`blur()` (`Renderable.ts:247–248,399`); `focus()` registers the
+  renderable as a listener on the global key stream and the renderer tracks one
+  `_currentFocusedRenderable`, emitting focus-change events and blurring the previous owner
+  (`renderer.ts:1322–1354`). Focus state propagates up as `_hasFocusedDescendant` on ancestors
+  (`Renderable.ts:432`), and left-click walks up to the nearest focusable ancestor when `autoFocus`
+  is on (`renderer.ts:3391–3400`). But there is no tab order, `tabIndex`, or `focusNext` anywhere in
+  core — grep comes up empty; OpenTUI's own examples hand-roll Tab cycling in app state
+  (`packages/react/examples/basic.tsx:13`), and even the keymap package's integration test builds
+  its own `focusables` array with modulo cycling bound to tab/shift+tab
+  (`packages/keymap/src/addons/tests/integration.test.ts:56–65,131–132`).
+- **Selection**: renderer-owned. Mouse drag asks renderables `shouldStartSelection`, then broadcasts
+  `onSelectionChanged` down the tree; each widget contributes `getSelectedText()`
+  (`lib/selection.ts:27,113,193`; `renderer.ts:3466,4619–4749`). Cross-widget text selection
+  actually works — almost no TUI framework has this.
+- **Scrolling**: `ScrollBox` is composed from plain renderables (root/wrapper/viewport/content +
+  `ScrollBarRenderable`) with viewport culling via `getObjectsInViewport`
+  (`renderables/ScrollBox.ts:39–53`), sticky-scroll for streaming, and pluggable scroll acceleration
+  (`lib/scroll-acceleration.ts`, macOS-style inertia).
+- **Testing**: `createTestRenderer`, mock keys/mouse, `ManualClock`, `TestRecorder` capturing
+  frames, snapshot dirs (`packages/core/src/testing/`, `__snapshots__/`). The roadmap lists "remove
+  non-determinism from the frame pipeline with an injectable Clock" as in progress (#821).
 
 ## What it gets right
 
-- **Frontend-agnostic retained core.** One tree, three reconcilers, plus an imperative API people actually use. dax: "opentui has an actual tree representation of the nodes on the screen — just like your browser" vs Bubble Tea which "operates on strings so that makes a lot of things difficult — like performance and text detection" (x.com/thdxr/status/1959934254126669998). This is the load-bearing idea.
-- **Text as a first-class native subsystem.** Rope-backed TextBuffer, grapheme/width handling, wrapping views, extmarks (Neovim-style sticky marks), tree-sitter highlighting, a real Textarea/editor. AI-agent TUIs are 90% streaming rich text; OpenTUI put the engineering where the workload is.
-- **No-op frame suppression + backpressure.** Emitting zero bytes for unchanged frames (`renderer.zig:1327`) and treating stdout backpressure as a first-class render status is what actually kills flicker and lag on slow terminals/SSH — not raw FPS.
-- **Selection and hit-testing in the core.** Both are cross-cutting; widgets can't implement them independently. OpenTUI's renderer-owned Selection walk and native hit grid are the right decomposition.
-- **Output backend abstraction.** stdout / buffered / feed variants (`zig/renderer.zig:286–290`) gave them SSH apps (`@opentui/ssh`) and browser rendering (`@opentui/web`, Gridland: "using OpenTUI and a canvas renderer performed better with less flickering and nearly instant load times", HN 47512526) without touching the core.
-- **Split render mode**: interactive TUI at bottom + immutable scrollback log on top (#821, "CLI render mode") — purpose-built for agent CLIs, threading the alt-screen vs scrollback dilemma.
+- **Frontend-agnostic retained core.** One tree, three reconcilers, plus an imperative API people
+  actually use. dax: "opentui has an actual tree representation of the nodes on the screen — just
+  like your browser" vs Bubble Tea which "operates on strings so that makes a lot of things
+  difficult — like performance and text detection" (x.com/thdxr/status/1959934254126669998). This is
+  the load-bearing idea.
+- **Text as a first-class native subsystem.** Rope-backed TextBuffer, grapheme/width handling,
+  wrapping views, extmarks (Neovim-style sticky marks), tree-sitter highlighting, a real
+  Textarea/editor. AI-agent TUIs are 90% streaming rich text; OpenTUI put the engineering where the
+  workload is.
+- **No-op frame suppression + backpressure.** Emitting zero bytes for unchanged frames
+  (`renderer.zig:1327`) and treating stdout backpressure as a first-class render status is what
+  actually kills flicker and lag on slow terminals/SSH — not raw FPS.
+- **Selection and hit-testing in the core.** Both are cross-cutting; widgets can't implement them
+  independently. OpenTUI's renderer-owned Selection walk and native hit grid are the right
+  decomposition.
+- **Output backend abstraction.** stdout / buffered / feed variants (`zig/renderer.zig:286–290`)
+  gave them SSH apps (`@opentui/ssh`) and browser rendering (`@opentui/web`, Gridland: "using
+  OpenTUI and a canvas renderer performed better with less flickering and nearly instant load
+  times", HN 47512526) without touching the core.
+- **Split render mode**: interactive TUI at bottom + immutable scrollback log on top (#821, "CLI
+  render mode") — purpose-built for agent CLIs, threading the alt-screen vs scrollback dilemma.
 
 ## What users complain about
 
-- **Memory and crashes in production.** opencode #3798: "opencode had use 14GBs of memory" then crashed loading a session (closed, but representative of a class). Roadmap admits `TextBufferView caches all virtual lines, even invisible ones` (#821).
-- **Startup cost from scope creep.** #1191: `@opentui/core` eagerly initialized all 5 tree-sitter WASM grammars at import — a 25s boot penalty (closed).
-- **Diff desync.** #1187: "Renderer diff emitter desyncs from host terminal cursor and never self-corrects; only a full repaint recovers" — the classic double-buffer failure mode when your model of the terminal drifts from reality.
-- **Streaming edge cases.** #1147: `requestRender()` silently drops renders when a node is transiently detached (streaming text freeze); #1087: sticky scroll fights the user during streaming; #1139: needed opt-in throttle for tree-sitter re-highlighting while streaming.
-- **Platform fragility.** #1185: Windows segfault in opentui.dll on rapid React mount/unmount; #514: broken rendering on Windows opencode; #1110: stale rightmost column after horizontal resize in Terminal.app; #560: ScrollBox breaks on scroll/resize.
-- **Runtime lock-in (historical).** Bun-only until "debunification" (PR #1149) added Node/Deno; Node needs `--experimental-ffi` (opentui.com docs). Building from source requires a Zig toolchain (README).
-- **Unicode is never done.** Roadmap: "Close the gap between OpenTUI's grapheme/width model, Unicode, and how terminals render complex text"; #1183 CJK line-wrap; #1113 grapheme cluster >128 bytes panicked the pool.
+- **Memory and crashes in production.** opencode #3798: "opencode had use 14GBs of memory" then
+  crashed loading a session (closed, but representative of a class). Roadmap admits
+  `TextBufferView caches all virtual lines, even invisible ones` (#821).
+- **Startup cost from scope creep.** #1191: `@opentui/core` eagerly initialized all 5 tree-sitter
+  WASM grammars at import — a 25s boot penalty (closed).
+- **Diff desync.** #1187: "Renderer diff emitter desyncs from host terminal cursor and never
+  self-corrects; only a full repaint recovers" — the classic double-buffer failure mode when your
+  model of the terminal drifts from reality.
+- **Streaming edge cases.** #1147: `requestRender()` silently drops renders when a node is
+  transiently detached (streaming text freeze); #1087: sticky scroll fights the user during
+  streaming; #1139: needed opt-in throttle for tree-sitter re-highlighting while streaming.
+- **Platform fragility.** #1185: Windows segfault in opentui.dll on rapid React mount/unmount; #514:
+  broken rendering on Windows opencode; #1110: stale rightmost column after horizontal resize in
+  Terminal.app; #560: ScrollBox breaks on scroll/resize.
+- **Runtime lock-in (historical).** Bun-only until "debunification" (PR #1149) added Node/Deno; Node
+  needs `--experimental-ffi` (opentui.com docs). Building from source requires a Zig toolchain
+  (README).
+- **Unicode is never done.** Roadmap: "Close the gap between OpenTUI's grapheme/width model,
+  Unicode, and how terminals render complex text"; #1183 CJK line-wrap; #1113 grapheme cluster >128
+  bytes panicked the pool.
 
-Why they built it instead of using Ink: opencode started on Go/Bubble Tea, wanted a TypeScript-native stack, and rejected Ink for the same reason users patch Claude Code — "the Ink library … clears and redraws for each update" (HN 46700179, re anthropics/claude-code#769); dax called existing tools like Ink "more like a proof of concept" (HN 46689516) and said opentui is "very high performance compared to ink and handles all kinds of cases it doesn't out of the box" (x.com/thdxr/status/1989181213605581118). Third-party benchmarks add Ink's 30 FPS cap and >50MB baseline memory (stork.ai blog — unverified marketing numbers).
+Why they built it instead of using Ink: opencode started on Go/Bubble Tea, wanted a
+TypeScript-native stack, and rejected Ink for the same reason users patch Claude Code — "the Ink
+library … clears and redraws for each update" (HN 46700179, re anthropics/claude-code#769); dax
+called existing tools like Ink "more like a proof of concept" (HN 46689516) and said opentui is
+"very high performance compared to ink and handles all kinds of cases it doesn't out of the box"
+(x.com/thdxr/status/1989181213605581118). Third-party benchmarks add Ink's 30 FPS cap and >50MB
+baseline memory (stork.ai blog — unverified marketing numbers).
 
 ## What's worth stealing
 
-1. **Retained core + thin paradigm adapters.** The reconciler pattern proves one retained tree can serve React-style, Solid-style (fine-grained), and imperative users. rabbitui's Elm/React/Xilem debate can be "all of the above as adapters" if the core tree is the stable contract.
-2. **The widget trait surface**: layout node + `renderSelf(buffer)` + lifecycle + optional selection hooks (`shouldStartSelection`/`onSelectionChanged`/`getSelectedText`) + z-index. Small, and it carried a production app and a third-party ecosystem (awesome-opentui).
-3. **Lazy frame start / zero-byte no-op frames** and backpressure as a render status, not an exception.
-4. **Native hit grid with scissor rects** for mouse picking — O(1) lookup, composes with clipping/overflow.
+1. **Retained core + thin paradigm adapters.** The reconciler pattern proves one retained tree can
+   serve React-style, Solid-style (fine-grained), and imperative users. rabbitui's Elm/React/Xilem
+   debate can be "all of the above as adapters" if the core tree is the stable contract.
+2. **The widget trait surface**: layout node + `renderSelf(buffer)` + lifecycle + optional selection
+   hooks (`shouldStartSelection`/`onSelectionChanged`/`getSelectedText`) + z-index. Small, and it
+   carried a production app and a third-party ecosystem (awesome-opentui).
+3. **Lazy frame start / zero-byte no-op frames** and backpressure as a render status, not an
+   exception.
+4. **Native hit grid with scissor rects** for mouse picking — O(1) lookup, composes with
+   clipping/overflow.
 5. **Renderer-owned cross-widget selection.**
-6. **Output backend enum (stdout/buffered/feed)** — the "feed" indirection is what makes SSH serving and browser embedding free.
-7. **Alpha-blended RGBA cells** — real compositing enables shadows, translucent overlays, scrim effects that ratatui-style palettes can't express.
-8. **Testing kit shape**: injectable clock, mock stdin/mouse streams, frame recorder, buffer snapshots, `TimeToFirstDraw` as a tracked metric.
+6. **Output backend enum (stdout/buffered/feed)** — the "feed" indirection is what makes SSH serving
+   and browser embedding free.
+7. **Alpha-blended RGBA cells** — real compositing enables shadows, translucent overlays, scrim
+   effects that ratatui-style palettes can't express.
+8. **Testing kit shape**: injectable clock, mock stdin/mouse streams, frame recorder, buffer
+   snapshots, `TimeToFirstDraw` as a tracked metric.
 9. **Split mode** (bottom interactive region + scrollback log above) as a first-class renderer mode.
 
 ## Implications for rabbitui
 
-- **Put tree, layout, text, and buffers in one language and one process — no boundary.** OpenTUI's v1.0 roadmap is literally "The renderable tree, and rendering move to native code" (#821) because the TS-tree/Zig-buffer split forced chatty FFI and duplicated state. Rust starts at their end-state; don't reintroduce a boundary between rabbitui-core and qwertty (in-process trait, not IPC/serialization).
-- **Make the retained tree the public contract and ship paradigm adapters, because OpenTUI proved reconcilers over a retained core are cheap** (~200-line host config). Core = imperative retained API; `rabbitui-elm`, `rabbitui-xilem`-style view diffing, etc. are crates over it. This defuses the programming-model debate into a layering decision.
-- **Choose flexbox (taffy) over cassowary, because Yoga carried opencode + terminal.shop in production** and web-familiar layout is what let React/Solid devs be productive. But integrate text measurement into layout from day 1 — OpenTUI moved Yoga native partly because wasm measure round-trips were "large overhead" (#821).
-- **Design the render loop as: invalidation (`requestRender`) → coalesce → diff → zero-byte no-op frames → backpressure-aware writes.** Do not run a fixed-FPS loop; note the irony that OpenTUI, marketed against Ink's 30 FPS cap, defaults `targetFps` to 30 (`renderer.ts:736`) — frame clamping is fine, busy-looping is not. Async-first fits: a render task awaiting an invalidation channel with a min-frame-time debounce.
-- **Add a full-repaint escape hatch and terminal-state resync, because #1187 shows pure double-buffer diffing desyncs in the wild** (host cursor drift, resize races like #1110). Keep a "force" path and periodic/heuristic resync.
-- **Treat streaming text as the primary workload**: rope or segment buffer with viewport-bounded virtual-line cache (OpenTUI's unbounded cache produced 14GB sessions, opencode #3798 + #821), throttled re-highlighting, sticky-scroll that yields to manual scroll (#1087). Grapheme-cluster width handling in core, fuzzed (#1113).
-- **Decide focus traversal in core, deliberately — OpenTUI punted and every app re-implements it.** OpenTUI got the primitives right (single focus owner in the renderer, `focusable` flag, focus events, ancestor `_hasFocusedDescendant`, click-to-focus) but ships no tab order or `focusNext`, so each frontend example and even its own keymap tests rebuild the same modulo-cycling `focusables` list by hand. For a framework whose pitch includes accessibility-adjacent ergonomics, rabbitui should either ship a default traversal policy (document-order over `focusable` nodes, overridable à la `tabIndex`) or explicitly document focus as app-owned — but copy OpenTUI's renderer-owned single-focus + event model either way, since key routing to the focused widget falls out of it for free.
-- **Build selection + hit grid into the renderer now** — they touch clipping, z-order, and scrolling; OpenTUI shows retrofitting them per-widget doesn't work and having them is a visible differentiator over ratatui.
-- **Keep the core lean; make syntax highlighting, markdown, editor separate crates with lazy init** — OpenTUI paid a 25s boot penalty for eager tree-sitter in core (#1191). Track time-to-first-draw as a CI metric like their `TimeToFirstDraw.ts`.
-- **Abstract the output sink (stdout / in-memory / feed) in qwertty's API** so SSH-served and browser-embedded (WASM + canvas) frontends come free; that's where OpenTUI got its ecosystem leverage (ssh, web, Gridland).
-- **Testing story**: deterministic frames via injected clock from day 1 (OpenTUI is retrofitting this), mock key/mouse event sources, frame recorder, and buffer snapshot tests colocated with widgets (`renderables/__snapshots__/`).
+- **Put tree, layout, text, and buffers in one language and one process — no boundary.** OpenTUI's
+  v1.0 roadmap is literally "The renderable tree, and rendering move to native code" (#821) because
+  the TS-tree/Zig-buffer split forced chatty FFI and duplicated state. Rust starts at their
+  end-state; don't reintroduce a boundary between rabbitui-core and qwertty (in-process trait, not
+  IPC/serialization).
+- **Make the retained tree the public contract and ship paradigm adapters, because OpenTUI proved
+  reconcilers over a retained core are cheap** (~200-line host config). Core = imperative retained
+  API; `rabbitui-elm`, `rabbitui-xilem`-style view diffing, etc. are crates over it. This defuses
+  the programming-model debate into a layering decision.
+- **Choose flexbox (taffy) over cassowary, because Yoga carried opencode + terminal.shop in
+  production** and web-familiar layout is what let React/Solid devs be productive. But integrate
+  text measurement into layout from day 1 — OpenTUI moved Yoga native partly because wasm measure
+  round-trips were "large overhead" (#821).
+- **Design the render loop as: invalidation (`requestRender`) → coalesce → diff → zero-byte no-op
+  frames → backpressure-aware writes.** Do not run a fixed-FPS loop; note the irony that OpenTUI,
+  marketed against Ink's 30 FPS cap, defaults `targetFps` to 30 (`renderer.ts:736`) — frame clamping
+  is fine, busy-looping is not. Async-first fits: a render task awaiting an invalidation channel
+  with a min-frame-time debounce.
+- **Add a full-repaint escape hatch and terminal-state resync, because #1187 shows pure
+  double-buffer diffing desyncs in the wild** (host cursor drift, resize races like #1110). Keep a
+  "force" path and periodic/heuristic resync.
+- **Treat streaming text as the primary workload**: rope or segment buffer with viewport-bounded
+  virtual-line cache (OpenTUI's unbounded cache produced 14GB sessions, opencode #3798 + #821),
+  throttled re-highlighting, sticky-scroll that yields to manual scroll (#1087). Grapheme-cluster
+  width handling in core, fuzzed (#1113).
+- **Decide focus traversal in core, deliberately — OpenTUI punted and every app re-implements it.**
+  OpenTUI got the primitives right (single focus owner in the renderer, `focusable` flag, focus
+  events, ancestor `_hasFocusedDescendant`, click-to-focus) but ships no tab order or `focusNext`,
+  so each frontend example and even its own keymap tests rebuild the same modulo-cycling
+  `focusables` list by hand. For a framework whose pitch includes accessibility-adjacent ergonomics,
+  rabbitui should either ship a default traversal policy (document-order over `focusable` nodes,
+  overridable à la `tabIndex`) or explicitly document focus as app-owned — but copy OpenTUI's
+  renderer-owned single-focus + event model either way, since key routing to the focused widget
+  falls out of it for free.
+- **Build selection + hit grid into the renderer now** — they touch clipping, z-order, and
+  scrolling; OpenTUI shows retrofitting them per-widget doesn't work and having them is a visible
+  differentiator over ratatui.
+- **Keep the core lean; make syntax highlighting, markdown, editor separate crates with lazy init**
+  — OpenTUI paid a 25s boot penalty for eager tree-sitter in core (#1191). Track time-to-first-draw
+  as a CI metric like their `TimeToFirstDraw.ts`.
+- **Abstract the output sink (stdout / in-memory / feed) in qwertty's API** so SSH-served and
+  browser-embedded (WASM + canvas) frontends come free; that's where OpenTUI got its ecosystem
+  leverage (ssh, web, Gridland).
+- **Testing story**: deterministic frames via injected clock from day 1 (OpenTUI is retrofitting
+  this), mock key/mouse event sources, frame recorder, and buffer snapshot tests colocated with
+  widgets (`renderables/__snapshots__/`).

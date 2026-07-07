@@ -1,70 +1,211 @@
 # Ink (React for CLIs) — Research Memo
 
-**Verdict:** Ink proved that a component/hooks programming model and flexbox layout are the right DX for terminal apps — and simultaneously proved, via five years of flicker bugs and three major CLIs replacing or abandoning its renderer, that "render whole tree → string → diff at the end" is the wrong rendering substrate.
+**Verdict:** Ink proved that a component/hooks programming model and flexbox layout are the right DX
+for terminal apps — and simultaneously proved, via five years of flicker bugs and three major CLIs
+replacing or abandoning its renderer, that "render whole tree → string → diff at the end" is the
+wrong rendering substrate.
 
 Date: 2026-07-06
 
 **Sources**
-- Repo README: https://github.com/vadimdemedes/ink (fetched)
-- Source (shallow clone of master, v7.1.0, read locally): `src/log-update.ts`, `src/renderer.ts`, `src/ink.tsx`, `src/components/Static.tsx`, `src/dom.ts`, `src/write-synchronized.ts`, `src/kitty-keyboard.ts`, `src/hooks/use-focus.ts`, `readme.md`
-- Ink issues: https://github.com/vadimdemedes/ink/issues/359 (2020, overflow flicker), https://github.com/vadimdemedes/ink/issues/450 (fullscreen-height flicker), https://github.com/vadimdemedes/ink/issues/907 (resize artifacts in incremental renderer)
-- Codex CLI going native: https://github.com/openai/codex/discussions/1174 ; https://www.infoq.com/news/2025/06/codex-cli-rust-native-rewrite/
-- Claude Code flicker saga: https://steipete.me/posts/2025/signature-flicker ; https://slyapustin.com/blog/claude-code-no-flicker.html
-- Gemini CLI (Ink in production at scale): https://github.com/google-gemini/gemini-cli/issues/10673 (rendering epic), plus flicker reports #2859, #8387, #14708, #17578, #22615
-- Styling/theming: Ink readme `<Text>`/`<Box>` prop docs (chalk-backed); ink-ui theming (ThemeProvider/extendTheme): https://github.com/vadimdemedes/ink-ui ; Gemini CLI custom-themes request https://github.com/google-gemini/gemini-cli/issues/2122 and themes doc https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/themes.md
+
+- Repo README: <https://github.com/vadimdemedes/ink> (fetched)
+- Source (shallow clone of master, v7.1.0, read locally): `src/log-update.ts`, `src/renderer.ts`,
+  `src/ink.tsx`, `src/components/Static.tsx`, `src/dom.ts`, `src/write-synchronized.ts`,
+  `src/kitty-keyboard.ts`, `src/hooks/use-focus.ts`, `readme.md`
+- Ink issues: <https://github.com/vadimdemedes/ink/issues/359> (2020, overflow flicker),
+  <https://github.com/vadimdemedes/ink/issues/450> (fullscreen-height flicker),
+  <https://github.com/vadimdemedes/ink/issues/907> (resize artifacts in incremental renderer)
+- Codex CLI going native: <https://github.com/openai/codex/discussions/1174> ;
+  <https://www.infoq.com/news/2025/06/codex-cli-rust-native-rewrite/>
+- Claude Code flicker saga: <https://steipete.me/posts/2025/signature-flicker> ;
+  <https://slyapustin.com/blog/claude-code-no-flicker.html>
+- Gemini CLI (Ink in production at scale):
+  <https://github.com/google-gemini/gemini-cli/issues/10673> (rendering epic), plus flicker reports
+  #2859, #8387, #14708, #17578, #22615
+- Styling/theming: Ink readme `<Text>`/`<Box>` prop docs (chalk-backed); ink-ui theming
+  (ThemeProvider/extendTheme): <https://github.com/vadimdemedes/ink-ui> ; Gemini CLI custom-themes
+  request <https://github.com/google-gemini/gemini-cli/issues/2122> and themes doc
+  <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/themes.md>
 
 ## Core architecture
 
-- **React reconciler over a terminal "DOM".** Ink registers a custom host config (`src/reconciler.ts`, ~420 lines) that mutates a lightweight DOM-ish tree (`src/dom.ts`). Node types are `ink-box`, `ink-text`, `ink-virtual-text`. State, hooks, context, Suspense — all real React; Ink only supplies host primitives.
-- **Yoga flexbox, one node per element.** Every DOM node except virtual text gets a `Yoga.Node` (`src/dom.ts:102`); text nodes get a measure function (`src/dom.ts:108`, `measure-text.ts` wraps/widths via string measurement). Layout is CSS flexbox semantics in cells. Yoga ships as WASM (`yoga-layout` package) — startup and bundle cost, but battle-tested layout.
-- **Frame pipeline: full repaint, diff last.** Each committed update: React renders → Yoga computes layout for the whole tree → `src/renderer.ts` paints the entire tree into an `Output` cell grid sized by the root Yoga node → grid serialized to one big string → `log-update` decides what to write. The diff happens at the *string* stage, after all render/layout/paint work is already done.
-- **Two writers** (`src/log-update.ts`): *standard* erases the previous frame's line count and rewrites everything (`ansiEscapes.eraseLines(previousLineCount) + str`, log-update.ts:97 — the historical flicker source); *incremental* (opt-in `incrementalRendering`, added ~v6.6) cursor-walks line by line and skips unchanged lines (log-update.ts:280: "We do not write lines if the contents are the same. This prevents flickering").
-- **Frame rate throttle.** Renders are throttled to `maxFps` (default 30, `src/ink.tsx:358-364`) with trailing flush — a pragmatic answer to React's "render whenever state changes."
-- **Synchronized output.** Frames are wrapped in DEC mode 2026 BSU/ESU when the stream is a TTY (`src/write-synchronized.ts:4-5`).
-- **`<Static>` — the split between scrollback and live UI.** `<Static items>` renders only *newly appended* items each frame (slices by a monotonically advancing index, `src/components/Static.tsx:31-39`), positioned absolute so it doesn't affect live layout; Ink writes that output *once* above the live region and never touches it again (`src/ink.tsx` staticOutput path). Completed work scrolls into real terminal scrollback; only the tail is repainted. Gatsby, tap, and every agent CLI lean on this.
-- **Styling is props, full stop.** All styling is per-element props — `<Text color backgroundColor bold italic dimColor inverse wrap>` (chalk-backed: named colors, hex, rgb) and `<Box borderStyle borderColor backgroundColor>` plus per-edge border colors. There is no stylesheet, cascade, selector, or theme layer anywhere in Ink; the readme never mentions one. Theming lives above the framework: ink-ui adds a `ThemeProvider`/`extendTheme` React-context layer where each component theme is functions-returning-props per named part, and Gemini CLI built its own theme manager with semantic color tokens (`text.primary`, `text.accent`, `status.*`) configured in settings.json.
-- **Hooks as the platform API.** `useInput(handler)` (raw-mode keypress parsing, kitty-aware), `useFocus`/`useFocusManager` (Tab/Shift-Tab traversal in *render registration order*, `src/hooks/use-focus.ts`), `useStdout`/`useStderr`/`useStdin` (escape hatches for direct writes), `useApp` (exit control).
-- **v7-era substrate features:** kitty keyboard protocol with `mode: 'auto'` — known-terminal heuristic plus a `CSI ? u` query with timeout before enabling (`readme.md:2768`, flags in `src/kitty-keyboard.ts`); opt-in `alternateScreen`; screen-reader render mode (renders a linearized text form); non-interactive/CI mode that writes only the final frame at unmount (`readme.md:2706`).
+- **React reconciler over a terminal "DOM".** Ink registers a custom host config
+  (`src/reconciler.ts`, ~420 lines) that mutates a lightweight DOM-ish tree (`src/dom.ts`). Node
+  types are `ink-box`, `ink-text`, `ink-virtual-text`. State, hooks, context, Suspense — all real
+  React; Ink only supplies host primitives.
+- **Yoga flexbox, one node per element.** Every DOM node except virtual text gets a `Yoga.Node`
+  (`src/dom.ts:102`); text nodes get a measure function (`src/dom.ts:108`, `measure-text.ts`
+  wraps/widths via string measurement). Layout is CSS flexbox semantics in cells. Yoga ships as WASM
+  (`yoga-layout` package) — startup and bundle cost, but battle-tested layout.
+- **Frame pipeline: full repaint, diff last.** Each committed update: React renders → Yoga computes
+  layout for the whole tree → `src/renderer.ts` paints the entire tree into an `Output` cell grid
+  sized by the root Yoga node → grid serialized to one big string → `log-update` decides what to
+  write. The diff happens at the _string_ stage, after all render/layout/paint work is already done.
+- **Two writers** (`src/log-update.ts`): _standard_ erases the previous frame's line count and
+  rewrites everything (`ansiEscapes.eraseLines(previousLineCount) + str`, log-update.ts:97 — the
+  historical flicker source); _incremental_ (opt-in `incrementalRendering`, added ~v6.6)
+  cursor-walks line by line and skips unchanged lines (log-update.ts:280: "We do not write lines if
+  the contents are the same. This prevents flickering").
+- **Frame rate throttle.** Renders are throttled to `maxFps` (default 30, `src/ink.tsx:358-364`)
+  with trailing flush — a pragmatic answer to React's "render whenever state changes."
+- **Synchronized output.** Frames are wrapped in DEC mode 2026 BSU/ESU when the stream is a TTY
+  (`src/write-synchronized.ts:4-5`).
+- **`<Static>` — the split between scrollback and live UI.** `<Static items>` renders only _newly
+  appended_ items each frame (slices by a monotonically advancing index,
+  `src/components/Static.tsx:31-39`), positioned absolute so it doesn't affect live layout; Ink
+  writes that output _once_ above the live region and never touches it again (`src/ink.tsx`
+  staticOutput path). Completed work scrolls into real terminal scrollback; only the tail is
+  repainted. Gatsby, tap, and every agent CLI lean on this.
+- **Styling is props, full stop.** All styling is per-element props —
+  `<Text color backgroundColor bold italic dimColor inverse wrap>` (chalk-backed: named colors, hex,
+  rgb) and `<Box borderStyle borderColor backgroundColor>` plus per-edge border colors. There is no
+  stylesheet, cascade, selector, or theme layer anywhere in Ink; the readme never mentions one.
+  Theming lives above the framework: ink-ui adds a `ThemeProvider`/`extendTheme` React-context layer
+  where each component theme is functions-returning-props per named part, and Gemini CLI built its
+  own theme manager with semantic color tokens (`text.primary`, `text.accent`, `status.*`)
+  configured in settings.json.
+- **Hooks as the platform API.** `useInput(handler)` (raw-mode keypress parsing, kitty-aware),
+  `useFocus`/`useFocusManager` (Tab/Shift-Tab traversal in _render registration order_,
+  `src/hooks/use-focus.ts`), `useStdout`/`useStderr`/`useStdin` (escape hatches for direct writes),
+  `useApp` (exit control).
+- **v7-era substrate features:** kitty keyboard protocol with `mode: 'auto'` — known-terminal
+  heuristic plus a `CSI ? u` query with timeout before enabling (`readme.md:2768`, flags in
+  `src/kitty-keyboard.ts`); opt-in `alternateScreen`; screen-reader render mode (renders a
+  linearized text form); non-interactive/CI mode that writes only the final frame at unmount
+  (`readme.md:2706`).
 
 ## What it gets right
 
-- **The programming model won.** React components + hooks is why Ink is the default for JS CLIs (Claude Code, GitHub Copilot CLI, Gemini CLI, Shopify CLI, Wrangler, Prisma, Gatsby per README). Notably, when Anthropic ripped out Ink's renderer they *kept React as the component model* (steipete.me post) — the DX layer was worth preserving; only the paint layer was broken.
-- **Flexbox is enough.** Nobody complains about Yoga's layout semantics; `Box`/`Text`/`Spacer` covers real apps. Constraint solvers (cassowary) never came up as a want.
-- **Props-only styling was never the complaint.** Mirroring the layout finding: Ink's tracker has no meaningful demand for a stylesheet/cascade layer. Theming demand does exist — but at the *app* layer: Gemini CLI users asked for custom color schemes ([#2122](https://github.com/google-gemini/gemini-cli/issues/2122)), and Google shipped user-definable themes with semantic tokens in settings.json — built as an ordinary React-context theme manager on top of Ink's props, not by wishing for CSS. ink-ui reached the same shape independently (`extendTheme` + context). Context-passed tokens over props appear to be a sufficient theming substrate.
-- **`<Static>` is the single best idea in the codebase.** For streaming/agent CLIs, "append-only history committed to terminal scrollback + small repaintable live tail" is *the* correct architecture on the primary screen. Users keep native scrollback, Cmd-F, and copy/paste.
-- **Terminal-capability pragmatism.** Auto-degrading to plain final-frame output in CI; kitty protocol enabled only after a query handshake; sync-output wrapping only on TTYs. These are exactly the right defaults.
-- **Testing story is genuinely good.** `ink-testing-library` renders to strings with `lastFrame()`/`frames` and stdin simulation (`readme.md:2964-2980`); plus `renderToString` for docs/tests. Frame-as-string snapshots are the natural TUI unit test.
-- **Frame throttling + trailing flush** (maxFps) decouples "state changed" from "terminal write," which any reactive TUI needs.
+- **The programming model won.** React components + hooks is why Ink is the default for JS CLIs
+  (Claude Code, GitHub Copilot CLI, Gemini CLI, Shopify CLI, Wrangler, Prisma, Gatsby per README).
+  Notably, when Anthropic ripped out Ink's renderer they _kept React as the component model_
+  (steipete.me post) — the DX layer was worth preserving; only the paint layer was broken.
+- **Flexbox is enough.** Nobody complains about Yoga's layout semantics; `Box`/`Text`/`Spacer`
+  covers real apps. Constraint solvers (cassowary) never came up as a want.
+- **Props-only styling was never the complaint.** Mirroring the layout finding: Ink's tracker has no
+  meaningful demand for a stylesheet/cascade layer. Theming demand does exist — but at the _app_
+  layer: Gemini CLI users asked for custom color schemes
+  ([#2122](https://github.com/google-gemini/gemini-cli/issues/2122)), and Google shipped
+  user-definable themes with semantic tokens in settings.json — built as an ordinary React-context
+  theme manager on top of Ink's props, not by wishing for CSS. ink-ui reached the same shape
+  independently (`extendTheme` + context). Context-passed tokens over props appear to be a
+  sufficient theming substrate.
+- **`<Static>` is the single best idea in the codebase.** For streaming/agent CLIs, "append-only
+  history committed to terminal scrollback + small repaintable live tail" is _the_ correct
+  architecture on the primary screen. Users keep native scrollback, Cmd-F, and copy/paste.
+- **Terminal-capability pragmatism.** Auto-degrading to plain final-frame output in CI; kitty
+  protocol enabled only after a query handshake; sync-output wrapping only on TTYs. These are
+  exactly the right defaults.
+- **Testing story is genuinely good.** `ink-testing-library` renders to strings with
+  `lastFrame()`/`frames` and stdin simulation (`readme.md:2964-2980`); plus `renderToString` for
+  docs/tests. Frame-as-string snapshots are the natural TUI unit test.
+- **Frame throttling + trailing flush** (maxFps) decouples "state changed" from "terminal write,"
+  which any reactive TUI needs.
 
 ## What users complain about
 
-- **Flicker when output exceeds viewport height — open since 2020.** Issue [#359](https://github.com/vadimdemedes/ink/issues/359): content taller than the screen "flickers badly on updates." Root cause is structural: `eraseLines` can only erase what's still in the viewport; anything scrolled off gets duplicated into scrollback and the erase/rewrite cycle is user-visible. The framework can't fix it without the app restructuring around `<Static>`.
-- **Edge-of-viewport and resize bugs.** [#450](https://github.com/vadimdemedes/ink/issues/450): height exactly `stdout.rows` flickers (off-by-one in the erase cycle). [#907](https://github.com/vadimdemedes/ink/issues/907): incremental renderer leaves stale diff artifacts after resize because cached line state is invalid once wrapping changes. The `src/ink.tsx:121-124` comment documents a Windows-console desync workaround for exactly-fullscreen frames (#969).
-- **Gemini CLI: flicker at industrial scale.** Google shipped Ink to millions and accumulated a flicker bug tax: [#2859](https://github.com/google-gemini/gemini-cli/issues/2859), [#8387](https://github.com/google-gemini/gemini-cli/issues/8387) ("causing headache and discomfort"), [#14708](https://github.com/google-gemini/gemini-cli/issues/14708), [#17578](https://github.com/google-gemini/gemini-cli/issues/17578) (long responses), [#22615](https://github.com/google-gemini/gemini-cli/issues/22615) (resize duplication). Their rendering epic [#10673](https://github.com/google-gemini/gemini-cli/issues/10673) asks for an alternate-buffer toggle, a regular-buffer mode that "adds the correct content to the backbuffer," and "a performant alternative for Ink static."
-- **Claude Code: a year of renderer surgery.** Per steipete.me and slyapustin.com: Anthropic replaced Ink's renderer with a custom one (~v2.0.10), added cell-level differential rendering (~v2.0.72), used packed TypedArrays to avoid GC-pause artifacts, pushed DEC mode 2026 (synchronized output) patches upstream to VS Code's terminal and tmux — and the endgame fix was `CLAUDE_CODE_NO_FLICKER=1`, i.e. the alt-screen buffer "like every other TUI." A year of engineering to approximate what buffer-diffing TUI libraries do natively.
-- **Codex CLI left the stack entirely.** Maintainer-stated reasons for the Rust rewrite ([discussion #1174](https://github.com/openai/codex/discussions/1174)): zero-dependency install ("currently Node v22+ is required, which is frustrating or a blocker"), native sandboxing bindings already in Rust, "no runtime garbage collection, resulting in lower memory consumption," and a language-agnostic wire protocol. They framed Ink/TS as an *iteration-speed* choice, not a production one. Note: the complaints are about the Node runtime as much as Ink itself — a lesson about substrate, not just renderer.
-- **Perf model: all the work happens before the diff.** Every state change re-renders React, re-runs Yoga on the whole tree, repaints every cell into a grid, builds a full frame string — then diffs strings/lines. For large histories (the agent-CLI shape) this is O(entire UI) per keystroke unless the app aggressively uses `<Static>` and memoization. Gemini's "performant alternative for Ink static" ask is this cost showing up in production.
+- **Flicker when output exceeds viewport height — open since 2020.** Issue
+  [#359](https://github.com/vadimdemedes/ink/issues/359): content taller than the screen "flickers
+  badly on updates." Root cause is structural: `eraseLines` can only erase what's still in the
+  viewport; anything scrolled off gets duplicated into scrollback and the erase/rewrite cycle is
+  user-visible. The framework can't fix it without the app restructuring around `<Static>`.
+- **Edge-of-viewport and resize bugs.** [#450](https://github.com/vadimdemedes/ink/issues/450):
+  height exactly `stdout.rows` flickers (off-by-one in the erase cycle).
+  [#907](https://github.com/vadimdemedes/ink/issues/907): incremental renderer leaves stale diff
+  artifacts after resize because cached line state is invalid once wrapping changes. The
+  `src/ink.tsx:121-124` comment documents a Windows-console desync workaround for exactly-fullscreen
+  frames (#969).
+- **Gemini CLI: flicker at industrial scale.** Google shipped Ink to millions and accumulated a
+  flicker bug tax: [#2859](https://github.com/google-gemini/gemini-cli/issues/2859),
+  [#8387](https://github.com/google-gemini/gemini-cli/issues/8387) ("causing headache and
+  discomfort"), [#14708](https://github.com/google-gemini/gemini-cli/issues/14708),
+  [#17578](https://github.com/google-gemini/gemini-cli/issues/17578) (long responses),
+  [#22615](https://github.com/google-gemini/gemini-cli/issues/22615) (resize duplication). Their
+  rendering epic [#10673](https://github.com/google-gemini/gemini-cli/issues/10673) asks for an
+  alternate-buffer toggle, a regular-buffer mode that "adds the correct content to the backbuffer,"
+  and "a performant alternative for Ink static."
+- **Claude Code: a year of renderer surgery.** Per steipete.me and slyapustin.com: Anthropic
+  replaced Ink's renderer with a custom one (~v2.0.10), added cell-level differential rendering
+  (~v2.0.72), used packed TypedArrays to avoid GC-pause artifacts, pushed DEC mode 2026
+  (synchronized output) patches upstream to VS Code's terminal and tmux — and the endgame fix was
+  `CLAUDE_CODE_NO_FLICKER=1`, i.e. the alt-screen buffer "like every other TUI." A year of
+  engineering to approximate what buffer-diffing TUI libraries do natively.
+- **Codex CLI left the stack entirely.** Maintainer-stated reasons for the Rust rewrite
+  ([discussion #1174](https://github.com/openai/codex/discussions/1174)): zero-dependency install
+  ("currently Node v22+ is required, which is frustrating or a blocker"), native sandboxing bindings
+  already in Rust, "no runtime garbage collection, resulting in lower memory consumption," and a
+  language-agnostic wire protocol. They framed Ink/TS as an _iteration-speed_ choice, not a
+  production one. Note: the complaints are about the Node runtime as much as Ink itself — a lesson
+  about substrate, not just renderer.
+- **Perf model: all the work happens before the diff.** Every state change re-renders React, re-runs
+  Yoga on the whole tree, repaints every cell into a grid, builds a full frame string — then diffs
+  strings/lines. For large histories (the agent-CLI shape) this is O(entire UI) per keystroke unless
+  the app aggressively uses `<Static>` and memoization. Gemini's "performant alternative for Ink
+  static" ask is this cost showing up in production.
 
 ## What's worth stealing
 
-1. **`<Static>` as a framework primitive, generalized.** An append-only "commit to scrollback" channel that is written once, plus a bounded live region. Ink bolted it on as a component with index-slicing state; it should be a first-class renderer concept with proper item identity.
-2. **Primary-screen inline mode as a peer of alt-screen.** Ink's whole reason for existing — and the reason Codex-native staying in the primary buffer was praised (steipete.me calls its move to alt-screen "a regression") — is that users want scrollback, Cmd-F, and copy/paste. Ratatui-family frameworks treat inline as an afterthought; Ink treats it as the default.
-3. **Kitty keyboard auto-negotiation.** Heuristic precheck + `CSI ? u` query with timeout, plus normalizing Ctrl+letter across legacy/CSI-u forms (`readme.md:2768-2792`). Copy this handshake verbatim into qwertty.
-4. **maxFps throttle with trailing flush** in the runtime loop (`src/ink.tsx:358-379`), and **mode-2026 wrapping** of every frame write (`src/write-synchronized.ts`).
-5. **Environment-adaptive rendering tiers:** interactive TTY → full pipeline; CI/non-TTY → final frame only; screen-reader mode → linearized text render (`src/renderer.ts:15-34`). Three render targets from one tree.
-6. **Focus = registration order + `useFocus`-style opt-in.** Tab traversal derived from render order with optional ids and `autoFocus` is trivially simple and covers 90% of TUI needs (`src/hooks/use-focus.ts`).
+1. **`<Static>` as a framework primitive, generalized.** An append-only "commit to scrollback"
+   channel that is written once, plus a bounded live region. Ink bolted it on as a component with
+   index-slicing state; it should be a first-class renderer concept with proper item identity.
+2. **Primary-screen inline mode as a peer of alt-screen.** Ink's whole reason for existing — and the
+   reason Codex-native staying in the primary buffer was praised (steipete.me calls its move to
+   alt-screen "a regression") — is that users want scrollback, Cmd-F, and copy/paste. Ratatui-family
+   frameworks treat inline as an afterthought; Ink treats it as the default.
+3. **Kitty keyboard auto-negotiation.** Heuristic precheck + `CSI ? u` query with timeout, plus
+   normalizing Ctrl+letter across legacy/CSI-u forms (`readme.md:2768-2792`). Copy this handshake
+   verbatim into qwertty.
+4. **maxFps throttle with trailing flush** in the runtime loop (`src/ink.tsx:358-379`), and
+   **mode-2026 wrapping** of every frame write (`src/write-synchronized.ts`).
+5. **Environment-adaptive rendering tiers:** interactive TTY → full pipeline; CI/non-TTY → final
+   frame only; screen-reader mode → linearized text render (`src/renderer.ts:15-34`). Three render
+   targets from one tree.
+6. **Focus = registration order + `useFocus`-style opt-in.** Tab traversal derived from render order
+   with optional ids and `autoFocus` is trivially simple and covers 90% of TUI needs
+   (`src/hooks/use-focus.ts`).
 7. **`lastFrame()` string-snapshot testing** and stdin-driving as the blessed test API.
-8. **Suspend/resume discipline:** on Ctrl-Z-style suspend, restore raw mode, cursor, bracketed paste, alt-screen, kitty flags, then reapply and repaint on resume (`readme.md:1963`). A checklist most TUI libs get wrong.
+8. **Suspend/resume discipline:** on Ctrl-Z-style suspend, restore raw mode, cursor, bracketed
+   paste, alt-screen, kitty flags, then reapply and repaint on resume (`readme.md:1963`). A
+   checklist most TUI libs get wrong.
 
 ## Implications for rabbitui
 
-- **Diff at the cell buffer, not the output string.** Ink does React render → full Yoga layout → full paint → string diff; all cost precedes the diff. rabbitui should keep ratatui-style double-buffer cell diffing as the floor, and use the programming model (Xilem-style view diff or memoized components) to *skip render/layout/paint work* upstream — the layer where Ink can't cut costs because React re-renders opaquely.
-- **Make "scrollback commit + live tail" a renderer invariant, because #359 is unfixable otherwise.** The live region must never exceed viewport height; overflow must be explicitly committed above it (Static-equivalent) or scrolled within a widget. Enforce this in the inline renderer rather than documenting it as a footgun. This is the #1 lesson from Claude Code/Gemini/Ink collectively.
-- **qwertty should own mode 2026, kitty negotiation, and suspend/resume state.** Ink accreted these over 7 major versions; an async terminal substrate should expose synchronized-update framing, capability handshakes with timeouts, and full terminal-state save/restore as primitives so the framework layer never hand-writes escapes.
-- **Ship both inline and alt-screen modes day one, switchable at runtime.** Gemini's epic (#10673) explicitly wants a runtime toggle; Claude Code ended up shipping both. Design the render loop so the same widget tree targets either.
-- **Adopt the hooks-shaped surface even without React:** `useInput`-like scoped key handlers, focus-by-registration-order, and stdout escape hatches map cleanly onto an Elm/Xilem hybrid. The evidence (Claude Code keeping React while replacing the renderer) says the component model is the retention driver; invest DX effort there.
-- **Throttle frames in the event loop (default ~30–60fps, trailing flush)** and coalesce async-driven state changes (timers, subprocess output, network) into frames — Ink needed this even with React batching; an async-first runtime needs it more.
-- **Flexbox (taffy) over constraint solvers.** Five years of Ink issues contain layout-semantics complaints approaching zero; the pain is 100% in the paint/erase layer. Don't spend novelty budget on layout.
-- **No Textual-CSS equivalent is needed — evidence points to style-as-values + a semantic token theme.** Ink's ecosystem shows the working shape: typed style props on widgets, with theming as a semantic-token map resolved through context (ink-ui's `extendTheme`, Gemini's settings.json themes). Users asked for swappable color schemes, never for selectors or cascade. A rabbitui `Theme` of named tokens threaded through the tree covers the observed demand at a fraction of the complexity of a CSS engine.
-- **Testing: expose `render_to_string`/`lastFrame` snapshots and a headless input driver as a core crate**, not a community add-on — Ink's testing-library pattern is the proven shape.
-- **Rust already answers the Codex exit reasons** (zero-dep binary, no GC, native sandboxing) — but note their fourth reason: a language-agnostic wire protocol for extensibility. Consider keeping rabbitui's widget/event model serializable enough that an out-of-process driver is possible later.
+- **Diff at the cell buffer, not the output string.** Ink does React render → full Yoga layout →
+  full paint → string diff; all cost precedes the diff. rabbitui should keep ratatui-style
+  double-buffer cell diffing as the floor, and use the programming model (Xilem-style view diff or
+  memoized components) to _skip render/layout/paint work_ upstream — the layer where Ink can't cut
+  costs because React re-renders opaquely.
+- **Make "scrollback commit + live tail" a renderer invariant, because #359 is unfixable
+  otherwise.** The live region must never exceed viewport height; overflow must be explicitly
+  committed above it (Static-equivalent) or scrolled within a widget. Enforce this in the inline
+  renderer rather than documenting it as a footgun. This is the #1 lesson from Claude
+  Code/Gemini/Ink collectively.
+- **qwertty should own mode 2026, kitty negotiation, and suspend/resume state.** Ink accreted these
+  over 7 major versions; an async terminal substrate should expose synchronized-update framing,
+  capability handshakes with timeouts, and full terminal-state save/restore as primitives so the
+  framework layer never hand-writes escapes.
+- **Ship both inline and alt-screen modes day one, switchable at runtime.** Gemini's epic (#10673)
+  explicitly wants a runtime toggle; Claude Code ended up shipping both. Design the render loop so
+  the same widget tree targets either.
+- **Adopt the hooks-shaped surface even without React:** `useInput`-like scoped key handlers,
+  focus-by-registration-order, and stdout escape hatches map cleanly onto an Elm/Xilem hybrid. The
+  evidence (Claude Code keeping React while replacing the renderer) says the component model is the
+  retention driver; invest DX effort there.
+- **Throttle frames in the event loop (default ~30–60fps, trailing flush)** and coalesce
+  async-driven state changes (timers, subprocess output, network) into frames — Ink needed this even
+  with React batching; an async-first runtime needs it more.
+- **Flexbox (taffy) over constraint solvers.** Five years of Ink issues contain layout-semantics
+  complaints approaching zero; the pain is 100% in the paint/erase layer. Don't spend novelty budget
+  on layout.
+- **No Textual-CSS equivalent is needed — evidence points to style-as-values + a semantic token
+  theme.** Ink's ecosystem shows the working shape: typed style props on widgets, with theming as a
+  semantic-token map resolved through context (ink-ui's `extendTheme`, Gemini's settings.json
+  themes). Users asked for swappable color schemes, never for selectors or cascade. A rabbitui
+  `Theme` of named tokens threaded through the tree covers the observed demand at a fraction of the
+  complexity of a CSS engine.
+- **Testing: expose `render_to_string`/`lastFrame` snapshots and a headless input driver as a core
+  crate**, not a community add-on — Ink's testing-library pattern is the proven shape.
+- **Rust already answers the Codex exit reasons** (zero-dep binary, no GC, native sandboxing) — but
+  note their fourth reason: a language-agnostic wire protocol for extensibility. Consider keeping
+  rabbitui's widget/event model serializable enough that an out-of-process driver is possible later.

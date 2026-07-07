@@ -1,133 +1,293 @@
 # Research memo: The Recent Rust TUI Wave (2024–2026)
 
-**Verdict:** Fifty-plus new Rust TUI frameworks appeared in 24 months — a third of them AI-generated — and they all converge on the same feature list (event loop, focus, forms, overlays, theming, MVU-or-hooks, inline mode); the wave is not competition, it is the largest demand survey ever run on ratatui's missing framework layer, and its sharpest new datum is that AI coding-agent CLIs (inline rendering, streaming, agent-legible APIs) are now both the flagship workload and a major author population.
+**Verdict:** Fifty-plus new Rust TUI frameworks appeared in 24 months — a third of them AI-generated
+— and they all converge on the same feature list (event loop, focus, forms, overlays, theming,
+MVU-or-hooks, inline mode); the wave is not competition, it is the largest demand survey ever run on
+ratatui's missing framework layer, and its sharpest new datum is that AI coding-agent CLIs (inline
+rendering, streaming, agent-legible APIs) are now both the flagship workload and a major author
+population.
 
 Date: 2026-07-06
 
-Sources: synthesizes 4 discovery-sweep agents (r/rust via pullpush — index ends ~mid-2025, HN via Algolia, crates.io API, GitHub search, all 2026-07-06) plus 18 deep candidate profiles; URLs inline throughout. Companion memos in this directory: prior-art.md (the pre-2024 framework attempts), ratatui.md (the substrate). Caveat: crates.io download counts in this cohort are CI-inflated and untrustworthy (charmed-bubbletea: 72k downloads, 28 stars); stars + commit shape + issue traffic are the adoption signals used here.
+Sources: synthesizes 4 discovery-sweep agents (r/rust via pullpush — index ends ~mid-2025, HN via
+Algolia, crates.io API, GitHub search, all 2026-07-06) plus 18 deep candidate profiles; URLs inline
+throughout. Companion memos in this directory: prior-art.md (the pre-2024 framework attempts),
+ratatui.md (the substrate). Caveat: crates.io download counts in this cohort are CI-inflated and
+untrustworthy (charmed-bubbletea: 72k downloads, 28 stars); stars + commit shape + issue traffic are
+the adoption signals used here.
 
 ## The wave
 
-Entries marked † are catalog-only (found in sweeps, not deep-profiled). "Vibe?" = AI-generation assessment from commit forensics, not README style.
+Entries marked † are catalog-only (found in sweeps, not deep-profiled). "Vibe?" = AI-generation
+assessment from commit forensics, not README style.
 
-| Name | Model | Substrate | Adoption | Vibe? | Take |
-|---|---|---|---|---|---|
-| [yeehaw](https://github.com/bogzbonny/yeehaw) | retained element tree (Turbo Vision-ish) | own, on crossterm | 354★, crate stale at 0.1.0 | human, AI-assisted margins | batteries + embed-anything: runs Neovim as a widget; warm r/rust reception, no releases |
-| [rat-salsa](https://github.com/thscharler/rat-salsa) (+14 rat-* crates) | event loop + StatefulWidget retained state | ratatui | 64★, ~30k dl, 3,328 commits | human | the organic workhorse: one author systematically shipping every gap ratatui leaves (event/focus/text/ftable/menu/popup/dialog/theme) |
-| [ratatui-kit](https://github.com/yexiyue/ratatui-kit) | React: hooks, context, router | ratatui + tokio | 34★, 8.5k dl, very active | AI-as-workforce, disciplined | waker-driven rendering; ships an *AI agent skill* for itself, with evals |
-| [Ratzilla](https://github.com/orhun/ratzilla) | ratatui immediate mode → browser | ratatui Backend → DOM/WebGL2 | 1,401★, 269k dl | human (orhun) | highest-velocity new layer; TUI-as-URL distribution, real showcase apps |
-| [teng](https://github.com/skius/teng) | game loop, half-block pixels | own, on crossterm | 6★, dormant since 2025-03 | human | games track: depth buffer, diff renderer, honest "educational hobby" README |
-| [OSUI](https://github.com/osui-rs/osui) | RSX components, dep-tracked scopes | own, on crossterm | 7★, zero external users | human + AI docs | solo dev re-inventing React for the terminal; polish outrunning audience |
-| [textual-rs](https://github.com/mrsaraiva/textual-rs) | Textual port: CSS cascade, reactive tree | own (rich-rs), on crossterm | 1★, 963 commits in 30 days | heavily AI, PTY-verified | port-envy made literal; its real-PTY cell-diff parity harness is a template for verifying AI ports |
-| [ratatui-bubbletea](https://github.com/akitaonrails/ratatui-bubbletea) | theme tokens + optional ~300-line TEA shell | ratatui | 25★, one-weekend burst | openly AI-orchestrated | aesthetics as an incremental layer, not a framework rewrite — the right adoption shape |
-| [remy](https://github.com/vyfor/remy) | signals (SolidJS/Leptos-style) | ratatui | 3★, weeks old | human | "it handles the state, you handle the interface"; frame-scoped state commits |
-| [rvision](https://github.com/SuzukiStumpy/rvision) | Turbo Vision retained desktop | own, on crossterm | 0★, 6 releases in days | AI with human-authored process | CLAUDE.md-as-engineering-constitution; "hand-built" as provenance marketing |
-| [ratatui-style](https://github.com/Liangdi/ratatui-style) | CSS cascade emitting native ratatui Styles | ratatui | 1★, ~230 dl | AI-assisted, directed | third independent 2026 CSS-for-terminal attempt; zero-alloc resolution, JSON style transport |
-| [a3s-tui](https://github.com/A3S-Lab/a3s) | Elm/TEA + Taffy flexbox | own, on crossterm | 11★, dogfooded by a3s code | agent-driven, disciplined | coding-agent chrome extracted as a framework: AgentChrome, tool logs, shimmer streaming text |
-| [inkferro](https://github.com/metaphorics/inkferro) | Ink byte-for-byte drop-in, Rust engine | own (taffy) via N-API | 0★, 244 commits/12 days | AI-orchestrated, rigorous | fixes Ink's flicker without leaving React; differential-fuzzed against a Node oracle |
-| [widgetui](https://github.com/TheEmeraldBee/widgetui) | Bevy-style resource injection | ratatui | 46★, deprecated by author | human | function-signature DI was genuinely low-boilerplate; author outgrew it |
-| [knurl](https://github.com/okislitsin/knurl) | Elm for embedded pixel displays | embedded-graphics, no_std | 0★, day-one publish | likely AI | TUI paradigms leaving the terminal: rotary-encoder input, dirty-flag redraw budgets |
-| [AppCUI-rs](https://github.com/gdt050579/AppCUI-rs) | retained desktop GUI (Win32/TV lineage) | own console engine + WASM | 396★, 3.5 years | human | batteries at desktop-toolkit scale; event-recorder testing; audience asks for ever more IDE-grade controls |
-| [bubbletea-rs](https://github.com/whit3rabbit/bubbletea-rs) | Elm/MVU port + lipgloss + bubbles | crossterm (no ratatui) | 276★, paused since 2025-11 | heavily AI-assisted, disciplined | most-adopted Charm port; sole open issue asks for more maintainers |
-| [Shelgon](https://github.com/NishantJoshi00/shelgon) | one-trait REPL harness | ratatui | 270★, 130-pt HN, dormant | human code, LLM docs | the vertical-framework bet: constrain the domain, delete the boilerplate |
-| [FrankenTUI](https://github.com/Dicklesworthstone/frankentui) † | Elm runtime, 20 crates, 80+ widgets | own + WASM | 248★, mixed HN | AI mega-framework | right thesis (correct flicker-free *inline* UIs), broken interaction per HN testers |
-| [charmed_rust](https://github.com/Dicklesworthstone/charmed_rust) † | whole Charm ecosystem port | own | 28★, inflated dl | AI | "Go developers get Charm's elegant ecosystem... while Rust developers suffer" — the zeitgeist stated plainly |
-| [eye-declare](https://github.com/atuinsh/eye-declare) † | React-like element!/reconciliation, INLINE | ratatui-core | 126★ in 3 months (Atuin team) | openly AI-assisted, credible | the inline/scrollback demand's most credible carrier |
-| [rnk](https://github.com/majiayu000/rnk) † | Ink/React hooks + Elm commands | own (taffy) | 11★, 257 commits | AI-assisted | inline mode as the *default*; dedicated focus/accessibility doc |
-| [SuperLightTUI](https://github.com/subinium/SuperLightTUI) † | immediate-mode closure per frame | own | 167★ in 4 months | unknown | first framework explicitly designed for AI agents as *authors* ("small public grammar") |
-| [Tuie](https://github.com/jake-stewart/tuie) † | rich standalone lib, per-cell dirty tracking | own, + GUI window target | pre-release, 0 HN traction | human (known vim-plugin author) | feature list = a checklist of HN ratatui complaints |
-| [Mousefood](https://github.com/ratatui/mousefood) † | ratatui backend for embedded-graphics | ratatui, no_std | 244-pt HN, ratatui org | human | ratatui as portable rendering core (ESP32, e-ink, Kindle, UEFI) |
-| [RatatuiRuby + Rooibos](https://www.ratatui-ruby.dev/) † | Ruby MVU over ratatui FFI | ratatui | 152-pt HN, very positive | openly LLM-built | scripting-language DX on ratatui's renderer; Ruby TTY-Toolkit vacuum |
-| [PyRatatui](https://news.ycombinator.com/item?id=47394944) † | Python bindings | ratatui | no traction | unknown | same pattern as RatatuiRuby: ratatui as cross-language core |
-| [Anathema](https://github.com/togglebyte/anathema) † | reactive template language, hot reload | own | 352★, long-running beta | human | end-user re-skinnable TUIs — a demand nobody else touches |
-| [AppCUI sibling: tvision-rs](https://github.com/oetiker/tvision-rs) † | Turbo Vision port | own | new 2026-06 | unknown | second TV revival in a fortnight (with rvision) — nostalgia is real demand |
-| [teapot](https://github.com/inferadb/teapot) † | Elm/TEA, forms, a11y modes, CI fallback | own | 3★, company-backed | unknown | companies build in-house frameworks rather than adopt — ecosystem seen as not-quite-fitting |
-| [boba](https://github.com/2389-research/boba) † | Bubble Tea homage, headless TestProgram | ratatui | 4★ | likely agent-built, clean | 4th independent Bubble Tea homage in ~7 months |
-| [hojicha](https://jgok76.gitea.cloud/femtomc/hojicha) † | Elm/Bubbletea | own | 1.4k dl | unknown | published within 4 days of bubbletea-rs — independent simultaneous ports |
-| [osteak](https://crates.io/crates/osteak) † | MVU, "you bring the loop" | ratatui | 530 dl | unknown | counter-demand: TEA structure without a runtime takeover |
-| [capo-tui](https://github.com/motosan-dev/capo) † | MVU for the Capo coding agent | ratatui | 556 dl | unknown | another agent-CLI extracting its TUI layer |
-| [too](https://github.com/museun/too) † | immediate-mode closures | own | 12★, quiet | human | egui-for-the-terminal, predating the 2026 immediate-mode wave |
-| [weavetui](https://github.com/mzyui/weavetui) † | #[component] macros, kb! chords, store | ratatui + tokio | 24★ | AI-composition tells | derive-macro boilerplate reduction + keybinding DSL |
-| [reratui](https://github.com/sabry-awad97/reratui) † | React hooks, "Fiber" | ratatui | 12★, 150 dl | AI-styled | React vocabulary as legitimacy marker |
-| [revue](https://github.com/hawk90/revue) † | Vue-style, literal CSS + hot reload, devtools | own | 7★, very active | vibe-code tells | "build terminal UIs like web apps"; inspector/profiler/snapshots as headline |
-| [rustact](https://github.com/IllusiveBagel/rustact) † | React-inspired async | ratatui + tokio | 37 dl | unknown | React-clone cluster data point |
-| [limit-tui](https://github.com/marioidival/limit) † | VDOM components | ratatui | 19★ | unknown | VDOM assumed correct even at terminal scale (contrast Tela's no-VDOM argument) |
-| [ntui](https://github.com/quinnjr/ntui) † | Ink-style hooks + flexbox | own | 11 dl, day-of-sweep | unknown | third independent Ink clone in six months |
-| [Tela](https://github.com/theuselessai/tela) † | JSX in embedded QuickJS → ratatui | ratatui | 0★ | near-certainly AI | most novel architecture: sandboxed JS terminal "apps" with a permission manifest |
-| [MinUI](https://github.com/JackDerksen/minui) † | minimal from-scratch, built-in frame-rate loop | own | 28★ | human | "existing libraries either too complex or missing the ergonomics I wanted" — the canonical quote |
-| [matetui](https://github.com/lucodear/matetui) † | component trait + app shell | ratatui | 6.6k dl, quiet | human | component plumbing extracted to stop re-writing it per project |
-| [ratatui-interact](https://github.com/Brainwires/ratatui-interact) † | focus + mouse component layer | ratatui | 22.6k dl in 6 months | unknown | real velocity on exactly the two most-rebuilt gaps |
-| [ratada](https://github.com/cgroening/rs-ratada) † | driver, modals, forms, pickers, theming | ratatui | 19 dl, brand new | unknown | names the identical "missing middle" list rat-salsa named in 2024 |
-| [ratatui-form](https://crates.io/crates/ratatui-form) † | forms: fields, focus, validation | ratatui | 4-pt HN | vibe-code tells likely | forms keep being rebuilt because core doesn't ship them |
-| [ratatui-garnish](https://github.com/franklaranja/ratatui-garnish) † | decorator/garnish widget composition | ratatui | 48★ | unknown | Block-based chrome felt rigid; mixin-style styling layers wanted |
-| [karet](https://github.com/getkono/karet) † | 15-crate editor toolkit (rope, tree-sitter, LSP, DAP) | ratatui | 1★, day-one publish | AI-era tell | Helix-internals-as-a-library itch |
-| [hjkl stack](https://github.com/kryptic-sh/hjkl) † | modal editor engine, ~10 crates | ratatui adapters | ~1k dl | unknown | same editor-decomposition demand as karet, weeks earlier |
-| [jkconfig](https://github.com/drivercraft/ostool) † | JSON-Schema → config TUI | ratatui | 116k dl (dependency-pulled) | unknown | menuconfig-style schema-driven UI generation, real usage |
-| [scrin + aisling](https://crates.io/crates/scrin) † | toolkit + text-effects | unknown (no repo) | ~450 dl each | strong vibe-code tells | eye-candy as first-class pitch (tachyonfx's 123k dl validates the niche) |
-| [dracon-terminal-engine](https://github.com/DraconDev/dracon-terminal-engine) † | z-indexed compositor layers | own | 522 dl | vibe-code tells | flat-buffer ratatui keeps provoking compositor projects |
-| [tuyere / molten_cauldron](https://github.com/moltenlabs/tuyere) † | Elm/TEA | own | 1 commit, 1★ | textbook vibe-coded | description verbatim-identical to charmed-bubbletea's — LLM boilerplate convergence |
-| [testty](https://github.com/agentty-xyz/agentty) † | PTY e2e TUI testing, semantic assertions | n/a (testing) | 737 dl | agent-motivated | exists so agents can verify TUIs they can't see |
-| [Richrs](https://github.com/olirice/richrs) / [rich_rust](https://github.com/Dicklesworthstone/rich_rust) † | Rich (Python) ports | own | low / inflated | mixed | third foreign-ecosystem envy vector (after Charm, Ink) |
-| [inquire/promkit/cliclack](https://crates.io/crates/inquire) † | prompt/forms mini-libs | various | inquire 5.4M recent dl | human | the consolidated below-framework category; new forms energy now goes *into* frameworks |
-| [tui-framework-experiment](https://github.com/joshka/tui-framework-experiment) † | harmonious widget set | ratatui | 76k dl | human (ratatui maintainer) | the name is a demand statement: upstream knows the layer is missing |
+| Name                                                                                                        | Model                                                 | Substrate                    | Adoption                      | Vibe?                            | Take                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------- | ----------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [yeehaw](https://github.com/bogzbonny/yeehaw)                                                               | retained element tree (Turbo Vision-ish)              | own, on crossterm            | 354★, crate stale at 0.1.0    | human, AI-assisted margins       | batteries + embed-anything: runs Neovim as a widget; warm r/rust reception, no releases                                              |
+| [rat-salsa](https://github.com/thscharler/rat-salsa) (+14 rat-* crates)                                     | event loop + StatefulWidget retained state            | ratatui                      | 64★, ~30k dl, 3,328 commits   | human                            | the organic workhorse: one author systematically shipping every gap ratatui leaves (event/focus/text/ftable/menu/popup/dialog/theme) |
+| [ratatui-kit](https://github.com/yexiyue/ratatui-kit)                                                       | React: hooks, context, router                         | ratatui + tokio              | 34★, 8.5k dl, very active     | AI-as-workforce, disciplined     | waker-driven rendering; ships an _AI agent skill_ for itself, with evals                                                             |
+| [Ratzilla](https://github.com/orhun/ratzilla)                                                               | ratatui immediate mode → browser                      | ratatui Backend → DOM/WebGL2 | 1,401★, 269k dl               | human (orhun)                    | highest-velocity new layer; TUI-as-URL distribution, real showcase apps                                                              |
+| [teng](https://github.com/skius/teng)                                                                       | game loop, half-block pixels                          | own, on crossterm            | 6★, dormant since 2025-03     | human                            | games track: depth buffer, diff renderer, honest "educational hobby" README                                                          |
+| [OSUI](https://github.com/osui-rs/osui)                                                                     | RSX components, dep-tracked scopes                    | own, on crossterm            | 7★, zero external users       | human + AI docs                  | solo dev re-inventing React for the terminal; polish outrunning audience                                                             |
+| [textual-rs](https://github.com/mrsaraiva/textual-rs)                                                       | Textual port: CSS cascade, reactive tree              | own (rich-rs), on crossterm  | 1★, 963 commits in 30 days    | heavily AI, PTY-verified         | port-envy made literal; its real-PTY cell-diff parity harness is a template for verifying AI ports                                   |
+| [ratatui-bubbletea](https://github.com/akitaonrails/ratatui-bubbletea)                                      | theme tokens + optional ~300-line TEA shell           | ratatui                      | 25★, one-weekend burst        | openly AI-orchestrated           | aesthetics as an incremental layer, not a framework rewrite — the right adoption shape                                               |
+| [remy](https://github.com/vyfor/remy)                                                                       | signals (SolidJS/Leptos-style)                        | ratatui                      | 3★, weeks old                 | human                            | "it handles the state, you handle the interface"; frame-scoped state commits                                                         |
+| [rvision](https://github.com/SuzukiStumpy/rvision)                                                          | Turbo Vision retained desktop                         | own, on crossterm            | 0★, 6 releases in days        | AI with human-authored process   | CLAUDE.md-as-engineering-constitution; "hand-built" as provenance marketing                                                          |
+| [ratatui-style](https://github.com/Liangdi/ratatui-style)                                                   | CSS cascade emitting native ratatui Styles            | ratatui                      | 1★, ~230 dl                   | AI-assisted, directed            | third independent 2026 CSS-for-terminal attempt; zero-alloc resolution, JSON style transport                                         |
+| [a3s-tui](https://github.com/A3S-Lab/a3s)                                                                   | Elm/TEA + Taffy flexbox                               | own, on crossterm            | 11★, dogfooded by a3s code    | agent-driven, disciplined        | coding-agent chrome extracted as a framework: AgentChrome, tool logs, shimmer streaming text                                         |
+| [inkferro](https://github.com/metaphorics/inkferro)                                                         | Ink byte-for-byte drop-in, Rust engine                | own (taffy) via N-API        | 0★, 244 commits/12 days       | AI-orchestrated, rigorous        | fixes Ink's flicker without leaving React; differential-fuzzed against a Node oracle                                                 |
+| [widgetui](https://github.com/TheEmeraldBee/widgetui)                                                       | Bevy-style resource injection                         | ratatui                      | 46★, deprecated by author     | human                            | function-signature DI was genuinely low-boilerplate; author outgrew it                                                               |
+| [knurl](https://github.com/okislitsin/knurl)                                                                | Elm for embedded pixel displays                       | embedded-graphics, no_std    | 0★, day-one publish           | likely AI                        | TUI paradigms leaving the terminal: rotary-encoder input, dirty-flag redraw budgets                                                  |
+| [AppCUI-rs](https://github.com/gdt050579/AppCUI-rs)                                                         | retained desktop GUI (Win32/TV lineage)               | own console engine + WASM    | 396★, 3.5 years               | human                            | batteries at desktop-toolkit scale; event-recorder testing; audience asks for ever more IDE-grade controls                           |
+| [bubbletea-rs](https://github.com/whit3rabbit/bubbletea-rs)                                                 | Elm/MVU port + lipgloss + bubbles                     | crossterm (no ratatui)       | 276★, paused since 2025-11    | heavily AI-assisted, disciplined | most-adopted Charm port; sole open issue asks for more maintainers                                                                   |
+| [Shelgon](https://github.com/NishantJoshi00/shelgon)                                                        | one-trait REPL harness                                | ratatui                      | 270★, 130-pt HN, dormant      | human code, LLM docs             | the vertical-framework bet: constrain the domain, delete the boilerplate                                                             |
+| [FrankenTUI](https://github.com/Dicklesworthstone/frankentui) †                                             | Elm runtime, 20 crates, 80+ widgets                   | own + WASM                   | 248★, mixed HN                | AI mega-framework                | right thesis (correct flicker-free _inline_ UIs), broken interaction per HN testers                                                  |
+| [charmed_rust](https://github.com/Dicklesworthstone/charmed_rust) †                                         | whole Charm ecosystem port                            | own                          | 28★, inflated dl              | AI                               | "Go developers get Charm's elegant ecosystem... while Rust developers suffer" — the zeitgeist stated plainly                         |
+| [eye-declare](https://github.com/atuinsh/eye-declare) †                                                     | React-like element!/reconciliation, INLINE            | ratatui-core                 | 126★ in 3 months (Atuin team) | openly AI-assisted, credible     | the inline/scrollback demand's most credible carrier                                                                                 |
+| [rnk](https://github.com/majiayu000/rnk) †                                                                  | Ink/React hooks + Elm commands                        | own (taffy)                  | 11★, 257 commits              | AI-assisted                      | inline mode as the _default_; dedicated focus/accessibility doc                                                                      |
+| [SuperLightTUI](https://github.com/subinium/SuperLightTUI) †                                                | immediate-mode closure per frame                      | own                          | 167★ in 4 months              | unknown                          | first framework explicitly designed for AI agents as _authors_ ("small public grammar")                                              |
+| [Tuie](https://github.com/jake-stewart/tuie) †                                                              | rich standalone lib, per-cell dirty tracking          | own, + GUI window target     | pre-release, 0 HN traction    | human (known vim-plugin author)  | feature list = a checklist of HN ratatui complaints                                                                                  |
+| [Mousefood](https://github.com/ratatui/mousefood) †                                                         | ratatui backend for embedded-graphics                 | ratatui, no_std              | 244-pt HN, ratatui org        | human                            | ratatui as portable rendering core (ESP32, e-ink, Kindle, UEFI)                                                                      |
+| [RatatuiRuby + Rooibos](https://www.ratatui-ruby.dev/) †                                                    | Ruby MVU over ratatui FFI                             | ratatui                      | 152-pt HN, very positive      | openly LLM-built                 | scripting-language DX on ratatui's renderer; Ruby TTY-Toolkit vacuum                                                                 |
+| [PyRatatui](https://news.ycombinator.com/item?id=47394944) †                                                | Python bindings                                       | ratatui                      | no traction                   | unknown                          | same pattern as RatatuiRuby: ratatui as cross-language core                                                                          |
+| [Anathema](https://github.com/togglebyte/anathema) †                                                        | reactive template language, hot reload                | own                          | 352★, long-running beta       | human                            | end-user re-skinnable TUIs — a demand nobody else touches                                                                            |
+| [AppCUI sibling: tvision-rs](https://github.com/oetiker/tvision-rs) †                                       | Turbo Vision port                                     | own                          | new 2026-06                   | unknown                          | second TV revival in a fortnight (with rvision) — nostalgia is real demand                                                           |
+| [teapot](https://github.com/inferadb/teapot) †                                                              | Elm/TEA, forms, a11y modes, CI fallback               | own                          | 3★, company-backed            | unknown                          | companies build in-house frameworks rather than adopt — ecosystem seen as not-quite-fitting                                          |
+| [boba](https://github.com/2389-research/boba) †                                                             | Bubble Tea homage, headless TestProgram               | ratatui                      | 4★                            | likely agent-built, clean        | 4th independent Bubble Tea homage in ~7 months                                                                                       |
+| [hojicha](https://jgok76.gitea.cloud/femtomc/hojicha) †                                                     | Elm/Bubbletea                                         | own                          | 1.4k dl                       | unknown                          | published within 4 days of bubbletea-rs — independent simultaneous ports                                                             |
+| [osteak](https://crates.io/crates/osteak) †                                                                 | MVU, "you bring the loop"                             | ratatui                      | 530 dl                        | unknown                          | counter-demand: TEA structure without a runtime takeover                                                                             |
+| [capo-tui](https://github.com/motosan-dev/capo) †                                                           | MVU for the Capo coding agent                         | ratatui                      | 556 dl                        | unknown                          | another agent-CLI extracting its TUI layer                                                                                           |
+| [too](https://github.com/museun/too) †                                                                      | immediate-mode closures                               | own                          | 12★, quiet                    | human                            | egui-for-the-terminal, predating the 2026 immediate-mode wave                                                                        |
+| [weavetui](https://github.com/mzyui/weavetui) †                                                             | #[component] macros, kb! chords, store                | ratatui + tokio              | 24★                           | AI-composition tells             | derive-macro boilerplate reduction + keybinding DSL                                                                                  |
+| [reratui](https://github.com/sabry-awad97/reratui) †                                                        | React hooks, "Fiber"                                  | ratatui                      | 12★, 150 dl                   | AI-styled                        | React vocabulary as legitimacy marker                                                                                                |
+| [revue](https://github.com/hawk90/revue) †                                                                  | Vue-style, literal CSS + hot reload, devtools         | own                          | 7★, very active               | vibe-code tells                  | "build terminal UIs like web apps"; inspector/profiler/snapshots as headline                                                         |
+| [rustact](https://github.com/IllusiveBagel/rustact) †                                                       | React-inspired async                                  | ratatui + tokio              | 37 dl                         | unknown                          | React-clone cluster data point                                                                                                       |
+| [limit-tui](https://github.com/marioidival/limit) †                                                         | VDOM components                                       | ratatui                      | 19★                           | unknown                          | VDOM assumed correct even at terminal scale (contrast Tela's no-VDOM argument)                                                       |
+| [ntui](https://github.com/quinnjr/ntui) †                                                                   | Ink-style hooks + flexbox                             | own                          | 11 dl, day-of-sweep           | unknown                          | third independent Ink clone in six months                                                                                            |
+| [Tela](https://github.com/theuselessai/tela) †                                                              | JSX in embedded QuickJS → ratatui                     | ratatui                      | 0★                            | near-certainly AI                | most novel architecture: sandboxed JS terminal "apps" with a permission manifest                                                     |
+| [MinUI](https://github.com/JackDerksen/minui) †                                                             | minimal from-scratch, built-in frame-rate loop        | own                          | 28★                           | human                            | "existing libraries either too complex or missing the ergonomics I wanted" — the canonical quote                                     |
+| [matetui](https://github.com/lucodear/matetui) †                                                            | component trait + app shell                           | ratatui                      | 6.6k dl, quiet                | human                            | component plumbing extracted to stop re-writing it per project                                                                       |
+| [ratatui-interact](https://github.com/Brainwires/ratatui-interact) †                                        | focus + mouse component layer                         | ratatui                      | 22.6k dl in 6 months          | unknown                          | real velocity on exactly the two most-rebuilt gaps                                                                                   |
+| [ratada](https://github.com/cgroening/rs-ratada) †                                                          | driver, modals, forms, pickers, theming               | ratatui                      | 19 dl, brand new              | unknown                          | names the identical "missing middle" list rat-salsa named in 2024                                                                    |
+| [ratatui-form](https://crates.io/crates/ratatui-form) †                                                     | forms: fields, focus, validation                      | ratatui                      | 4-pt HN                       | vibe-code tells likely           | forms keep being rebuilt because core doesn't ship them                                                                              |
+| [ratatui-garnish](https://github.com/franklaranja/ratatui-garnish) †                                        | decorator/garnish widget composition                  | ratatui                      | 48★                           | unknown                          | Block-based chrome felt rigid; mixin-style styling layers wanted                                                                     |
+| [karet](https://github.com/getkono/karet) †                                                                 | 15-crate editor toolkit (rope, tree-sitter, LSP, DAP) | ratatui                      | 1★, day-one publish           | AI-era tell                      | Helix-internals-as-a-library itch                                                                                                    |
+| [hjkl stack](https://github.com/kryptic-sh/hjkl) †                                                          | modal editor engine, ~10 crates                       | ratatui adapters             | ~1k dl                        | unknown                          | same editor-decomposition demand as karet, weeks earlier                                                                             |
+| [jkconfig](https://github.com/drivercraft/ostool) †                                                         | JSON-Schema → config TUI                              | ratatui                      | 116k dl (dependency-pulled)   | unknown                          | menuconfig-style schema-driven UI generation, real usage                                                                             |
+| [scrin + aisling](https://crates.io/crates/scrin) †                                                         | toolkit + text-effects                                | unknown (no repo)            | ~450 dl each                  | strong vibe-code tells           | eye-candy as first-class pitch (tachyonfx's 123k dl validates the niche)                                                             |
+| [dracon-terminal-engine](https://github.com/DraconDev/dracon-terminal-engine) †                             | z-indexed compositor layers                           | own                          | 522 dl                        | vibe-code tells                  | flat-buffer ratatui keeps provoking compositor projects                                                                              |
+| [tuyere / molten_cauldron](https://github.com/moltenlabs/tuyere) †                                          | Elm/TEA                                               | own                          | 1 commit, 1★                  | textbook vibe-coded              | description verbatim-identical to charmed-bubbletea's — LLM boilerplate convergence                                                  |
+| [testty](https://github.com/agentty-xyz/agentty) †                                                          | PTY e2e TUI testing, semantic assertions              | n/a (testing)                | 737 dl                        | agent-motivated                  | exists so agents can verify TUIs they can't see                                                                                      |
+| [Richrs](https://github.com/olirice/richrs) / [rich_rust](https://github.com/Dicklesworthstone/rich_rust) † | Rich (Python) ports                                   | own                          | low / inflated                | mixed                            | third foreign-ecosystem envy vector (after Charm, Ink)                                                                               |
+| [inquire/promkit/cliclack](https://crates.io/crates/inquire) †                                              | prompt/forms mini-libs                                | various                      | inquire 5.4M recent dl        | human                            | the consolidated below-framework category; new forms energy now goes _into_ frameworks                                               |
+| [tui-framework-experiment](https://github.com/joshka/tui-framework-experiment) †                            | harmonious widget set                                 | ratatui                      | 76k dl                        | human (ratatui maintainer)       | the name is a demand statement: upstream knows the layer is missing                                                                  |
 
 ## What people are asking for
 
-Ranked by how many independent projects/threads express the want. Every item below appears in both organic and AI-generated projects — convergence across provenance is the strongest validity signal.
+Ranked by how many independent projects/threads express the want. Every item below appears in both
+organic and AI-generated projects — convergence across provenance is the strongest validity signal.
 
-1. **The "missing middle": event loop, focus, forms/text input, modals/overlays, theming.** The most stable list in the survey — rat-salsa's 2024 crate names and ratada's 2026 day-one publish are near-identical; remy, weavetui, ratatui-kit, rnk each headline focus + overlays + async; ratatui-interact (22.6k downloads in 6 months) covers exactly focus + mouse. Canonical quotes: "Ratatui isn't a framework... the Rust world does need a good framework equivalent of textual (or bubble tea)" (r/rust [1cdnoc0](https://reddit.com/r/rust/comments/1cdnoc0), Apr 2024); "I haven't found a widget library and event loop that I like, so had to roll my own" (alfiedotwtf, HN [45830829](https://news.ycombinator.com/item?id=45830829)). Focus management and overlay/z-order compositing are the two single most-rebuilt pieces.
-2. **Batteries-included widget catalog with consistent versioning.** ratatui core ships ~a dozen widgets; "you take on third party dependencies for each individual widget... basic things like spinners, checkboxes, text areas," with version skew (ModernMech, HN 45830829). AppCUI-rs, yeehaw, Tuie, FrankenTUI, bubbletea-widgets all pitch directly at this; AppCUI's issue tracker is dominated by requests for *more* controls. Forms/CRUD is the sharpest sub-gap (r/rust [1htforr](https://reddit.com/r/rust/comments/1htforr): Cursive "really easy" for forms, ratatui can't match).
-3. **Elm/MVU runtime — Bubble Tea envy.** At least ten TEA frameworks in 18 months (bubbletea-rs and hojicha in the *same week*, then teapot, charmed-bubbletea, boba, ratatui-tea, osteak, capo-tui, a3s-tui, tuyere). charmed_rust says it outright: "Go developers get Charm's elegant ecosystem... while Rust developers suffer." The demand is runtime + Cmd/effect system + lipgloss styling + bubbles components — not rendering. Counter-signals exist: osteak's "you bring the loop," and an experienced user who "quit [Bubble Tea] because of inconsistencies in the design. Went to ratatui and never looked back" (HN [46798402](https://news.ycombinator.com/item?id=46798402)).
-4. **React/Ink-style declarative components with hooks.** ratatui-kit, rnk, eye-declare, ntui, reratui, rustact, limit-tui, OSUI, revue (Vue), remy (signals) — three independent Ink clones in six months. Recurring vocabulary: element!/JSX macro, use_state/use_effect, context, reconciliation, Taffy flexbox, "describe what the UI should look like instead of mutating terminal buffers by hand."
-5. **Inline rendering that preserves scrollback — the sharpest NEW demand, driven by AI-agent CLIs.** eye-declare targets "CLI tools, AI assistants, and interactive prompts where output accumulates"; rnk makes inline the *default* "like Ink/Bubbletea"; FrankenTUI's whole thesis is "correct, flicker-free, INLINE UIs with strict terminal cleanup"; an HN commenter tied it to "Claude Code's current problems with their React-rendered terminal app" (Ink flicker, Claude Code issue #1913, spawning a genre: Nori CLI, claude-code-rust, CellState). Alt-screen-centric ratatui makes this awkward; native scrollback/text-selection/Cmd+F is the emerging bar.
-6. **Rendering performance/correctness as a feature.** 8% CPU while typing (ratatui discussion #1927, cited on HN); per-cell/per-subtree dirty tracking (Tuie), frame limiting (Ratzilla users at 360Hz), flicker-free synchronized output (inkferro's DECSET 2026), yeehaw's terminal-widget CPU pain. "React isn't the terminal UI bottleneck, the output pipeline is" (CellState, HN [47442385](https://news.ycombinator.com/item?id=47442385)).
-7. **Web-grade styling and theming.** Literal CSS with cascade/specificity/hot-reload attempted three times independently in 2026 (textual-rs, ratatui-style, revue); Tailwind chaining (SuperLightTUI), lipgloss chaining (bubbletea-rs), semantic theme tokens (ratatui-bubbletea, a3s-tui, knurl); Catppuccin/Nord/Dracula presets expected out of the box. The underlying want is escape from the "datacenter admin panel" default look — pretty by default.
-8. **Async-first runtime with reactive state.** tokio-native waker-driven rendering (ratatui-kit), resources/queries for async data (remy), Cmd-as-future (every TEA port), streaming-LLM-output suitability (a3s-tui). Counter-demand is equally loud: don't *mandate* tokio, offer sync APIs, runtime-agnostic async, thiserror not anyhow (Shelgon HN thread, [43284227](https://news.ycombinator.com/item?id=43284227)).
-9. **Cross-target deployment.** One codebase → terminal + browser (Ratzilla 1.4k★ + 150-pt HN; FrankenTUI/AppCUI WASM backends; "try before install" demos), embedded/no_std (Mousefood 244-pt HN, knurl, ratatui 0.30 no_std), scripting-language bindings on ratatui's renderer (RatatuiRuby 152-pt HN, PyRatatui), SSH distribution (wish ports). Ratatui is becoming a cross-language, cross-target rendering core; the framework competition may happen *above* it in other languages.
-10. **Coding-agent chrome and agent-legible APIs.** Agent-CLI vendors keep extracting in-house frameworks (a3s-tui, capo-tui, vtcode-ui, elph-tui) because nothing off-the-shelf serves streaming markdown transcripts, diff views, tool logs, subagent trackers. Separately, frameworks now design for AI *authors*: SuperLightTUI's "small public grammar... easily inferrable from documentation, benefiting both human developers and coding agents"; ratatui-kit ships and evals an agent skill; testty exists so agents can verify UIs.
-11. **Desktop-metaphor nostalgia.** Two Turbo Vision revivals in a fortnight (rvision, tvision-rs), AppCUI (396★), yeehaw's draggable windows; r/rust: "Looks like Turbo Pascal makes a return." Overlapping windows, menus, Alt-key navigation, dialogs — an idiom ratatui doesn't serve.
-12. **Testability.** boba's headless TestProgram, revue's snapshot testing, testty's PTY semantic assertions, textual-rs's PTY parity harness, AppCUI's event recorder. textual-rs documented the key failure: headless render tests passed while the live app was broken — buffer snapshots alone are insufficient.
-13. **Long tail, each with a real constituency:** terminal games (teng's depth buffer, MinUI's frame loop), editor-internals-as-a-library (karet, hjkl), eye-candy/effects (tachyonfx 123k dl, aisling), embedding TUIs in TUIs (yeehaw's Neovim widget, pseudoterminal panes), end-user re-skinnable apps (Anathema), schema-driven UIs (jkconfig, 116k dl), accessibility ("no standard to communicate TUI semantics to assistive technology" — unaddressed by anyone), and Windows correctness (doubled keypresses, missing colors — a silent killer).
+1. **The "missing middle": event loop, focus, forms/text input, modals/overlays, theming.** The most
+   stable list in the survey — rat-salsa's 2024 crate names and ratada's 2026 day-one publish are
+   near-identical; remy, weavetui, ratatui-kit, rnk each headline focus + overlays + async;
+   ratatui-interact (22.6k downloads in 6 months) covers exactly focus + mouse. Canonical quotes:
+   "Ratatui isn't a framework... the Rust world does need a good framework equivalent of textual (or
+   bubble tea)" (r/rust [1cdnoc0](https://reddit.com/r/rust/comments/1cdnoc0), Apr 2024); "I haven't
+   found a widget library and event loop that I like, so had to roll my own" (alfiedotwtf, HN
+   [45830829](https://news.ycombinator.com/item?id=45830829)). Focus management and overlay/z-order
+   compositing are the two single most-rebuilt pieces.
+2. **Batteries-included widget catalog with consistent versioning.** ratatui core ships ~a dozen
+   widgets; "you take on third party dependencies for each individual widget... basic things like
+   spinners, checkboxes, text areas," with version skew (ModernMech, HN 45830829). AppCUI-rs,
+   yeehaw, Tuie, FrankenTUI, bubbletea-widgets all pitch directly at this; AppCUI's issue tracker is
+   dominated by requests for _more_ controls. Forms/CRUD is the sharpest sub-gap (r/rust
+   [1htforr](https://reddit.com/r/rust/comments/1htforr): Cursive "really easy" for forms, ratatui
+   can't match).
+3. **Elm/MVU runtime — Bubble Tea envy.** At least ten TEA frameworks in 18 months (bubbletea-rs and
+   hojicha in the _same week_, then teapot, charmed-bubbletea, boba, ratatui-tea, osteak, capo-tui,
+   a3s-tui, tuyere). charmed_rust says it outright: "Go developers get Charm's elegant ecosystem...
+   while Rust developers suffer." The demand is runtime + Cmd/effect system + lipgloss styling +
+   bubbles components — not rendering. Counter-signals exist: osteak's "you bring the loop," and an
+   experienced user who "quit [Bubble Tea] because of inconsistencies in the design. Went to ratatui
+   and never looked back" (HN [46798402](https://news.ycombinator.com/item?id=46798402)).
+4. **React/Ink-style declarative components with hooks.** ratatui-kit, rnk, eye-declare, ntui,
+   reratui, rustact, limit-tui, OSUI, revue (Vue), remy (signals) — three independent Ink clones in
+   six months. Recurring vocabulary: element!/JSX macro, use_state/use_effect, context,
+   reconciliation, Taffy flexbox, "describe what the UI should look like instead of mutating
+   terminal buffers by hand."
+5. **Inline rendering that preserves scrollback — the sharpest NEW demand, driven by AI-agent
+   CLIs.** eye-declare targets "CLI tools, AI assistants, and interactive prompts where output
+   accumulates"; rnk makes inline the _default_ "like Ink/Bubbletea"; FrankenTUI's whole thesis is
+   "correct, flicker-free, INLINE UIs with strict terminal cleanup"; an HN commenter tied it to
+   "Claude Code's current problems with their React-rendered terminal app" (Ink flicker, Claude Code
+   issue #1913, spawning a genre: Nori CLI, claude-code-rust, CellState). Alt-screen-centric ratatui
+   makes this awkward; native scrollback/text-selection/Cmd+F is the emerging bar.
+6. **Rendering performance/correctness as a feature.** 8% CPU while typing (ratatui discussion
+   #1927, cited on HN); per-cell/per-subtree dirty tracking (Tuie), frame limiting (Ratzilla users
+   at 360Hz), flicker-free synchronized output (inkferro's DECSET 2026), yeehaw's terminal-widget
+   CPU pain. "React isn't the terminal UI bottleneck, the output pipeline is" (CellState, HN
+   [47442385](https://news.ycombinator.com/item?id=47442385)).
+7. **Web-grade styling and theming.** Literal CSS with cascade/specificity/hot-reload attempted
+   three times independently in 2026 (textual-rs, ratatui-style, revue); Tailwind chaining
+   (SuperLightTUI), lipgloss chaining (bubbletea-rs), semantic theme tokens (ratatui-bubbletea,
+   a3s-tui, knurl); Catppuccin/Nord/Dracula presets expected out of the box. The underlying want is
+   escape from the "datacenter admin panel" default look — pretty by default.
+8. **Async-first runtime with reactive state.** tokio-native waker-driven rendering (ratatui-kit),
+   resources/queries for async data (remy), Cmd-as-future (every TEA port), streaming-LLM-output
+   suitability (a3s-tui). Counter-demand is equally loud: don't _mandate_ tokio, offer sync APIs,
+   runtime-agnostic async, thiserror not anyhow (Shelgon HN thread,
+   [43284227](https://news.ycombinator.com/item?id=43284227)).
+9. **Cross-target deployment.** One codebase → terminal + browser (Ratzilla 1.4k★ + 150-pt HN;
+   FrankenTUI/AppCUI WASM backends; "try before install" demos), embedded/no_std (Mousefood 244-pt
+   HN, knurl, ratatui 0.30 no_std), scripting-language bindings on ratatui's renderer (RatatuiRuby
+   152-pt HN, PyRatatui), SSH distribution (wish ports). Ratatui is becoming a cross-language,
+   cross-target rendering core; the framework competition may happen _above_ it in other languages.
+10. **Coding-agent chrome and agent-legible APIs.** Agent-CLI vendors keep extracting in-house
+    frameworks (a3s-tui, capo-tui, vtcode-ui, elph-tui) because nothing off-the-shelf serves
+    streaming markdown transcripts, diff views, tool logs, subagent trackers. Separately, frameworks
+    now design for AI _authors_: SuperLightTUI's "small public grammar... easily inferrable from
+    documentation, benefiting both human developers and coding agents"; ratatui-kit ships and evals
+    an agent skill; testty exists so agents can verify UIs.
+11. **Desktop-metaphor nostalgia.** Two Turbo Vision revivals in a fortnight (rvision, tvision-rs),
+    AppCUI (396★), yeehaw's draggable windows; r/rust: "Looks like Turbo Pascal makes a return."
+    Overlapping windows, menus, Alt-key navigation, dialogs — an idiom ratatui doesn't serve.
+12. **Testability.** boba's headless TestProgram, revue's snapshot testing, testty's PTY semantic
+    assertions, textual-rs's PTY parity harness, AppCUI's event recorder. textual-rs documented the
+    key failure: headless render tests passed while the live app was broken — buffer snapshots alone
+    are insufficient.
+13. **Long tail, each with a real constituency:** terminal games (teng's depth buffer, MinUI's frame
+    loop), editor-internals-as-a-library (karet, hjkl), eye-candy/effects (tachyonfx 123k dl,
+    aisling), embedding TUIs in TUIs (yeehaw's Neovim widget, pseudoterminal panes), end-user
+    re-skinnable apps (Anathema), schema-driven UIs (jkconfig, 116k dl), accessibility ("no standard
+    to communicate TUI semantics to assistive technology" — unaddressed by anyone), and Windows
+    correctness (doubled keypresses, missing colors — a silent killer).
 
 ## Vibe-coded frameworks as signal
 
-Roughly a third of the 2025–2026 entries are substantially AI-generated (tells: multi-crate day-one publishes — karet's 15 crates on 2026-07-02; scale/audience mismatch — textual-rs's 963 commits and 1,490 tests against 1 star; download/star mismatch; verbatim-duplicated descriptions — tuyere and charmed-bubbletea share identical LLM boilerplate; CLAUDE.md/AGENTS.md in-repo). Treating them as demand data rather than noise:
+Roughly a third of the 2025–2026 entries are substantially AI-generated (tells: multi-crate day-one
+publishes — karet's 15 crates on 2026-07-02; scale/audience mismatch — textual-rs's 963 commits and
+1,490 tests against 1 star; download/star mismatch; verbatim-duplicated descriptions — tuyere and
+charmed-bubbletea share identical LLM boilerplate; CLAUDE.md/AGENTS.md in-repo). Treating them as
+demand data rather than noise:
 
-- **They converge on exactly what the organic projects converge on.** The AI-generated missing-middle lists (ratada, weavetui) match rat-salsa's hand-built 2024 list; the AI TEA clones match bubbletea-rs. LLMs are trained on the community's stated wants — a vibe-coded framework is a compressed replay of every "I wish ratatui had X" thread. The convergence *is* the survey result.
-- **Ports have replaced "inspired-by."** 2026's AI wave produced faithful ports of all five beloved foreign frameworks: Textual (textual-rs), Bubble Tea (charmed_rust, bubbletea-rs), Ink (inkferro), Rich (rich_rust, richrs), Turbo Vision (rvision, tvision-rs). The demand is for those exact DX surfaces, not Rust-flavored approximations — AI made the cost of a full port low enough to reveal that.
-- **The failure mode is breadth without interaction correctness.** HN on FrankenTUI: "if you look visually it looks like it's working. Once I tried interacting with it, everything is broken in a subtle way" ([46986644](https://news.ycombinator.com/item?id=46986644)). Widgets are cheap now; *correct focus/mouse/resize/CJK/Windows behavior* is the scarce good, and therefore the moat.
-- **The disciplined tail invented verification tooling worth stealing:** textual-rs's real-PTY cell-grid parity harness against a reference implementation; inkferro's byte-golden conformance + 22,500-comparison differential fuzz against a live Node oracle; rvision's CLAUDE.md dependency budgets, ADRs, and snapshot/scripted-interaction test taxonomy. These are the state of the art in making AI-scale development trustworthy.
-- **Provenance is now marketing in both directions:** rvision advertises "hand-built"; RatatuiRuby openly credits LLMs and got a warm 152-pt HN reception; Shelgon's "Built by Human, Documented by LLM." Reception tolerates AI provenance when tests and behavior hold up.
-- **Discount accordingly:** download counts are dead as an adoption proxy for this cohort, and one author (Dicklesworthstone) is single-handedly a measurable fraction of "new Rust TUI activity." (The 20+ `ratatui-*` crates reserved on 2026-06-27/28 are not part of the wave: they are defensive maintainer-side reservations by a ratatui maintainer — see `~/local/ratatui-reservations` — precisely because the prefix is perceived as valuable real estate.)
+- **They converge on exactly what the organic projects converge on.** The AI-generated
+  missing-middle lists (ratada, weavetui) match rat-salsa's hand-built 2024 list; the AI TEA clones
+  match bubbletea-rs. LLMs are trained on the community's stated wants — a vibe-coded framework is a
+  compressed replay of every "I wish ratatui had X" thread. The convergence _is_ the survey result.
+- **Ports have replaced "inspired-by."** 2026's AI wave produced faithful ports of all five beloved
+  foreign frameworks: Textual (textual-rs), Bubble Tea (charmed_rust, bubbletea-rs), Ink (inkferro),
+  Rich (rich_rust, richrs), Turbo Vision (rvision, tvision-rs). The demand is for those exact DX
+  surfaces, not Rust-flavored approximations — AI made the cost of a full port low enough to reveal
+  that.
+- **The failure mode is breadth without interaction correctness.** HN on FrankenTUI: "if you look
+  visually it looks like it's working. Once I tried interacting with it, everything is broken in a
+  subtle way" ([46986644](https://news.ycombinator.com/item?id=46986644)). Widgets are cheap now;
+  _correct focus/mouse/resize/CJK/Windows behavior_ is the scarce good, and therefore the moat.
+- **The disciplined tail invented verification tooling worth stealing:** textual-rs's real-PTY
+  cell-grid parity harness against a reference implementation; inkferro's byte-golden conformance +
+  22,500-comparison differential fuzz against a live Node oracle; rvision's CLAUDE.md dependency
+  budgets, ADRs, and snapshot/scripted-interaction test taxonomy. These are the state of the art in
+  making AI-scale development trustworthy.
+- **Provenance is now marketing in both directions:** rvision advertises "hand-built"; RatatuiRuby
+  openly credits LLMs and got a warm 152-pt HN reception; Shelgon's "Built by Human, Documented by
+  LLM." Reception tolerates AI provenance when tests and behavior hold up.
+- **Discount accordingly:** download counts are dead as an adoption proxy for this cohort, and one
+  author (Dicklesworthstone) is single-handedly a measurable fraction of "new Rust TUI activity."
+  (The 20+ `ratatui-*` crates reserved on 2026-06-27/28 are not part of the wave: they are defensive
+  maintainer-side reservations by a ratatui maintainer — see `~/local/ratatui-reservations` —
+  precisely because the prefix is perceived as valuable real estate.)
 
 ## What this changes vs prior-art.md
 
 **Confirmed, with much more data:**
 
-- *"The catalog is the product"* — the wave's most common pitch is batteries-included, and its most common failure is shipping architecture without catalog (rooibos redux, dozens of times over).
-- *Incremental adoption beats wholesale buy-in* — the entries with real traction layer on ratatui (Ratzilla, rat-salsa, eye-declare, ratatui-interact) or keep escape hatches to raw ratatui widgets (remy, ratatui-kit); from-scratch stacks stay at 0–400 stars regardless of quality. ratatui-bubbletea's three-crate theme/components/optional-runtime split is the adoption shape working in miniature.
-- *One person, one app* still kills: bubbletea-rs paused after 4 months; its sole open issue begs for co-maintainers; Shelgon, teng, widgetui all dormant within a year.
-- *Imported paradigms pay a Rust tax* — still true, but AI has changed the economics: ports that were "can't be finished part-time" (prior-art on intuitive) now get finished in weeks. The tax moved from *writing* the port to *verifying* it.
+- _"The catalog is the product"_ — the wave's most common pitch is batteries-included, and its most
+  common failure is shipping architecture without catalog (rooibos redux, dozens of times over).
+- _Incremental adoption beats wholesale buy-in_ — the entries with real traction layer on ratatui
+  (Ratzilla, rat-salsa, eye-declare, ratatui-interact) or keep escape hatches to raw ratatui widgets
+  (remy, ratatui-kit); from-scratch stacks stay at 0–400 stars regardless of quality.
+  ratatui-bubbletea's three-crate theme/components/optional-runtime split is the adoption shape
+  working in miniature.
+- _One person, one app_ still kills: bubbletea-rs paused after 4 months; its sole open issue begs
+  for co-maintainers; Shelgon, teng, widgetui all dormant within a year.
+- _Imported paradigms pay a Rust tax_ — still true, but AI has changed the economics: ports that
+  were "can't be finished part-time" (prior-art on intuitive) now get finished in weeks. The tax
+  moved from _writing_ the port to _verifying_ it.
 
 **Revised or new:**
 
-1. **Inline mode is promoted from "genuinely differentiating feature nobody else has" (prior-art on iocraft) to the single sharpest demand of the era.** eye-declare, rnk (inline-by-default), FrankenTUI, and the whole Ink-flicker genre chase it. prior-art's roadmap doesn't schedule an inline-mode proof; it should.
-2. **AI coding agents are the demand engine, absent from prior-art entirely.** They drive the flagship workload (agent chrome: streaming transcripts, diffs, tool logs), the authorship wave (a third of new frameworks), and a new design axis (agent-legible API grammar, framework-shipped agent skills, PTY test harnesses agents can run). "LLM defaults now funnel new projects to ratatui" — Codex CLI uses it, and LLMs recommend it unprompted (HN 45830829).
-3. **The framework-layer namespace is secured, not contested: `ratatui-runtime`, `-component`, `-state`, `-theme`, `-testing`, `-snapshot`, `-profiler` were reserved in June 2026 — by this project's author, acting as a ratatui maintainer, as explicitly protective reservations (`~/local/ratatui-reservations`: honest no-fake-API placeholder crates), not an announced product direction.** There is no competitive clock. What the reservations do change vs prior-art: the official landing path for a framework layer under ratatui-org names is pre-cleared, so "coordinate with upstream" is not a negotiation but a choice this project's author gets to make.
-4. **Theming/aesthetics demand is larger than prior-art credited.** prior-art treats styling as "semantic roles first, earn CSS later" — still right — but the wave shows *pretty by default* (Charm envy, Catppuccin presets, tachyonfx effects) is a top-5 want, not a nice-to-have. Three independent CSS engines in one year is a datum.
-5. **Testing demand is confirmed and raised a level:** prior-art's Betamax finding (tapes catch what unit tests miss) is independently replicated by textual-rs (headless passed, live app broken). The bar is now PTY-level, and it doubles as the trust mechanism for AI-assisted development.
-6. **Architecture novelty is worth even less than prior-art concluded.** Fifty frameworks now ship signals, hooks, TEA, ECS, and immediate-mode closures; none of it moves adoption. Correct interaction behavior, widgets, docs, and a flagship app move adoption. The labs' frame-facts model needs no defense against this wave — nothing in it is a counterexample.
+1. **Inline mode is promoted from "genuinely differentiating feature nobody else has" (prior-art on
+   iocraft) to the single sharpest demand of the era.** eye-declare, rnk (inline-by-default),
+   FrankenTUI, and the whole Ink-flicker genre chase it. prior-art's roadmap doesn't schedule an
+   inline-mode proof; it should.
+2. **AI coding agents are the demand engine, absent from prior-art entirely.** They drive the
+   flagship workload (agent chrome: streaming transcripts, diffs, tool logs), the authorship wave (a
+   third of new frameworks), and a new design axis (agent-legible API grammar, framework-shipped
+   agent skills, PTY test harnesses agents can run). "LLM defaults now funnel new projects to
+   ratatui" — Codex CLI uses it, and LLMs recommend it unprompted (HN 45830829).
+3. **The framework-layer namespace is secured, not contested: `ratatui-runtime`, `-component`,
+   `-state`, `-theme`, `-testing`, `-snapshot`, `-profiler` were reserved in June 2026 — by this
+   project's author, acting as a ratatui maintainer, as explicitly protective reservations
+   (`~/local/ratatui-reservations`: honest no-fake-API placeholder crates), not an announced product
+   direction.** There is no competitive clock. What the reservations do change vs prior-art: the
+   official landing path for a framework layer under ratatui-org names is pre-cleared, so
+   "coordinate with upstream" is not a negotiation but a choice this project's author gets to make.
+4. **Theming/aesthetics demand is larger than prior-art credited.** prior-art treats styling as
+   "semantic roles first, earn CSS later" — still right — but the wave shows _pretty by default_
+   (Charm envy, Catppuccin presets, tachyonfx effects) is a top-5 want, not a nice-to-have. Three
+   independent CSS engines in one year is a datum.
+5. **Testing demand is confirmed and raised a level:** prior-art's Betamax finding (tapes catch what
+   unit tests miss) is independently replicated by textual-rs (headless passed, live app broken).
+   The bar is now PTY-level, and it doubles as the trust mechanism for AI-assisted development.
+6. **Architecture novelty is worth even less than prior-art concluded.** Fifty frameworks now ship
+   signals, hooks, TEA, ECS, and immediate-mode closures; none of it moves adoption. Correct
+   interaction behavior, widgets, docs, and a flagship app move adoption. The labs' frame-facts
+   model needs no defense against this wave — nothing in it is a counterexample.
 
 ## Implications for rabbitui
 
-- **Design inline mode (scrollback-preserving, strict cleanup, synchronized output) as a first-class render target alongside alt-screen, from the buffer layer up** — it is the sharpest unmet demand, the one ratatui structurally underserves, and the one every AI-agent CLI needs. Add an inline-mode proof to the labs roadmap before the widget catalog stabilizes rendering assumptions.
-- **Make the flagship reference app a coding-agent chrome** (streaming markdown transcript, diff view, tool log, task queue, prompt line) rather than a settings app — a3s-tui/capo-tui/vtcode prove every vendor rebuilds exactly this, it exercises inline mode + streaming + virtualization, and it's the workload of the era. (Keep prior-art's settings/control-plane apps as secondary.)
-- **Treat agent-legibility as a design requirement:** small, inferrable API grammar (SuperLightTUI's argument), a shipped-and-evaled agent skill (ratatui-kit already does this), and a PTY-level headless driver agents can run to verify their own output (testty, textual-rs harness). Agents are a large share of future TUI authors; the framework they can use correctly wins their default.
-- **Ship semantic theme tokens plus Catppuccin/Nord/Dracula presets in v0.1, and treat "pretty by default" as a requirement** — Charm envy is really aesthetics envy; ratatui-bubbletea got 25 stars in a weekend for a skin. Keep prior-art's "earn CSS later" stance, but note three independent CSS engines now exist to learn from (ratatui-style's emit-native-ratatui-Styles approach composes without a retained DOM and is the one to study).
-- **Offer a thin optional MVU shell (~300 lines, osteak/ratatui-tea-sized) that does not own the loop** — TEA demand is unambiguous (10+ clones) but so is loop-ownership resentment; prior-art's "optional shells above frame facts" already accommodates this. Do not make it the widget contract.
-- **Keep the raw-ratatui escape hatch and per-crate adoption path absolute** — the wave's traction pattern (layered wins, from-scratch stalls) re-proves prior-art's conclusion with ~40 more data points.
-- **Make interaction correctness the advertised moat: CJK width, Windows key-release/doubled-keys, resize, focus, mouse-in-overlays — tested at the PTY level in CI.** The AI flood made widget breadth free; FrankenTUI's "broken in a subtle way" reception shows correctness is what reviewers actually probe. Publish the harness results.
-- **Decide early whether rabbitui ships as/under the reserved ratatui-org names** — the reservations are this project's author's own protective placeholders, so there is no race, only a branding/positioning decision: the wave shows unaffiliated framework layers cap at ~400 stars while org gravity compounds, which argues for landing the framework layer under `ratatui-runtime`/`-component`/`-state` (or explicitly deciding not to, as an ADR with the adoption tradeoff documented).
-- **Follow the community's library-hygiene checklist from day one:** runtime-agnostic async with a sync path (no mandated tokio), thiserror in public APIs, asciinema/screenshots in every README, and a quickstart that provably compiles (Shelgon's only issue was a broken quickstart).
-- **Say no explicitly, in docs, to the adjacent tracks:** games/pixel engines, editor-internals toolkits, embedded pixel displays, and TUI-in-TUI embedding are real but separate demands — name them as non-goals with pointers (teng, karet, knurl, yeehaw) so scope pressure has somewhere to go. Web/WASM is the one cross-target worth keeping on the roadmap (Ratzilla proves demand and the backend seam makes it cheap if the buffer layer stays ratatui-compatible).
-- **Watch accessibility as the open differentiator:** nobody in a 50-framework wave addressed assistive-technology semantics; ratatui #2190 (accesskit) plus prior-art's "promote view-diff if a11y demands a persistent identified tree" makes this the most likely future forcing-function on the architecture. Track it; don't bet the core on it yet.
+- **Design inline mode (scrollback-preserving, strict cleanup, synchronized output) as a first-class
+  render target alongside alt-screen, from the buffer layer up** — it is the sharpest unmet demand,
+  the one ratatui structurally underserves, and the one every AI-agent CLI needs. Add an inline-mode
+  proof to the labs roadmap before the widget catalog stabilizes rendering assumptions.
+- **Make the flagship reference app a coding-agent chrome** (streaming markdown transcript, diff
+  view, tool log, task queue, prompt line) rather than a settings app — a3s-tui/capo-tui/vtcode
+  prove every vendor rebuilds exactly this, it exercises inline mode + streaming + virtualization,
+  and it's the workload of the era. (Keep prior-art's settings/control-plane apps as secondary.)
+- **Treat agent-legibility as a design requirement:** small, inferrable API grammar (SuperLightTUI's
+  argument), a shipped-and-evaled agent skill (ratatui-kit already does this), and a PTY-level
+  headless driver agents can run to verify their own output (testty, textual-rs harness). Agents are
+  a large share of future TUI authors; the framework they can use correctly wins their default.
+- **Ship semantic theme tokens plus Catppuccin/Nord/Dracula presets in v0.1, and treat "pretty by
+  default" as a requirement** — Charm envy is really aesthetics envy; ratatui-bubbletea got 25 stars
+  in a weekend for a skin. Keep prior-art's "earn CSS later" stance, but note three independent CSS
+  engines now exist to learn from (ratatui-style's emit-native-ratatui-Styles approach composes
+  without a retained DOM and is the one to study).
+- **Offer a thin optional MVU shell (~300 lines, osteak/ratatui-tea-sized) that does not own the
+  loop** — TEA demand is unambiguous (10+ clones) but so is loop-ownership resentment; prior-art's
+  "optional shells above frame facts" already accommodates this. Do not make it the widget contract.
+- **Keep the raw-ratatui escape hatch and per-crate adoption path absolute** — the wave's traction
+  pattern (layered wins, from-scratch stalls) re-proves prior-art's conclusion with ~40 more data
+  points.
+- **Make interaction correctness the advertised moat: CJK width, Windows key-release/doubled-keys,
+  resize, focus, mouse-in-overlays — tested at the PTY level in CI.** The AI flood made widget
+  breadth free; FrankenTUI's "broken in a subtle way" reception shows correctness is what reviewers
+  actually probe. Publish the harness results.
+- **Decide early whether rabbitui ships as/under the reserved ratatui-org names** — the reservations
+  are this project's author's own protective placeholders, so there is no race, only a
+  branding/positioning decision: the wave shows unaffiliated framework layers cap at ~400 stars
+  while org gravity compounds, which argues for landing the framework layer under
+  `ratatui-runtime`/`-component`/`-state` (or explicitly deciding not to, as an ADR with the
+  adoption tradeoff documented).
+- **Follow the community's library-hygiene checklist from day one:** runtime-agnostic async with a
+  sync path (no mandated tokio), thiserror in public APIs, asciinema/screenshots in every README,
+  and a quickstart that provably compiles (Shelgon's only issue was a broken quickstart).
+- **Say no explicitly, in docs, to the adjacent tracks:** games/pixel engines, editor-internals
+  toolkits, embedded pixel displays, and TUI-in-TUI embedding are real but separate demands — name
+  them as non-goals with pointers (teng, karet, knurl, yeehaw) so scope pressure has somewhere to
+  go. Web/WASM is the one cross-target worth keeping on the roadmap (Ratzilla proves demand and the
+  backend seam makes it cheap if the buffer layer stays ratatui-compatible).
+- **Watch accessibility as the open differentiator:** nobody in a 50-framework wave addressed
+  assistive-technology semantics; ratatui #2190 (accesskit) plus prior-art's "promote view-diff if
+  a11y demands a persistent identified tree" makes this the most likely future forcing-function on
+  the architecture. Track it; don't bet the core on it yet.
