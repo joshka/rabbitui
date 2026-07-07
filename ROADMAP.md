@@ -8,18 +8,18 @@ the flagship app is a coding-agent chrome (the workload of the era).
 
 Date: 2026-07-06 · **Progress tracker** (updated as each slice commits):
 
-| Slice | What                                   | Status                                         |
-| ----- | -------------------------------------- | ---------------------------------------------- |
-| 0     | Substrate smoke                        | ✅ done                                        |
-| 1     | Walking skeleton                       | ✅ done                                        |
-| 2     | Declared frame + testing floor         | ✅ done                                        |
-| 3     | Identity, focus, outcomes              | ✅ done                                        |
-| 4     | TextInput, SelectionList, theming      | ✅ done                                        |
-| 5     | Inline mode + vt100 harness            | ✅ done                                        |
-| 6     | Async effects, coalescing, widget cmds | ✅ done                                        |
-| 7     | Overlays, mouse, forms                 | ✅ done                                        |
-| 8     | Agent-chrome flagship                  | ✅ done                                        |
-| 9     | Bridge, docs pass, 0.1                 | 🔨 in progress (positioning decision → author) |
+| Slice | What                                   | Status                                                            |
+| ----- | -------------------------------------- | ----------------------------------------------------------------- |
+| 0     | Substrate smoke                        | ✅ done                                                           |
+| 1     | Walking skeleton                       | ✅ done                                                           |
+| 2     | Declared frame + testing floor         | ✅ done                                                           |
+| 3     | Identity, focus, outcomes              | ✅ done                                                           |
+| 4     | TextInput, SelectionList, theming      | ✅ done                                                           |
+| 5     | Inline mode + vt100 harness            | ✅ done                                                           |
+| 6     | Async effects, coalescing, widget cmds | ✅ done                                                           |
+| 7     | Overlays, mouse, forms                 | ✅ done                                                           |
+| 8     | Agent-chrome flagship                  | ✅ done                                                           |
+| 9     | Bridge, docs pass, 0.1                 | 🔨 bridge ✅ · docs + fold-backs remaining (positioning → author) |
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
