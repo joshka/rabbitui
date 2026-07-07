@@ -11,7 +11,7 @@
 use std::io::Write as _;
 use std::sync::Once;
 
-use qwertty::{InputEvent, ProtocolPosition, TokioTerminalSession, commands};
+use qwertty::{CommandBuffer, InputEvent, ProtocolPosition, TokioTerminalSession, commands};
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::style::Style;
 
@@ -93,6 +93,22 @@ impl Terminal {
         session.text(text).await?;
         session.bytes(encode::SGR_RESET).await?;
         Ok(())
+    }
+
+    /// Writes a pre-encoded frame to the terminal and flushes it.
+    ///
+    /// The renderer (`render.rs`) builds a whole frame's bytes — cursor moves,
+    /// SGR runs, text, and synchronized-output framing — into a
+    /// [`CommandBuffer`] and hands it here in one call, so the cursor and mode
+    /// encoding stays behind this substrate seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing or flushing fails.
+    pub(crate) async fn write_frame(&mut self, frame: CommandBuffer) -> Result<()> {
+        let session = self.session_mut();
+        session.bytes(frame.into_bytes()).await?;
+        session.flush().await
     }
 
     /// Flushes buffered output to the terminal.

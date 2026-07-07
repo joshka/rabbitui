@@ -15,5 +15,6 @@
 //! assert!(style.attrs.contains(rabbitui_core::style::Attrs::BOLD));
 //! ```
 
+pub mod buffer;
 pub mod geometry;
 pub mod style;

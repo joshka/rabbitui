@@ -15,6 +15,14 @@ pub const LEAVE_ALT_SCREEN: &[u8] = b"\x1b[?1049l";
 /// Reset all SGR attributes (`CSI 0 m`).
 pub const SGR_RESET: &[u8] = b"\x1b[0m";
 
+/// Begin synchronized output (`CSI ? 2026 h`): the terminal buffers everything
+/// until the matching end so a frame is presented atomically, without tearing
+/// (ADR 0003's mode-2026 framing).
+pub const BEGIN_SYNC: &[u8] = b"\x1b[?2026h";
+/// End synchronized output (`CSI ? 2026 l`): the terminal presents the buffered
+/// frame in one update.
+pub const END_SYNC: &[u8] = b"\x1b[?2026l";
+
 /// The restore-of-last-resort sequence: leave alt screen, reset styles, show
 /// the cursor. Written on drop and from the panic hook; every byte here must
 /// be safe to emit unconditionally on any terminal state.

@@ -30,7 +30,9 @@
 
 pub use rabbitui_core as core;
 
+pub mod app;
 mod encode;
+mod render;
 mod terminal;
 
 pub use terminal::Terminal;
