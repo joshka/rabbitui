@@ -17,10 +17,47 @@ use rabbitui_core::style::Style;
 
 use crate::encode;
 
-/// Errors reported by the terminal seam. Currently the substrate's error type.
-pub type Error = qwertty::Error;
+/// Errors reported by the application loop.
+///
+/// Mostly the terminal substrate's error ([`Error::Terminal`], wrapping
+/// [`qwertty::Error`]), plus [`Error::Theme`] for a theme file that cannot be
+/// loaded or parsed (ADR 0007's file loading lives in the facade). A
+/// `From<qwertty::Error>` lets the seam's `?` keep working unchanged.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// An error from the terminal substrate (I/O, decoding, size query).
+    Terminal(qwertty::Error),
+    /// A theme file could not be loaded or parsed. Carries a rendered message so
+    /// this type does not depend on the `themes` feature being enabled.
+    Theme(String),
+}
 
-/// A specialized result for terminal operations.
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Terminal(error) => write!(f, "{error}"),
+            Error::Theme(message) => write!(f, "theme error: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Terminal(error) => Some(error),
+            Error::Theme(_) => None,
+        }
+    }
+}
+
+impl From<qwertty::Error> for Error {
+    fn from(error: qwertty::Error) -> Self {
+        Error::Terminal(error)
+    }
+}
+
+/// A specialized result for application operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
 static PANIC_RESTORE_HOOK: Once = Once::new();
@@ -108,7 +145,8 @@ impl Terminal {
     pub(crate) async fn write_frame(&mut self, frame: CommandBuffer) -> Result<()> {
         let session = self.session_mut();
         session.bytes(frame.into_bytes()).await?;
-        session.flush().await
+        session.flush().await?;
+        Ok(())
     }
 
     /// Flushes buffered output to the terminal.
@@ -117,7 +155,8 @@ impl Terminal {
     ///
     /// Returns an error if the underlying write fails.
     pub async fn flush(&mut self) -> Result<()> {
-        self.session_mut().flush().await
+        self.session_mut().flush().await?;
+        Ok(())
     }
 
     /// Waits for the next input event.
@@ -126,7 +165,7 @@ impl Terminal {
     ///
     /// Returns an error if reading from the terminal fails.
     pub async fn next_event(&mut self) -> Result<InputEvent> {
-        self.session_mut().next_event().await
+        Ok(self.session_mut().next_event().await?)
     }
 
     /// Restores the terminal (leave alternate screen, reset styles, show the
@@ -142,7 +181,8 @@ impl Terminal {
         session.command(commands::cursor::show()).await?;
         session.bytes(encode::LEAVE_ALT_SCREEN).await?;
         session.flush().await?;
-        session.leave().await
+        session.leave().await?;
+        Ok(())
     }
 
     fn session(&self) -> &TokioTerminalSession {

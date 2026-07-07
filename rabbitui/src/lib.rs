@@ -35,5 +35,8 @@ mod encode;
 pub mod input;
 mod render;
 mod terminal;
+#[cfg(feature = "themes")]
+pub mod theme;
 
+pub use app::App;
 pub use terminal::Terminal;

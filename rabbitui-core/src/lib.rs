@@ -26,4 +26,5 @@ pub mod outcome;
 pub mod routing;
 pub mod store;
 pub mod style;
+pub mod theme;
 pub mod widget;

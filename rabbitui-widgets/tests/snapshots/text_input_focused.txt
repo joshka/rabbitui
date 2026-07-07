@@ -1,0 +1,6 @@
+hi          
+---
+(0,0) "h" = fg=#cdd6f4
+(1,0) "i" = fg=#cdd6f4
+(2,0) " " = fg=#11111b bg=#cba6f7 reversed
+

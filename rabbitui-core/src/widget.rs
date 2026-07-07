@@ -73,6 +73,12 @@ use crate::geometry::{Position, Rect};
 use crate::input::InputEvent;
 use crate::outcome::Outcome;
 use crate::style::Style;
+use crate::theme::{Role, Theme};
+
+/// The theme a [`RenderCtx::new`] carries when no theme is supplied — the
+/// restrained dark default. A `const` so the reference is `'static` and every
+/// default context borrows the same value.
+const DEFAULT_THEME: &Theme = &Theme::dark();
 
 /// A widget spec: a per-frame description of one widget, rendered against its
 /// retained state.
@@ -140,11 +146,19 @@ pub enum Phase {
 /// A widget marks itself focusable with [`focusable`](Self::focusable) and reads
 /// its own focus state with [`is_focused`](Self::is_focused) to paint focus
 /// styles. Both feed the frame facts the framework routes input through.
+///
+/// The context carries the active [`Theme`]; a widget resolves a semantic
+/// [`Role`] to a concrete [`Style`] with [`style`](Self::style) rather than
+/// hard-coding colors (ADR 0007). Contexts built with [`new`](Self::new) carry
+/// the [`Theme::default`]; [`new_themed`](Self::new_themed) supplies a specific
+/// theme (the [`Frame`](crate::frame::Frame) uses it to thread its theme in).
 #[derive(Debug)]
 pub struct RenderCtx<'a> {
     buffer: &'a mut Buffer,
     /// The widget's area in buffer coordinates, already clipped to the buffer.
     area: Rect,
+    /// The active theme, for resolving roles to styles.
+    theme: &'a Theme,
     /// Whether the framework reports this widget as currently focused.
     focused: bool,
     /// Whether the widget declared itself focusable this frame. The frame reads
@@ -153,17 +167,48 @@ pub struct RenderCtx<'a> {
 }
 
 impl<'a> RenderCtx<'a> {
-    /// Creates a context painting into `area` of `buffer`.
+    /// Creates a context painting into `area` of `buffer`, using the
+    /// [`Theme::default`].
     ///
     /// `area` is clipped to the buffer's bounds; a fully out-of-bounds area
     /// yields a context whose paints are all no-ops. The context starts
     /// non-focusable; `focused` is the framework's current focus verdict for
-    /// this widget.
+    /// this widget. Use [`new_themed`](Self::new_themed) to supply a theme other
+    /// than the default.
     #[must_use]
     pub fn new(buffer: &'a mut Buffer, area: Rect, focused: bool) -> Self {
+        Self::new_themed(buffer, area, focused, DEFAULT_THEME)
+    }
+
+    /// Creates a context painting into `area` of `buffer` against `theme`.
+    ///
+    /// Like [`new`](Self::new), but resolves roles through the supplied `theme`
+    /// rather than the default. The [`Frame`](crate::frame::Frame) uses this to
+    /// thread the frame's theme to every widget it declares.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Rect, Size};
+    /// use rabbitui_core::theme::{Role, Theme};
+    /// use rabbitui_core::widget::RenderCtx;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(4, 1));
+    /// let theme = Theme::catppuccin_mocha();
+    /// let ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+    /// assert_eq!(ctx.style(Role::Accent), theme.style(Role::Accent));
+    /// ```
+    #[must_use]
+    pub fn new_themed(
+        buffer: &'a mut Buffer,
+        area: Rect,
+        focused: bool,
+        theme: &'a Theme,
+    ) -> Self {
         let bounds = Rect::from_size(buffer.size());
         let area = area.intersection(bounds);
-        Self { buffer, area, focused, focusable: false }
+        Self { buffer, area, theme, focused, focusable: false }
     }
 
     /// The widget's area size (relative coordinates run from the origin to
@@ -206,6 +251,36 @@ impl<'a> RenderCtx<'a> {
     #[must_use]
     pub fn is_focusable(&self) -> bool {
         self.focusable
+    }
+
+    /// The concrete [`Style`] the active theme maps `role` to.
+    ///
+    /// The sanctioned way a widget styles itself (ADR 0007): it names a semantic
+    /// [`Role`] and the framework resolves it against the frame's theme, so the
+    /// widget never hard-codes a color and re-skinning is a theme swap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Position, Rect, Size};
+    /// use rabbitui_core::theme::Role;
+    /// use rabbitui_core::widget::RenderCtx;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(5, 1));
+    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
+    /// let text_style = ctx.style(Role::Text);
+    /// ctx.set_string(Position::ORIGIN, "hi", text_style);
+    /// ```
+    #[must_use]
+    pub fn style(&self, role: Role) -> Style {
+        self.theme.style(role)
+    }
+
+    /// The active theme, for a widget that needs several roles at once.
+    #[must_use]
+    pub fn theme(&self) -> &Theme {
+        self.theme
     }
 
     /// Writes `text` at `position` (relative to the widget's area) in
@@ -329,6 +404,20 @@ mod tests {
         let area = Rect::new(Position::new(10, 10), Size::new(5, 5));
         let ctx = RenderCtx::new(&mut buffer, area, false);
         assert!(ctx.area().is_empty());
+    }
+
+    #[test]
+    fn new_uses_default_theme_and_new_themed_overrides_it() {
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let area = Rect::from_size(Size::new(4, 1));
+        // A default context resolves against Theme::default().
+        let ctx = RenderCtx::new(&mut buffer, area, false);
+        assert_eq!(ctx.style(Role::Accent), Theme::default().style(Role::Accent));
+        let _ = ctx;
+        // A themed context resolves against the supplied theme.
+        let theme = Theme::catppuccin_mocha();
+        let ctx = RenderCtx::new_themed(&mut buffer, area, false, &theme);
+        assert_eq!(ctx.style(Role::Accent), theme.style(Role::Accent));
     }
 
     #[test]

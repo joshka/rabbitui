@@ -48,6 +48,7 @@
 //! ```
 
 use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
 
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::facts::FrameFacts;
@@ -58,6 +59,7 @@ use rabbitui_core::input::InputEvent;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::routing::{Focus, route};
 use rabbitui_core::store::StateStore;
+use rabbitui_core::theme::Theme;
 
 use crate::render;
 use crate::terminal::Terminal;
@@ -237,71 +239,288 @@ impl<'a> Update<'a> {
 /// # }
 /// ```
 pub async fn run<S>(
-    mut state: S,
-    mut update: impl FnMut(&mut S, Update<'_>) -> ControlFlow<()>,
+    state: S,
+    update: impl FnMut(&mut S, Update<'_>) -> ControlFlow<()>,
     view: impl Fn(&S, &mut Frame<'_>),
 ) -> Result<()> {
-    let mut terminal = Terminal::open().await?;
-    let mut size = terminal.size()?;
+    App::new(state, update, view).run().await
+}
 
-    // Front buffer: what the terminal currently shows. Back buffer: what the
-    // next frame will show. The state store and focus persist across iterations.
-    let mut front = Buffer::new(size);
-    let mut back = Buffer::new(size);
-    let mut store = StateStore::new();
-    let mut focus = Focus::new();
+/// A configurable application: state, an `update`, a `view`, and theming.
+///
+/// The builder form of [`run`], for apps that need more than the three-argument
+/// default — specifically a [`Theme`] other than [`Theme::default`], or a theme
+/// **file** with debug-build hot reload. Terse apps use [`run`]; anything
+/// theming-aware constructs an `App`, chains [`theme`](Self::theme) /
+/// [`theme_file`](Self::theme_file), and calls [`run`](Self::run):
+///
+/// ```no_run
+/// use std::ops::ControlFlow;
+///
+/// use rabbitui::App;
+/// use rabbitui_core::frame::Frame;
+/// use rabbitui_core::id::key;
+/// use rabbitui_core::theme::Theme;
+/// use rabbitui_widgets::Text;
+///
+/// # async fn demo() -> rabbitui::app::Result<()> {
+/// App::new(
+///     (),
+///     |_state: &mut (), _update| ControlFlow::Break(()),
+///     |_state: &(), frame: &mut Frame<'_>| {
+///         frame.widget(key("hi"), frame.area(), &Text::new("hi"));
+///     },
+/// )
+/// .theme(Theme::catppuccin_mocha())
+/// .theme_file("theme.toml")
+/// .run()
+/// .await
+/// # }
+/// ```
+///
+/// # Why a builder, not more `run` arguments
+///
+/// `run(state, update, view)` reads cleanly at three arguments; a fourth and
+/// fifth positional argument for `theme` and an *optional* path would not.
+/// Theming is also opt-in — most apps never set it — so it belongs on a builder
+/// whose defaults reproduce `run` exactly. `run` stays as the terse entry point
+/// and simply delegates to `App::new(...).run()`, so there is one loop, not two.
+pub struct App<S, U, V> {
+    state: S,
+    update: U,
+    view: V,
+    theme: Theme,
+    theme_file: Option<PathBuf>,
+}
 
-    // The first frame: no focus yet, capture its facts and handlers.
-    let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &state, &view);
-    focus.reconcile(&facts);
-    render::render(&mut terminal, &back.diff(&front)).await?;
-    std::mem::swap(&mut front, &mut back);
+impl<S, U, V> App<S, U, V>
+where
+    U: FnMut(&mut S, Update<'_>) -> ControlFlow<()>,
+    V: Fn(&S, &mut Frame<'_>),
+{
+    /// Creates an app from owned `state`, an `update`, and a `view`, using the
+    /// default theme and no theme file.
+    ///
+    /// The result behaves exactly like [`run`] until [`theme`](Self::theme) or
+    /// [`theme_file`](Self::theme_file) is called.
+    #[must_use]
+    pub fn new(state: S, update: U, view: V) -> Self {
+        Self { state, update, view, theme: Theme::default(), theme_file: None }
+    }
 
-    loop {
-        let input = terminal.next_event().await?;
+    /// Sets the active [`Theme`] the loop threads into every frame.
+    ///
+    /// If a [`theme_file`](Self::theme_file) is also set, this is the *base* the
+    /// file's roles layer over (a file names only the roles it changes; the rest
+    /// stay as this theme).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use rabbitui::App;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::theme::Theme;
+    ///
+    /// let app = App::new(
+    ///     (),
+    ///     |_: &mut (), _| ControlFlow::Break(()),
+    ///     |_: &(), _: &mut Frame<'_>| {},
+    /// )
+    /// .theme(Theme::catppuccin_mocha());
+    /// let _ = app;
+    /// ```
+    #[must_use]
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
 
-        // Poll for a resize (substrate has no resize event; see `Event`). On a
-        // change, resize both buffers to blank so the next diff is a full
-        // repaint, then deliver the resize to `update`.
-        let new_size = terminal.size()?;
-        if new_size != size {
-            size = new_size;
-            front.resize(size);
-            back.resize(size);
-            let update_ctx = Update::new(Event::Resize(size), &[]);
-            if let ControlFlow::Break(()) = update(&mut state, update_ctx) {
-                return terminal.close().await;
-            }
-        }
+    /// Loads the active theme from a TOML file at `path`, layered over the base
+    /// [`theme`](Self::theme).
+    ///
+    /// The file is loaded once at startup. In **debug builds** the loop then
+    /// polls the file's modification time once per loop iteration and reloads it
+    /// on change — Textual's dev loop without a file-watcher dependency (ADR
+    /// 0007). Release builds load once and never re-stat. A load or parse error
+    /// at startup fails [`run`](Self::run); a reload error mid-run is ignored so
+    /// a half-saved edit never crashes the app (the previous theme stays).
+    ///
+    /// # Cost of hot reload
+    ///
+    /// The debug-build poll is **one `stat(2)` per loop iteration** — a metadata
+    /// read, no file contents unless the mtime changed. The loop iterates once
+    /// per input event, so at terminal event rates this is negligible; it is
+    /// compiled out entirely in release builds via `cfg!(debug_assertions)`.
+    ///
+    /// [`theme_file`]: Self::theme_file
+    #[must_use]
+    pub fn theme_file(mut self, path: impl AsRef<Path>) -> Self {
+        self.theme_file = Some(path.as_ref().to_path_buf());
+        self
+    }
 
-        // Map the substrate event into the core vocabulary; unmapped input is
-        // dropped (see `crate::input`), so the loop simply repaints and waits.
-        if let Some(event) = crate::input::from_qwertty(&input) {
-            // Route through the previous frame's facts and handlers. The app
-            // always sees the event plus any outcomes in one `Update`; a
-            // consumed event still carries context, and its effect is delivered
-            // as an outcome rather than a raw key the app must re-interpret.
-            let result = route(&facts, &handlers, &mut focus, &mut store, &event);
-            let ctx = Update::new(Event::Input(event), &result.outcomes);
-            if let ControlFlow::Break(()) = update(&mut state, ctx) {
-                return terminal.close().await;
-            }
-        }
+    /// Runs the application loop until `update` returns [`ControlFlow::Break`].
+    ///
+    /// Identical to [`run`]'s loop, plus theming: the active theme is threaded
+    /// into every frame, and (debug builds only) a theme file is polled for
+    /// changes once per iteration and hot-reloaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the terminal, input, size polling, or rendering fails,
+    /// or if a configured theme file cannot be loaded or parsed at startup.
+    pub async fn run(self) -> Result<()> {
+        let App { mut state, mut update, view, theme: base_theme, theme_file } = self;
 
-        // Repaint from scratch, capturing this frame's facts for the next event.
-        back.reset();
-        let drawn = draw(&mut back, &mut store, focus, &state, &view);
-        facts = drawn.0;
-        handlers = drawn.1;
+        // Load the initial theme from the file (if any), layered over the base.
+        // A startup error is fatal; a mid-run reload error is not (see below).
+        let mut watcher = ThemeWatcher::new(theme_file, base_theme)?;
+        let mut theme = watcher.theme();
+
+        let mut terminal = Terminal::open().await?;
+        let mut size = terminal.size()?;
+
+        // Front buffer: what the terminal shows. Back buffer: what the next frame
+        // will show. The state store, focus, and theme persist across iterations.
+        let mut front = Buffer::new(size);
+        let mut back = Buffer::new(size);
+        let mut store = StateStore::new();
+        let mut focus = Focus::new();
+
+        // The first frame: no focus yet, capture its facts and handlers.
+        let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
         focus.reconcile(&facts);
         render::render(&mut terminal, &back.diff(&front)).await?;
         std::mem::swap(&mut front, &mut back);
+
+        loop {
+            let input = terminal.next_event().await?;
+
+            // Debug-build hot reload: one stat per iteration. On a changed mtime,
+            // re-read and re-parse; keep the old theme on any reload error.
+            if watcher.poll_changed() {
+                theme = watcher.theme();
+            }
+
+            // Poll for a resize (substrate has no resize event; see `Event`). On a
+            // change, resize both buffers to blank so the next diff is a full
+            // repaint, then deliver the resize to `update`.
+            let new_size = terminal.size()?;
+            if new_size != size {
+                size = new_size;
+                front.resize(size);
+                back.resize(size);
+                let update_ctx = Update::new(Event::Resize(size), &[]);
+                if let ControlFlow::Break(()) = update(&mut state, update_ctx) {
+                    return terminal.close().await;
+                }
+            }
+
+            // Map the substrate event into the core vocabulary; unmapped input is
+            // dropped (see `crate::input`), so the loop simply repaints and waits.
+            if let Some(event) = crate::input::from_qwertty(&input) {
+                // Route through the previous frame's facts and handlers. The app
+                // always sees the event plus any outcomes in one `Update`; a
+                // consumed event still carries context, and its effect is
+                // delivered as an outcome rather than a raw key to re-interpret.
+                let result = route(&facts, &handlers, &mut focus, &mut store, &event);
+                let ctx = Update::new(Event::Input(event), &result.outcomes);
+                if let ControlFlow::Break(()) = update(&mut state, ctx) {
+                    return terminal.close().await;
+                }
+            }
+
+            // Repaint from scratch, capturing this frame's facts for the next
+            // event. A hot-reloaded theme repaints the whole frame (the diff
+            // against the front buffer recovers exactly the changed cells).
+            back.reset();
+            let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
+            facts = drawn.0;
+            handlers = drawn.1;
+            focus.reconcile(&facts);
+            render::render(&mut terminal, &back.diff(&front)).await?;
+            std::mem::swap(&mut front, &mut back);
+        }
     }
 }
 
+/// Owns a theme file's path and last-seen mtime, reloading on change.
+///
+/// Encapsulates the hot-reload policy so [`App::run`]'s loop stays readable:
+/// startup load is validated (a bad file fails `run`), and reloads are
+/// best-effort (a bad reload keeps the last good theme). With no file the watcher
+/// is inert — [`poll_changed`](ThemeWatcher::poll_changed) always returns false —
+/// and holds the base theme.
+struct ThemeWatcher {
+    file: Option<PathBuf>,
+    base: Theme,
+    theme: Theme,
+    last_modified: Option<std::time::SystemTime>,
+}
+
+impl ThemeWatcher {
+    /// Loads the initial theme (fatal on error) and records the file's mtime.
+    fn new(file: Option<PathBuf>, base: Theme) -> Result<Self> {
+        let (theme, last_modified) = match &file {
+            Some(path) => (load(path, base)?, modified(path)),
+            None => (base, None),
+        };
+        Ok(Self { file, base, theme, last_modified })
+    }
+
+    /// The current theme.
+    fn theme(&self) -> Theme {
+        self.theme
+    }
+
+    /// In debug builds, stats the file once and reloads if its mtime changed,
+    /// returning whether the theme was replaced. Always false with no file or in
+    /// release builds (where the theme loads once and never re-stats).
+    fn poll_changed(&mut self) -> bool {
+        if !cfg!(debug_assertions) {
+            return false;
+        }
+        let Some(path) = &self.file else { return false };
+        let now = modified(path);
+        if now == self.last_modified {
+            return false;
+        }
+        self.last_modified = now;
+        // Best-effort: a parse error mid-edit keeps the last good theme.
+        match load(path, self.base) {
+            Ok(theme) => {
+                self.theme = theme;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+/// Loads a theme file, layered over `base`. With the `themes` feature off there
+/// is no loader, so a configured file is an error rather than a silent ignore.
+#[cfg(feature = "themes")]
+fn load(path: &Path, base: Theme) -> Result<Theme> {
+    crate::theme::load_theme(path, base).map_err(|error| Error::Theme(error.to_string()))
+}
+
+#[cfg(not(feature = "themes"))]
+fn load(_path: &Path, _base: Theme) -> Result<Theme> {
+    Err(Error::Theme(
+        "theme files require the `themes` feature (it is on by default)".to_string(),
+    ))
+}
+
+/// The file's modification time, or `None` if it cannot be stat'd.
+fn modified(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
 /// Declares one frame: brackets `view` in the store's frame lifecycle, builds a
-/// [`Frame`] over `buffer` and `store` with the current focus, and returns the
-/// frame's collected facts and handlers.
+/// themed [`Frame`] over `buffer` and `store` with the current focus, and returns
+/// the frame's collected facts and handlers.
 ///
 /// The caller has already cleared (or resized) `buffer` to blank, matching the
 /// declared-frame rule that widgets re-declare everything each frame.
@@ -309,12 +528,13 @@ fn draw<S>(
     buffer: &mut Buffer,
     store: &mut StateStore,
     focus: Focus,
+    theme: &Theme,
     state: &S,
     view: &impl Fn(&S, &mut Frame<'_>),
 ) -> (FrameFacts, HandlerMap) {
     store.begin_frame();
     let parts = {
-        let mut frame = Frame::with_focus(buffer, store, focus.current());
+        let mut frame = Frame::themed(buffer, store, focus.current(), theme);
         view(state, &mut frame);
         frame.into_parts()
     };

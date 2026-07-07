@@ -1,0 +1,19 @@
+alpha   
+beta    
+gamma   
+---
+(0,0) "a" = fg=#7f849c
+(1,0) "l" = fg=#7f849c
+(2,0) "p" = fg=#7f849c
+(3,0) "h" = fg=#7f849c
+(4,0) "a" = fg=#7f849c
+(0,1) "b" = fg=#cdd6f4
+(1,1) "e" = fg=#cdd6f4
+(2,1) "t" = fg=#cdd6f4
+(3,1) "a" = fg=#cdd6f4
+(0,2) "g" = fg=#cdd6f4
+(1,2) "a" = fg=#cdd6f4
+(2,2) "m" = fg=#cdd6f4
+(3,2) "m" = fg=#cdd6f4
+(4,2) "a" = fg=#cdd6f4
+

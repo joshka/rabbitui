@@ -4,6 +4,7 @@ use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::Style;
+use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
 
 /// A single-line push button: a label that takes focus and activates on Enter
@@ -11,14 +12,17 @@ use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
 ///
 /// `Button` is rabbitui's first interactive widget and the smallest proof of the
 /// slice-3 machinery: it declares itself focusable (so it joins tab traversal),
-/// paints reversed when focused (so focus is visible), and emits
-/// [`Outcome::Activated`] from its handler when pressed (so the app learns it
-/// was clicked, via `update`). It is stateless — `State = ()` — because focus
-/// lives in the framework, not the widget (ADR 0006).
+/// paints its focus state (so focus is visible), and emits [`Outcome::Activated`]
+/// from its handler when pressed (so the app learns it was clicked, via
+/// `update`). It is stateless — `State = ()` — because focus lives in the
+/// framework, not the widget (ADR 0006).
 ///
-/// The label may carry its own [`Style`]; when the button is focused that style
-/// gains the reversed attribute so the focused button stands out regardless of
-/// its base colors.
+/// Styling is by role (ADR 0007): the label paints in [`Role::Text`] when
+/// unfocused and [`Role::Highlight`] when focused, both resolved against the
+/// active theme, so a focused button stands out in whatever palette is loaded.
+/// [`style`](Self::style) overrides the *unfocused* style with a literal
+/// [`Style`] for a one-off button no role captures; the focused style still
+/// comes from [`Role::Highlight`].
 ///
 /// # Examples
 ///
@@ -50,11 +54,13 @@ use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Button<'a> {
     label: &'a str,
-    style: Style,
+    /// A literal override for the unfocused style; `None` resolves [`Role::Text`].
+    style: Option<Style>,
 }
 
 impl<'a> Button<'a> {
-    /// Creates a button showing `label` in the default style.
+    /// Creates a button showing `label` styled by role: [`Role::Text`] unfocused,
+    /// [`Role::Highlight`] focused.
     ///
     /// # Examples
     ///
@@ -66,13 +72,14 @@ impl<'a> Button<'a> {
     /// ```
     #[must_use]
     pub const fn new(label: &'a str) -> Self {
-        Self { label, style: Style::new() }
+        Self { label, style: None }
     }
 
-    /// Sets the button's base style (its style when unfocused).
+    /// Overrides the button's *unfocused* style with a literal [`Style`].
     ///
-    /// When focused the button paints this style with the reversed attribute
-    /// added, so focus is visible on top of whatever base style is set.
+    /// An escape hatch when no role fits; the focused style still comes from
+    /// [`Role::Highlight`] so focus stays visible. Prefer theming the roles over
+    /// setting this.
     ///
     /// # Examples
     ///
@@ -82,11 +89,11 @@ impl<'a> Button<'a> {
     ///
     /// let danger = Style::new().fg(Color::RED).bold();
     /// let button = Button::new("Delete").style(danger);
-    /// assert_eq!(button.get_style(), danger);
+    /// assert_eq!(button.get_style(), Some(danger));
     /// ```
     #[must_use]
     pub const fn style(mut self, style: Style) -> Self {
-        self.style = style;
+        self.style = Some(style);
         self
     }
 
@@ -96,12 +103,10 @@ impl<'a> Button<'a> {
         self.label
     }
 
-    /// The button's base style.
-    ///
-    /// Named `get_style` because [`style`](Self::style) is the builder setter,
-    /// matching [`Style`]'s own field/builder split.
+    /// The literal unfocused-style override, if one was set with
+    /// [`style`](Self::style), or `None` if the button resolves [`Role::Text`].
     #[must_use]
-    pub const fn get_style(&self) -> Style {
+    pub const fn get_style(&self) -> Option<Style> {
         self.style
     }
 }
@@ -111,7 +116,11 @@ impl Widget for Button<'_> {
 
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
-        let style = if ctx.is_focused() { self.style.reversed() } else { self.style };
+        let style = if ctx.is_focused() {
+            ctx.style(Role::Highlight)
+        } else {
+            self.style.unwrap_or_else(|| ctx.style(Role::Text))
+        };
         ctx.set_string(Position::ORIGIN, self.label, style);
     }
 
@@ -133,7 +142,8 @@ mod tests {
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::input::{InputEvent, Key};
     use rabbitui_core::outcome::Outcome;
-    use rabbitui_core::style::{Attrs, Style};
+    use rabbitui_core::style::Style;
+    use rabbitui_core::theme::{Role, Theme};
     use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
 
     use super::Button;
@@ -147,24 +157,39 @@ mod tests {
         let style = Style::new().bold();
         let button = Button::new("Go").style(style);
         assert_eq!(button.label(), "Go");
-        assert_eq!(button.get_style(), style);
+        assert_eq!(button.get_style(), Some(style));
     }
 
     #[test]
-    fn renders_label_plainly_when_unfocused() {
+    fn renders_label_in_text_role_when_unfocused() {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Button::new("Go").render(&mut (), &mut ctx);
         assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "G");
-        assert!(!cell_style(&buffer, 0).attrs.contains(Attrs::REVERSED));
+        assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Text));
     }
 
     #[test]
-    fn renders_reversed_when_focused() {
+    fn renders_highlight_role_when_focused() {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
         Button::new("Go").render(&mut (), &mut ctx);
-        assert!(cell_style(&buffer, 0).attrs.contains(Attrs::REVERSED));
+        assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Highlight));
+    }
+
+    #[test]
+    fn literal_style_overrides_unfocused_but_focus_uses_highlight() {
+        let base = Style::new().fg(rabbitui_core::style::Color::RED).bold();
+        // Unfocused: the literal override wins.
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        Button::new("Go").style(base).render(&mut (), &mut ctx);
+        assert_eq!(cell_style(&buffer, 0), base);
+        // Focused: highlight role still applies, so focus stays visible.
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
+        Button::new("Go").style(base).render(&mut (), &mut ctx);
+        assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Highlight));
     }
 
     fn dispatch(event: InputEvent) -> (Handled, Vec<Outcome>) {

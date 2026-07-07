@@ -11,10 +11,18 @@ repository.workspace = true
 rabbitui-core.workspace = true
 qwertty.workspace = true
 tokio.workspace = true
+toml = { workspace = true, optional = true }
 
 [dev-dependencies]
 rabbitui-widgets.workspace = true
 rabbitui-testing.workspace = true
+
+[features]
+default = ["themes"]
+# TOML theme-file loading and debug-build hot reload. On by default; disabling it
+# drops the `toml` dependency and the `theme` module (ADR 0007: file loading lives
+# in the facade, core stays dep-free).
+themes = ["dep:toml"]
 
 [lints]
 workspace = true

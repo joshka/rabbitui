@@ -57,7 +57,13 @@ use crate::id::{Key, WidgetId};
 use crate::input::InputEvent;
 use crate::layout::{Constraint, split_columns, split_rows};
 use crate::store::StateStore;
+use crate::theme::Theme;
 use crate::widget::{Handled, HandleCtx, RenderCtx, Widget};
+
+/// The theme a [`Frame`] carries when none is supplied — the restrained dark
+/// default. Kept as a `const` so [`Frame::new`]/[`Frame::with_focus`] can borrow
+/// a `'static` reference and stay signature-compatible with earlier slices.
+const DEFAULT_THEME: &Theme = &Theme::dark();
 
 /// A type-erased widget handler thunk.
 ///
@@ -106,6 +112,9 @@ pub struct Frame<'a> {
     /// The framework's current focus verdict (previous frame's), used to tell a
     /// widget it is focused at render time.
     focus: Option<WidgetId>,
+    /// The active theme, lent to every widget's [`RenderCtx`] so it can resolve
+    /// roles to styles (ADR 0007).
+    theme: &'a Theme,
     /// Facts collected as widgets declare, in declaration order.
     facts: FrameFacts,
     /// Handler thunks registered as widgets declare.
@@ -126,6 +135,7 @@ impl<'a> Frame<'a> {
             store,
             parent: WidgetId::ROOT,
             focus: None,
+            theme: DEFAULT_THEME,
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
@@ -148,9 +158,58 @@ impl<'a> Frame<'a> {
             store,
             parent: WidgetId::ROOT,
             focus,
+            theme: DEFAULT_THEME,
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
+    }
+
+    /// Begins a frame over `buffer` and `store` with `focus` and a specific
+    /// `theme`.
+    ///
+    /// The theme-carrying variant of [`with_focus`](Self::with_focus): widgets
+    /// declared into this frame resolve their [`Role`](crate::theme::Role)s
+    /// against `theme` (ADR 0007). The runtime and the test harness build the
+    /// frame this way to thread the app's active theme in; the plainer
+    /// constructors default to [`Theme::default`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::Size;
+    /// use rabbitui_core::store::StateStore;
+    /// use rabbitui_core::theme::Theme;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(8, 1));
+    /// let mut store = StateStore::new();
+    /// let theme = Theme::catppuccin_mocha();
+    /// let frame = Frame::themed(&mut buffer, &mut store, None, &theme);
+    /// # let _ = frame.finish();
+    /// ```
+    #[must_use]
+    pub fn themed(
+        buffer: &'a mut Buffer,
+        store: &'a mut StateStore,
+        focus: Option<WidgetId>,
+        theme: &'a Theme,
+    ) -> Self {
+        Self {
+            buffer,
+            store,
+            parent: WidgetId::ROOT,
+            focus,
+            theme,
+            facts: FrameFacts::new(),
+            handlers: HandlerMap::new(),
+        }
+    }
+
+    /// The active theme this frame resolves roles against.
+    #[must_use]
+    pub fn theme(&self) -> &Theme {
+        self.theme
     }
 
     /// The full drawable area of this frame.
@@ -184,7 +243,7 @@ impl<'a> Frame<'a> {
 
         let focusable = {
             let state = self.store.get_or_default::<W::State>(id);
-            let mut ctx = RenderCtx::new(self.buffer, area, focused);
+            let mut ctx = RenderCtx::new_themed(self.buffer, area, focused, self.theme);
             widget.render(state, &mut ctx);
             ctx.is_focusable()
         };
@@ -206,6 +265,7 @@ impl<'a> Frame<'a> {
             store: self.store,
             parent: scope_id,
             focus: self.focus,
+            theme: self.theme,
             facts: std::mem::take(&mut self.facts),
             handlers: std::mem::take(&mut self.handlers),
         };
@@ -355,6 +415,30 @@ mod tests {
         let _ = frame.finish();
         store.end_frame();
         assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "F");
+    }
+
+    struct RoleProbe;
+    impl Widget for RoleProbe {
+        type State = ();
+        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+            let accent = ctx.style(crate::theme::Role::Accent);
+            ctx.set_string(Position::ORIGIN, "x", accent);
+        }
+    }
+
+    #[test]
+    fn themed_frame_threads_theme_to_render_ctx() {
+        use crate::theme::{Role, Theme};
+        let mut buffer = Buffer::new(Size::new(1, 1));
+        let mut store = StateStore::new();
+        let theme = Theme::catppuccin_mocha();
+        store.begin_frame();
+        let mut frame = Frame::themed(&mut buffer, &mut store, None, &theme);
+        frame.widget(key("probe"), frame.area(), &RoleProbe);
+        let _ = frame.finish();
+        store.end_frame();
+        // The painted cell carries the theme's accent style, not the default's.
+        assert_eq!(buffer.get(Position::ORIGIN).unwrap().style, theme.style(Role::Accent));
     }
 
     struct Activator;

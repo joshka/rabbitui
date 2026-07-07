@@ -84,6 +84,7 @@ use rabbitui_core::id::WidgetId;
 use rabbitui_core::input::{InputEvent, Key};
 use rabbitui_core::routing::{Focus, RouteResult, route};
 use rabbitui_core::store::StateStore;
+use rabbitui_core::theme::Theme;
 
 /// A headless driver for a rabbitui app: state, a state store, and a back
 /// buffer, single-stepped without a terminal or async runtime.
@@ -112,6 +113,9 @@ pub struct TestApp<S> {
     store: StateStore,
     buffer: Buffer,
     focus: Focus,
+    /// The active theme, threaded into every rendered frame just as the runtime
+    /// does (ADR 0007), so themed snapshots are exact.
+    theme: Theme,
     /// The most recently rendered frame's facts — routing targets these.
     facts: FrameFacts,
     /// The most recently rendered frame's handler thunks.
@@ -144,9 +148,35 @@ impl<S> TestApp<S> {
             store: StateStore::new(),
             buffer: Buffer::new(size),
             focus: Focus::new(),
+            theme: Theme::default(),
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
+    }
+
+    /// Sets the theme threaded into every rendered frame, and returns `self`.
+    ///
+    /// The harness defaults to [`Theme::default`], matching the runtime with no
+    /// theme configured. Set a preset (or a loaded theme) to snapshot a widget's
+    /// themed appearance — the frames render exactly as [`App::theme`] would make
+    /// them.
+    ///
+    /// [`App::theme`]: https://docs.rs/rabbitui/latest/rabbitui/struct.App.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::geometry::Size;
+    /// use rabbitui_core::theme::Theme;
+    /// use rabbitui_testing::TestApp;
+    ///
+    /// let app = TestApp::new(Size::new(10, 1), ()).with_theme(Theme::catppuccin_mocha());
+    /// let _ = app;
+    /// ```
+    #[must_use]
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// A mutable handle to the app's state, to set up a scenario directly.
@@ -224,8 +254,12 @@ impl<S> TestApp<S> {
         clear(&mut self.buffer);
         self.store.begin_frame();
         let (facts, handlers) = {
-            let mut frame =
-                Frame::with_focus(&mut self.buffer, &mut self.store, self.focus.current());
+            let mut frame = Frame::themed(
+                &mut self.buffer,
+                &mut self.store,
+                self.focus.current(),
+                &self.theme,
+            );
             view(&self.state, &mut frame);
             frame.into_parts()
         };

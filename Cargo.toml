@@ -19,6 +19,7 @@ qwertty = { path = "../../../qwertty", features = ["tokio"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"
