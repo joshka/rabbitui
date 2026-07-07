@@ -65,3 +65,89 @@ impl Size {
         self.width as u32 * self.height as u32
     }
 }
+
+/// A rectangular region of the drawing surface, in cells.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_core::geometry::{Position, Rect, Size};
+///
+/// let area = Rect::new(Position::new(2, 1), Size::new(10, 4));
+/// assert!(area.contains(Position::new(2, 1)));
+/// assert!(!area.contains(Position::new(12, 1)));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Rect {
+    /// The top-left corner.
+    pub origin: Position,
+    /// The extent from the origin.
+    pub size: Size,
+}
+
+impl Rect {
+    /// Creates a rectangle from its top-left corner and size.
+    #[must_use]
+    pub const fn new(origin: Position, size: Size) -> Self {
+        Self { origin, size }
+    }
+
+    /// A rectangle covering `size` cells from the top-left of the surface.
+    #[must_use]
+    pub const fn from_size(size: Size) -> Self {
+        Self { origin: Position::ORIGIN, size }
+    }
+
+    /// The first column inside the rectangle.
+    #[must_use]
+    pub const fn left(self) -> u16 {
+        self.origin.x
+    }
+
+    /// One past the last column inside the rectangle.
+    #[must_use]
+    pub const fn right(self) -> u16 {
+        self.origin.x.saturating_add(self.size.width)
+    }
+
+    /// The first row inside the rectangle.
+    #[must_use]
+    pub const fn top(self) -> u16 {
+        self.origin.y
+    }
+
+    /// One past the last row inside the rectangle.
+    #[must_use]
+    pub const fn bottom(self) -> u16 {
+        self.origin.y.saturating_add(self.size.height)
+    }
+
+    /// Returns true if the rectangle covers zero cells.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.size.width == 0 || self.size.height == 0
+    }
+
+    /// Returns true if `position` lies inside the rectangle.
+    #[must_use]
+    pub const fn contains(self, position: Position) -> bool {
+        position.x >= self.left()
+            && position.x < self.right()
+            && position.y >= self.top()
+            && position.y < self.bottom()
+    }
+
+    /// The largest rectangle contained in both `self` and `other`; an empty
+    /// rectangle when they do not overlap.
+    #[must_use]
+    pub fn intersection(self, other: Self) -> Self {
+        let left = self.left().max(other.left());
+        let top = self.top().max(other.top());
+        let right = self.right().min(other.right());
+        let bottom = self.bottom().min(other.bottom());
+        Self {
+            origin: Position::new(left, top),
+            size: Size::new(right.saturating_sub(left), bottom.saturating_sub(top)),
+        }
+    }
+}

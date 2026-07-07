@@ -281,9 +281,43 @@ impl Buffer {
     /// assert_eq!(buffer.get(Position::new(2, 0)).unwrap().symbol, "c");
     /// ```
     pub fn set_string(&mut self, position: Position, text: &str, style: Style) {
+        self.set_stringn(position, text, style, usize::MAX);
+    }
+
+    /// Writes `text` like [`set_string`], but stops after `max_width` cells.
+    ///
+    /// The effective limit is the shorter of `max_width` and the distance to
+    /// the right edge; a wide grapheme that would straddle either limit is not
+    /// written. This is the primitive widget contexts use to clip painting to
+    /// a widget's area (`docs/adr/0008-widget-contract.md`).
+    ///
+    /// [`set_string`]: Self::set_string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::style::Style;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(5, 1));
+    /// buffer.set_stringn(Position::ORIGIN, "abcd", Style::new(), 2);
+    /// assert_eq!(buffer.get(Position::new(1, 0)).unwrap().symbol, "b");
+    /// assert_eq!(buffer.get(Position::new(2, 0)).unwrap().symbol, " ");
+    /// ```
+    pub fn set_stringn(
+        &mut self,
+        position: Position,
+        text: &str,
+        style: Style,
+        max_width: usize,
+    ) {
         if position.y >= self.size.height {
             return;
         }
+        let limit = usize::from(self.size.width.saturating_sub(position.x)).min(max_width);
+        let Ok(limit) = u16::try_from(limit) else { return };
+        let end = position.x.saturating_add(limit);
         let mut x = position.x;
         for grapheme in text.graphemes(true) {
             let width = grapheme_width(grapheme);
@@ -292,12 +326,12 @@ impl Buffer {
             if width == 0 {
                 continue;
             }
-            // Stop once the lead cell is at or past the right edge.
-            if x >= self.size.width {
+            // Stop once the lead cell is at or past the limit.
+            if x >= end {
                 break;
             }
-            // A wide grapheme that would straddle the right edge is not written.
-            if width == 2 && x + 1 >= self.size.width {
+            // A wide grapheme that would straddle the limit is not written.
+            if width == 2 && x + 1 >= end {
                 break;
             }
             let Some(index) = self.index_of(Position::new(x, position.y)) else {

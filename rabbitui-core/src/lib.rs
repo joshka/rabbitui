@@ -1,9 +1,9 @@
 //! Core types for the rabbitui terminal UI framework.
 //!
-//! This crate holds the runtime-free foundation: geometry, styles, and (as later
-//! slices land) the cell buffer, widget identity, frame facts, and the widget
-//! contract. It has no dependencies and never touches an async runtime or a
-//! terminal device — see `docs/adr/0011-crate-layout.md`.
+//! This crate holds the runtime-free foundation: geometry, styles, the cell
+//! buffer, widget identity, the retained state store, layout, and the widget
+//! contract. It never touches an async runtime or a terminal device — see
+//! `docs/adr/0011-crate-layout.md`.
 //!
 //! # Examples
 //!
@@ -16,5 +16,10 @@
 //! ```
 
 pub mod buffer;
+pub mod frame;
 pub mod geometry;
+pub mod id;
+pub mod layout;
+pub mod store;
 pub mod style;
+pub mod widget;
