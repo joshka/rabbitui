@@ -206,7 +206,7 @@ assuming one-char-per-event should plan for that before pinning a rev.
      session's borrow (lookups happen while the session sits in select!), and
      carries an **epoch/identity id** we can compare cheaply. A mid-session
      width change (2027/2031 renegotiation, mux attach) must arrive as a
-     decoded *event carrying the new handle*; the old handle stays valid and
+     decoded _event carrying the new handle_; the old handle stays valid and
      self-consistent so in-flight frames finish coherently, then we swap and
      full-repaint. Never mutate width behavior under an existing handle.
   4. **Constructible headless.** A pure default policy (unicode-width-class,
