@@ -193,8 +193,11 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
         handle_message(app, &update, message.clone());
     }
 
-    // App-level key bindings on keys no focused widget consumed.
-    if let Event::Input(input) = update.event() {
+    // App-level key bindings on keys no focused widget consumed
+    // (Update::consumed — the composer eats printables while focused).
+    if let Event::Input(input) = update.event()
+        && !update.consumed()
+    {
         if let Some(k) = input.as_key() {
             match k.key {
                 // Toggle inline ↔ alt-screen live.

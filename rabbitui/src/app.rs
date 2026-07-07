@@ -206,6 +206,8 @@ pub struct Update<'a, M = ()> {
     event: Event<M>,
     outcomes: &'a [(WidgetId, Outcome)],
     pending: &'a RefCell<Pending<M>>,
+    /// Whether routing consumed the event.
+    consumed: bool,
 }
 
 impl<'a, M> Update<'a, M> {
@@ -221,7 +223,30 @@ impl<'a, M> Update<'a, M> {
         outcomes: &'a [(WidgetId, Outcome)],
         pending: &'a RefCell<Pending<M>>,
     ) -> Self {
-        Self { event, outcomes, pending }
+        Self { event, outcomes, pending, consumed: false }
+    }
+
+    /// Marks whether routing consumed the event (a widget handled it).
+    ///
+    /// The loop sets this from the route result; tests may too.
+    #[must_use]
+    pub fn with_consumed(mut self, consumed: bool) -> Self {
+        self.consumed = consumed;
+        self
+    }
+
+    /// Whether a widget consumed this event during routing.
+    ///
+    /// `update` runs for every event so outcomes can ride along (ADR 0006
+    /// amendments) — which means a raw-key binding in `update` also sees keys
+    /// a focused widget already handled. Guard app-level printable-key
+    /// bindings with this, or a `d` binding will fire while the user types
+    /// "feed" into an input (found by betamax tapes, 2026-07-07). Outcomes
+    /// (`outcome_for`) need no guard: they only exist when a widget chose to
+    /// emit them.
+    #[must_use]
+    pub fn consumed(&self) -> bool {
+        self.consumed
     }
 
     /// Commits `line` into the terminal's native scrollback (inline mode).
@@ -836,7 +861,8 @@ where
                                 route(&facts, &handlers, &mut focus, &mut store, &event);
                             let pending = RefCell::new(Pending::default());
                             let ctx =
-                                Update::new(Event::Input(event), &result.outcomes, &pending);
+                                Update::new(Event::Input(event), &result.outcomes, &pending)
+                                    .with_consumed(result.consumed);
                             broke = update(&mut state, ctx).is_break();
                             drain_pending(
                                 pending.into_inner(),

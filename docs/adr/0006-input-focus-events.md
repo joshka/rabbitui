@@ -239,3 +239,11 @@ stores **focus as framework state keyed by `WidgetId`**. Specifically:
   default). Known gap, deliberately deferred to the effects slice: `request_focus` for a widget
   absent from current facts is silently ignored, which does not yet meet this ADR's "reveal or fail
   loudly" clause — tracked in docs/design/slice3-input-design.md deltas.
+
+- **2026-07-07 (betamax round):** Two additions from running the examples in a real terminal via
+  betamax tapes. (1) `Focus::reconcile` now assigns focus to the first focusable when nothing is
+  focused — every example was unusable without Tab first; initial focus was unspecified. (2) The
+  deferred "consumed bit" is now delivered as `Update::consumed()`: update runs for every event so
+  outcomes can ride along, which means raw-key app bindings also see keys a focused widget already
+  handled — the todo example's `d` binding deleted a todo while the user typed "feed". App-level
+  printable-key bindings must guard on `!update.consumed()`; outcomes need no guard.

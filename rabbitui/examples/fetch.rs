@@ -115,8 +115,9 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 app.results.clear();
             }
             match k.key {
-                // Toggle the clock ticker stream on/off.
-                Key::Char('t') if !k.modifiers.ctrl => {
+                // Toggle the clock ticker stream on/off. Guarded: the search
+                // input consumes printables while focused (Update::consumed).
+                Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
                     app.ticking = !app.ticking;
                     if app.ticking {
                         // Start the ticker under the "clock" group so it can be

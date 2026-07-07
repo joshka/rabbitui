@@ -39,10 +39,9 @@ fn tab_traverses_declaration_order_and_wraps() {
     let mut app = TestApp::new(Size::new(6, 4), ());
     app.render(three_buttons);
 
-    // No focus yet; the first Tab focuses the first focusable in declaration
-    // order, then Tab walks a → b → c → (wrap) a.
-    app.send_key(Key::Tab);
-    assert_eq!(app.focus(), Some(id("a")));
+    // The first focusable is auto-focused at render; Tab then walks
+    // a → b → c → (wrap) a.
+    assert_eq!(app.focus(), Some(id("a")), "first focusable auto-focused at render");
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(id("b")));
     app.send_key(Key::Tab);
@@ -56,7 +55,8 @@ fn backtab_traverses_backward_and_wraps() {
     let mut app = TestApp::new(Size::new(6, 4), ());
     app.render(three_buttons);
 
-    // BackTab with no focus selects the last, then walks c → b → a → (wrap) c.
+    // `a` is auto-focused at render; BackTab wraps backward to the last, then
+    // walks c → b → a → (wrap) c.
     app.send_key(Key::BackTab);
     assert_eq!(app.focus(), Some(id("c")));
     app.send_key(Key::BackTab);
@@ -71,8 +71,7 @@ fn backtab_traverses_backward_and_wraps() {
 fn focus_survives_redeclaration() {
     let mut app = TestApp::new(Size::new(6, 4), ());
     app.render(three_buttons);
-    app.send_key(Key::Tab);
-    app.send_key(Key::Tab);
+    app.send_key(Key::Tab); // auto-focus starts on `a`; Tab moves to `b`.
     assert_eq!(app.focus(), Some(id("b")));
 
     // Re-render the identical view many times: focus stays on `b` because
@@ -102,8 +101,7 @@ fn dead_id_focus_recovers_to_a_survivor() {
 
     let mut app = TestApp::new(Size::new(6, 4), true);
     app.render(view);
-    // Focus the middle button.
-    app.send_key(Key::Tab);
+    // Focus the middle button (auto-focus starts on `a`).
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(id("b")));
 
@@ -130,8 +128,7 @@ fn outcome_is_delivered_for_the_focused_button() {
 
     let mut app = TestApp::new(Size::new(6, 4), App::default());
     app.render(view);
-    app.send_key(Key::Tab); // focus `a`
-    app.send_key(Key::Tab); // focus `b`
+    app.send_key(Key::Tab); // auto-focus starts on `a`; Tab moves to `b`.
 
     let result = app.send_key(Key::Enter);
     assert!(result.consumed, "the focused button consumes Enter");
@@ -166,7 +163,7 @@ fn unconsumed_event_falls_through_to_the_app() {
 fn space_activates_the_focused_button() {
     let mut app = TestApp::new(Size::new(6, 4), ());
     app.render(three_buttons);
-    app.send_key(Key::Tab); // focus `a`
+    // `a` is auto-focused at render.
 
     let result = app.send_key(Key::Char(' '));
     assert!(result.consumed);
@@ -198,11 +195,15 @@ fn click_to_focus_moves_focus_to_an_unconsumed_focusable_target() {
         // Default handle: ignores the click, so it is unconsumed.
     }
     fn view(_s: &(), frame: &mut Frame<'_>) {
-        frame.widget(key("panel"), frame.area(), &Panel);
+        // A button first, so auto-focus lands on it — the click must then MOVE
+        // focus to the panel.
+        let [top, rest] = frame.rows([Constraint::Length(1), Constraint::Fill(1)]);
+        frame.widget(key("first"), top, &Button::new("F"));
+        frame.widget(key("panel"), rest, &Panel);
     }
     let mut app = TestApp::new(Size::new(8, 3), ());
     app.render(view);
-    assert_eq!(app.focus(), None);
+    assert_eq!(app.focus(), Some(id("first")), "auto-focus landed on the button");
     // The click is unconsumed (the panel ignores it) but focuses the panel.
     let result = app.send_mouse(MouseKind::Down, Position::new(0, 1));
     assert!(!result.consumed, "the panel ignored the click");
@@ -242,8 +243,7 @@ fn modal_layer_contains_focus_traversal() {
 
     let mut app = TestApp::new(Size::new(10, 4), ());
     app.render(view);
-    // Tab lands on the first modal focusable, never the base.
-    app.send_key(Key::Tab);
+    // Auto-focus lands on the first focusable of the TOP layer, never the base.
     assert_eq!(app.focus(), Some(ok));
     app.send_key(Key::Tab);
     assert_eq!(app.focus(), Some(cancel));

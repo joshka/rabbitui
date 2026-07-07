@@ -98,10 +98,10 @@ fn type_enter_appears_tab_select_delete() {
     let mut app = TestApp::new(Size::new(20, 5), Todo::default());
     app.render(view);
 
-    // Focus the input (Tab from nothing selects the first focusable = input).
-    step(&mut app, InputKey::Tab);
+    // The first focusable (the input) is auto-focused on the first frame —
+    // no Tab needed before typing (Focus::reconcile's default).
     let input_id = WidgetId::ROOT.child(key("input"));
-    assert_eq!(app.focus(), Some(input_id), "Tab focuses the input first");
+    assert_eq!(app.focus(), Some(input_id), "input is auto-focused on first render");
 
     // Type a todo and submit it.
     type_str(&mut app, "milk");
@@ -156,8 +156,8 @@ fn delete_key_reaches_app_only_when_list_focused() {
     app.state_mut().todos = vec!["one".to_string()];
     app.render(view);
 
-    // Focus the input, type 'd' — it should insert, not delete the todo.
-    step(&mut app, InputKey::Tab); // focus input
+    // The input is auto-focused from the first frame (Focus::reconcile's
+    // first-focusable default); 'd' should insert, not delete the todo.
     step(&mut app, InputKey::Char('d'));
     assert_eq!(app.state().todos, vec!["one".to_string()], "'d' typed, did not delete");
     assert_eq!(app.state().draft, "d");

@@ -86,8 +86,10 @@ fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
     }
 
     // App-level bindings fire only on keys no focused widget consumed (the input
-    // eats printables while focused, so press Tab away first — see the note).
-    if let Event::Input(input) = update.event() {
+    // eats printables while focused — Update::consumed is the guard).
+    if let Event::Input(input) = update.event()
+        && !update.consumed()
+    {
         match input.as_key().map(|k| k.key) {
             // Commit the next numbered log line into native scrollback.
             Some(Key::Char('n')) => {

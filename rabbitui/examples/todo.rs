@@ -84,12 +84,11 @@ fn update(app: &mut App0, update: Update<'_>) -> ControlFlow<()> {
         app.draft.clear();
     }
 
-    // `d` deletes the selected todo. The `TextInput` consumes every printable
-    // char while focused, so a `d` only reaches the app when the list (or
-    // nothing) is focused — the app-level binding on an unconsumed key the design
-    // note calls for. Selection is widget state, mirrored into `app.selected`
-    // from `Selected` outcomes.
-    if let Event::Input(input) = update.event() {
+    // Raw-key bindings apply only to events no widget consumed — otherwise the
+    // `d` in a typed "feed" would delete a todo (Update::consumed docs).
+    if let Event::Input(input) = update.event()
+        && !update.consumed()
+    {
         match input.as_key().map(|k| k.key) {
             Some(Key::Char('d')) if !app.todos.is_empty() => {
                 let index = app.selected.min(app.todos.len() - 1);
@@ -132,6 +131,6 @@ fn view(app: &App0, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus  Enter: add  d: delete  q: quit").role(Role::Muted),
+        &Text::new("Tab: focus  Enter: add  d: delete  q/Esc: quit").role(Role::Muted),
     );
 }

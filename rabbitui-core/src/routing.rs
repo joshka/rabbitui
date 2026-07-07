@@ -131,7 +131,14 @@ impl Focus {
                 // focusable entry in the new frame's declaration order.
                 self.current = Some(order[0]);
             }
-            None => {}
+            // Nothing focused while focusables exist: focus the first one, the
+            // universal toolkit default. Without this, an app's first
+            // keystrokes silently fall through to `update` until the user
+            // presses Tab — the todo/form/agent examples were unusable
+            // (found by betamax tapes, 2026-07-07).
+            None => {
+                self.current = Some(order[0]);
+            }
         }
     }
 }

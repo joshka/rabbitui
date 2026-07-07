@@ -125,7 +125,8 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
     if let Event::Input(input) = update.event() {
         if let Some(k) = input.as_key() {
             if (k.key == Key::Char('c') && k.modifiers.ctrl)
-                || (k.key == Key::Char('q') && !form.confirming)
+                || ((k.key == Key::Char('q') && !update.consumed() || k.key == Key::Escape)
+                    && !form.confirming)
             {
                 return ControlFlow::Break(());
             }
@@ -186,7 +187,7 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     // A result / hint line.
     let result = match &form.submitted {
         Some(message) => Text::new(message).role(Role::Success),
-        None => Text::new("Tab: move  click: focus  Enter/click Submit  q: quit").role(Role::Muted),
+        None => Text::new("Tab: move  click: focus  Enter/click Submit  Esc: quit").role(Role::Muted),
     };
     frame.widget(key("result"), result_row, &result);
 
