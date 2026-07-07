@@ -1,6 +1,6 @@
 //! A rabbitui [`Widget`] wrapper around a ratatui widget.
 //!
-//! [`render_ratatui`](crate::render_ratatui) is the imperative bridge — call it
+//! [`render_ratatui`] is the imperative bridge — call it
 //! inside a widget's `render`. [`RatatuiWidget`] is the *declarative* one: it
 //! wraps a ratatui widget so it implements rabbitui's [`Widget`] trait and drops
 //! straight into [`Frame::widget`](rabbitui_core::frame::Frame::widget), keyed

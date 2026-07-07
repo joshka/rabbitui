@@ -30,7 +30,7 @@
 //! # Shared run coalescing
 //!
 //! Both engines turn changed cells into styled *runs* (one cursor move + SGR +
-//! text per run) with [`emit_runs`]; the alt engine coalesces a whole-buffer
+//! text per run) with `emit_runs`; the alt engine coalesces a whole-buffer
 //! diff, the inline engine coalesces the tail's per-row changes. Run merging
 //! lives here, not in the paint primitive (ADR 0003).
 

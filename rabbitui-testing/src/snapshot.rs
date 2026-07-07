@@ -8,7 +8,8 @@
 //! A snapshot lives at `<manifest_dir>/tests/snapshots/<name>.txt`. The manifest
 //! directory is the *calling* crate's, so each crate keeps its own snapshots
 //! next to its tests — pass it explicitly to [`assert_snapshot`], or let the
-//! [`assert_snapshot!`] macro capture `env!("CARGO_MANIFEST_DIR")` for you.
+//! [`assert_snapshot!`](macro@crate::assert_snapshot) macro capture
+//! `env!("CARGO_MANIFEST_DIR")` for you.
 //!
 //! When the environment variable `UPDATE_SNAPSHOTS=1` is set, a mismatched or
 //! missing snapshot is rewritten from `actual` and the assertion passes, so
@@ -33,7 +34,7 @@ use std::path::{Path, PathBuf};
 /// Asserts `actual` matches the snapshot named `name` under `manifest_dir`.
 ///
 /// The snapshot path is `<manifest_dir>/tests/snapshots/<name>.txt`. Prefer the
-/// [`assert_snapshot!`] macro, which fills `manifest_dir` from the calling
+/// [`assert_snapshot!`](macro@crate::assert_snapshot) macro, which fills `manifest_dir` from the calling
 /// crate's `CARGO_MANIFEST_DIR`; call this directly only when the directory is
 /// computed some other way.
 ///

@@ -354,7 +354,7 @@ impl<'a> Frame<'a> {
     /// Ends the declaration and returns the frame's collected facts.
     ///
     /// The runtime keeps the returned facts (and the handlers, via
-    /// [`take_handlers`](Self::take_handlers)) to route the next event. The
+    /// [`into_parts`](Self::into_parts)) to route the next event. The
     /// buffer and store were mutated in place during declaration.
     #[must_use]
     pub fn finish(self) -> FrameFacts {

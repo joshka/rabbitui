@@ -2,7 +2,7 @@
 //!
 //! This is ADR 0010's chosen mechanism (Option C, §Decision.3):
 //! render-into-`Buffer`-and-copy-cells. [`render_ratatui`] and
-//! [`render_ratatui_stateful`] allocate a ratatui [`Buffer`] the size of the
+//! [`render_ratatui_stateful`] allocate a ratatui [`Buffer`](ratatui::buffer::Buffer) the size of the
 //! target area, invoke the widget's paint step into it, then copy every cell —
 //! grapheme plus converted style — into the rabbitui [`RenderCtx`] at the same
 //! coordinate. No ratatui `Terminal`, backend, or draw loop is involved.

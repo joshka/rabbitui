@@ -3,9 +3,9 @@
 //! ADR 0010 bets that the two style models "map field-for-field" because ADR
 //! 0003 kept rabbitui's cell model convertible to ratatui's *by construction*.
 //! This module is where that bet is cashed: a total, infallible per-cell
-//! function from a ratatui [`Cell`](ratatui::buffer::Cell)'s style
+//! function from a ratatui [`Cell`]'s style
 //! ([`Color`](ratatui::style::Color) foreground/background plus a
-//! [`Modifier`](ratatui::style::Modifier) bitset) to a rabbitui [`Style`].
+//! [`Modifier`] bitset) to a rabbitui [`Style`].
 //!
 //! # Lossy corners (documented, never a panic)
 //!

@@ -1,7 +1,7 @@
 //! Mapping qwertty's decoded input into rabbitui-core's input vocabulary.
 //!
 //! rabbitui-core is substrate-free (`docs/adr/0006-input-focus-events.md` §9):
-//! it defines its own [`InputEvent`](rabbitui_core::input::InputEvent) and never
+//! it defines its own [`InputEvent`] and never
 //! depends on qwertty. This module is the single seam where the substrate's
 //! decoded events cross into the framework. All Escape/CSI interpretation lives
 //! here; the core sees only clean semantic keys.
@@ -23,7 +23,7 @@
 //!   [`Key::Right`].
 //!
 //! - A **Ctrl-letter chord** (a raw C0 byte in `0x01..=0x1A`) → the letter
-//!   [`Key::Char`] with the Ctrl [`Modifiers`](rabbitui_core::input::Modifiers)
+//!   [`Key::Char`] with the Ctrl [`Modifiers`]
 //!   set — so an app can bind `Ctrl-L` (clear the input) even though qwertty has
 //!   no modifier protocol yet, and a widget that ignores ctrl chords (TextInput)
 //!   leaves them for the app. `Ctrl-I`/`Ctrl-M` are indistinguishable from

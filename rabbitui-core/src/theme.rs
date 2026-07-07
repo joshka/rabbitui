@@ -12,7 +12,7 @@
 //! The role set is a **closed** enum in v1 — the committed vocabulary the
 //! built-in catalog needs. Expanding it later is additive; renaming is breaking
 //! (ADR 0007 consequences). Presets ship as `const fn`s returning a fully
-//! populated [`Theme`]; [`catppuccin_mocha`] is the first, alongside the
+//! populated [`Theme`]; [`Theme::catppuccin_mocha`] is the first, alongside the
 //! restrained dark [`Theme::default`]. Capability degradation (truecolor → 256 →
 //! 16) is deferred until the capability probe exists (ADR 0012); a `Theme` stores
 //! its [`Style`]s as authored.
