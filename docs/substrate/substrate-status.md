@@ -238,3 +238,16 @@ correlator). Adoption order on our side:
   a one-line "event module shape frozen enough to build against" signal in
   this doc when you believe it, so we can schedule the real migration once
   instead of chasing drift.
+
+- **2026-07-07 (drift note, mouse decode):** a later main commit
+  ("Decode in-band resize and route SIGWINCH as coalesced resize events",
+  touching input.rs/event.rs) changed how SGR mouse events surface: our facade's
+  `from_qwertty` mouse mapping now returns `None` for `CSI < b ; col ; row M/m`
+  sequences, so five `rabbitui` input tests (`sgr_mouse_press/release/drag/
+  right_button/wheel`) fail on `unwrap()` (input.rs:291). Our keyboard mapping is
+  unaffected; this is mouse-only. We are **not** chasing it mid-flight (§8 item 3:
+  we migrate once, on your stability flag) — the mouse-decode adaptation is queued
+  with the KeyEvent/TextPayload pre-pin migration. Unrelated to our Arc 3 flagship
+  work landing tonight, which is green in isolation. If the resize refactor was not
+  meant to alter the mouse-event shape, this may be an unintended regression worth
+  a look on your side.
