@@ -192,6 +192,10 @@ impl Theme {
         styles[role_index(Role::Success)] = Style::new().fg(Color::GREEN);
         styles[role_index(Role::Warning)] = Style::new().fg(Color::YELLOW);
         styles[role_index(Role::Danger)] = Style::new().fg(Color::RED);
+        // Border shares Muted's Ansi(8): both are recessive tones, and a border
+        // that competes with content reads as louder chrome. The published Nord
+        // and Dracula palettes make the same choice (one "comment" tone for both),
+        // so this is deliberate, not an oversight (role-coverage audit, 2026-07-07).
         styles[role_index(Role::Border)] = Style::new().fg(Color::Ansi(8));
         styles[role_index(Role::Highlight)] = Style::new().fg(Color::BLACK).bg(Color::CYAN);
         Self { styles }

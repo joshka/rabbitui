@@ -41,10 +41,10 @@ Execution plan: `docs/plans/arc2a-aesthetics.md` (decisions pre-made; read it be
 | ------------------------------------------------------------------------------------- | ------ |
 | Panel widget (bg fill, border, title, padding) + center/inset layout helpers          | ✅     |
 | All nine examples restyled to README-screenshot bar (betamax PNGs as acceptance)      | ✅     |
-| Nord + Dracula presets ✅; Theme::default retune + role coverage audit remaining      | 🔨     |
-| Design tokens beyond color: spacing/density constants, standard gaps, panel patterns  | ⬜     |
+| Nord + Dracula presets ✅; Theme::default retune + role coverage audit                | ✅     |
+| Design tokens beyond color: spacing/density constants (`rabbitui_core::spacing`)      | ✅     |
 | Screenshot pipeline: tapes render the README/gallery images (just target)             | ⬜     |
-| Gallery example: every widget, every theme, one screen (doubles as visual regression) | ⬜     |
+| Gallery example: every widget, every theme, one screen (doubles as visual regression) | 🔨     |
 
 ### Arc 2B — the binding constraint (unblocks the flagship)
 
