@@ -342,12 +342,20 @@ impl Buffer {
             let Some(index) = self.index_of(Position::new(x, position.y)) else {
                 break;
             };
-            self.cells[index] = Cell::new(grapheme, style);
+            // A `None` foreground or background is *transparent*: it falls through
+            // to whatever the cell already holds (typically a container's backdrop
+            // fill), rather than resetting it to the terminal default. This is what
+            // lets a fg-only `Text` sit on a `Panel`'s surface fill without punching
+            // a hole to the default background. Attributes belong to the painted
+            // character, so they replace (they do not union with the backdrop's).
+            let lead = paint_over(style, self.cells[index].style);
+            self.cells[index] = Cell::new(grapheme, lead);
             if width == 2 {
-                // The continuation cell carries no symbol but inherits the
-                // style so a later narrow overwrite of just the lead cell
-                // leaves a consistent background behind.
-                self.cells[index + 1] = Cell::new("", style);
+                // The continuation cell carries no symbol but the same composed
+                // style so a later narrow overwrite of just the lead cell leaves a
+                // consistent background behind.
+                let cont = paint_over(style, self.cells[index + 1].style);
+                self.cells[index + 1] = Cell::new("", cont);
                 x += 2;
             } else {
                 x += 1;
@@ -472,10 +480,56 @@ fn grapheme_width(grapheme: &str) -> usize {
     UnicodeWidthStr::width(grapheme).min(2)
 }
 
+/// Composes a paint `top` style over the cell's existing `under` style: a `None`
+/// foreground or background in `top` is transparent (the backdrop shows through),
+/// while a `Some` value paints. Attributes are the painted character's own and do
+/// not union with the backdrop's. On a fresh (default) cell this is identical to
+/// taking `top` outright, so painting onto a cleared buffer is unchanged.
+fn paint_over(top: Style, under: Style) -> Style {
+    Style {
+        fg: top.fg.or(under.fg),
+        bg: top.bg.or(under.bg),
+        attrs: top.attrs,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::Color;
+    use crate::style::{Attrs, Color};
+
+    #[test]
+    fn transparent_background_shows_the_backdrop_through_text() {
+        let mut buffer = Buffer::new(Size::new(5, 1));
+        // A container fills the row with a surface background.
+        buffer.set_string(Position::ORIGIN, "     ", Style::new().bg(Color::BLUE));
+        // Fg-only text paints over it; the surface background must show through.
+        buffer.set_string(Position::ORIGIN, "hi", Style::new().fg(Color::WHITE));
+        let cell = buffer.get(Position::ORIGIN).unwrap();
+        assert_eq!(cell.symbol, "h");
+        assert_eq!(cell.style.fg, Some(Color::WHITE));
+        assert_eq!(cell.style.bg, Some(Color::BLUE), "backdrop shows through None bg");
+    }
+
+    #[test]
+    fn an_explicit_background_overrides_the_backdrop() {
+        let mut buffer = Buffer::new(Size::new(5, 1));
+        buffer.set_string(Position::ORIGIN, "     ", Style::new().bg(Color::BLUE));
+        buffer.set_string(Position::ORIGIN, "x", Style::new().fg(Color::WHITE).bg(Color::RED));
+        assert_eq!(buffer.get(Position::ORIGIN).unwrap().style.bg, Some(Color::RED));
+    }
+
+    #[test]
+    fn attributes_replace_rather_than_union_with_the_backdrop() {
+        let mut buffer = Buffer::new(Size::new(5, 1));
+        buffer.set_string(Position::ORIGIN, "  ", Style::new().bg(Color::BLUE).bold());
+        // Plain text painted over a bold backdrop is not itself bold…
+        buffer.set_string(Position::ORIGIN, "a", Style::new().fg(Color::WHITE));
+        let cell = buffer.get(Position::ORIGIN).unwrap();
+        assert!(!cell.style.attrs.contains(Attrs::BOLD), "attrs do not union");
+        // …but the backdrop background still shows through.
+        assert_eq!(cell.style.bg, Some(Color::BLUE));
+    }
 
     #[test]
     fn new_buffer_is_all_default_cells() {
