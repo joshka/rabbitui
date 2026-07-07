@@ -15,12 +15,17 @@
 //!   with its ticks ignored.
 //! - **A widget command.** `Ctrl-L` clears the input via
 //!   `update.widget::<TextInput>(…, |s| s.clear())`, applied between frames.
-//! - **Contained failures.** Effect panics arrive as [`Event::EffectFailed`] and
-//!   are shown on the status line, never crashing the loop.
+//! - **Failures, surfaced.** `Ctrl-E` simulates an *expected* failure (an error
+//!   value), shown in a dismissible [`ErrorBanner`] overlay — the recommended
+//!   failure UX. Separately, an *unexpected* effect-task panic is contained and
+//!   arrives as [`Event::EffectFailed`] (the same handler feeds the banner), so a
+//!   bug in an effect never crashes the loop. Expected failures are values; panics
+//!   are the safety net — see `docs/design/error-story.md`.
 //!
 //! Run with `cargo run --example fetch`. Type to search; watch the completed
 //! counter lag far behind your keystrokes; press `t` to toggle the clock; `Ctrl-L`
-//! to clear; `~` to toggle the debug **log overlay**; `q` to quit.
+//! to clear; `Ctrl-E` to surface a failure; `~` to toggle the debug **log
+//! overlay**; `q` to quit.
 //!
 //! Note (substrate gap): the input is reached via Tab; while it is focused it
 //! consumes printable keys, so app-level `t`/`q`/`~` require Tab-ing focus away
@@ -51,7 +56,8 @@ use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::log::LogHandle;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_widgets::{LogOverlay, Panel, SelectionList, Text, TextInput};
+use rabbitui_core::widget::Widget as _;
+use rabbitui_widgets::{ErrorBanner, LogOverlay, Panel, SelectionList, Text, TextInput};
 
 /// A message an effect produces, re-entering the loop as [`Event::Message`].
 #[derive(Debug, Clone)]
@@ -114,6 +120,11 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
         update.spawn(fake_fetch(query).group("search"));
     }
 
+    // Dismissing the error banner (Enter/Space/click) clears the failure.
+    if update.outcome_for(&[key("errlayer"), key("banner")]) == Some(&Outcome::Dismissed) {
+        app.last_error = None;
+    }
+
     // Effect results re-enter here as messages.
     match update.event() {
         Event::Message(Msg::Results { query, rows }) => {
@@ -140,6 +151,13 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 update.widget::<TextInput>(&[key("input")], |state| state.clear());
                 app.draft.clear();
                 app.results.clear();
+            }
+            // Ctrl-E simulates an operation that fails in an expected way: it sets a
+            // domain error, surfaced in a dismissible ErrorBanner (the recommended
+            // failure UX). Expected failures are error *values*, not panics — see
+            // the `EffectFailed` handler above for the panic safety net.
+            if k.key == Key::Char('e') && k.modifiers.ctrl {
+                app.last_error = Some("could not reach the search backend (simulated)".to_string());
             }
             match k.key {
                 // Toggle the clock ticker stream on/off. Guarded: the search
@@ -214,20 +232,19 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
     };
     frame.widget(key("clock"), clock_row, &Text::new(&clock).role(Role::Accent));
 
-    let (status, status_role) = match &app.last_error {
-        Some(error) => (format!("error: {error}"), Role::Danger),
-        None => (format!("{} fetches completed", app.completed), Role::Success),
-    };
+    // Failures surface in the ErrorBanner overlay below, so the status line always
+    // reports the completed-fetch count (the cancel-previous proof).
+    let status = format!("{} fetches completed", app.completed);
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status).role(status_role),
+        &Text::new(&status).role(Role::Success),
     );
 
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("type: search   Ctrl-L: clear   t/~ (list): clock/logs   Ctrl-C: quit")
+        &Text::new("search   Ctrl-L: clear   Ctrl-E: fail   t/~ (list): clock/logs   Ctrl-C: quit")
             .role(Role::Muted),
     );
 
@@ -240,6 +257,19 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
         let log_area = split_rows(full, [Constraint::Fill(1), Constraint::Length(log_h)])[1];
         frame.layer(key("logs"), |overlay| {
             overlay.widget(key("overlay"), log_area, &LogOverlay::new(&app.logs));
+        });
+    }
+
+    // A contained effect failure surfaces here, in a dismissible ErrorBanner on its
+    // own top layer (which captures focus, so Enter/Space dismisses it). Clearing
+    // `last_error` on the Dismissed outcome stops declaring it next frame.
+    if let Some(error) = &app.last_error {
+        let banner = ErrorBanner::new(error).title("Effect failed");
+        let width = full.size.width.saturating_sub(4).clamp(10, 50);
+        let height = banner.desired_height(&(), width).min(full.size.height);
+        let banner_area = center(full, width, height);
+        frame.layer(key("errlayer"), |overlay| {
+            overlay.widget(key("banner"), banner_area, &banner);
         });
     }
 }

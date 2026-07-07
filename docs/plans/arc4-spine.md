@@ -5,7 +5,16 @@ independent; the flagship pulls "error story" and "keymap" early (the keymap's m
 built inside Arc 3 slice 5 — the item here is its generalization). Ordering among the rest is
 free; qwertty adoption is gated on their side (check `work/qwertty/substrate-status.md`).
 
-## 1. Error story
+## 1. Error story — ✅ mostly done 2026-07-07 (one follow-up)
+
+Landed: the `ErrorBanner` widget (Danger-bordered, dismissible, `Outcome::Dismissed`); the
+`EffectFailed` surfacing standardized and demonstrated (`examples/fetch.rs` `Ctrl-E`); the doc page
+`docs/design/error-story.md` (panic policy, error-values-vs-panics, the safety net). **Follow-up
+found while demoing:** a _contained_ effect-task panic still fires the global terminal-restore hook,
+writing leave-alt-screen bytes mid-run and corrupting the live display until the next repaint. Guard
+the restore hook against effect-task panics (a thread-local flag set around the effect poll that the
+hook checks) so the `EffectFailed` safety net is visually clean. Until then the docs steer apps to
+error _values_ for expected failures.
 
 **Positions:** (a) Panics in `view`/`update` are bugs — let them crash; the panic-restore hook
 already guarantees terminal restoration, which is the whole contract. Do not `catch_unwind` app

@@ -81,7 +81,7 @@ gates live there).
 
 | Item                                                                                                                                                               | Status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| Error story: update/view panic policy, EffectFailed UX pattern, error overlay widget                                                                               | ⬜     |
+| Error story: update/view panic policy, EffectFailed UX pattern, ErrorBanner widget (1 follow-up: effect-panic restore-hook guard)                                  | ✅     |
 | Suspend/resume + $EDITOR handoff surface (waits on qwertty R-SES-5/6; our API sketch now)                                                                          | ⬜     |
 | Keybinding/config layer: declarative keymap, user remapping, help overlay generated from it                                                                        | ⬜     |
 | Performance: budget assertions in CI from the 2B harness; CompactString cell optimization                                                                          | ⬜     |
