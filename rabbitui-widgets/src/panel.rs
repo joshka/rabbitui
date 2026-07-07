@@ -529,10 +529,12 @@ mod tests {
     fn focused_border_uses_the_highlight_role() {
         let theme = Theme::catppuccin_mocha();
         let buffer = render(&Panel::new().focused(true), Size::new(4, 3), &theme);
-        // The top-left corner glyph carries the highlight style, not the border.
+        // The top-left corner glyph takes the Accent foreground (focused frame) and
+        // sits on the panel's surface fill (transparent-paint composition).
         let corner = buffer.get(Position::ORIGIN).unwrap();
         assert_eq!(corner.symbol, "┌");
-        assert_eq!(corner.style, theme.style(Role::Accent));
+        assert_eq!(corner.style.fg, theme.style(Role::Accent).fg);
+        assert_eq!(corner.style.bg, theme.style(Role::Surface).bg);
     }
 
     #[test]
@@ -540,7 +542,9 @@ mod tests {
         let theme = Theme::catppuccin_mocha();
         let buffer = render(&Panel::new(), Size::new(4, 3), &theme);
         let corner = buffer.get(Position::ORIGIN).unwrap();
-        assert_eq!(corner.style, theme.style(Role::Border));
+        // Border foreground on the surface fill, not the terminal default.
+        assert_eq!(corner.style.fg, theme.style(Role::Border).fg);
+        assert_eq!(corner.style.bg, theme.style(Role::Surface).bg);
     }
 
     #[test]
@@ -569,12 +573,12 @@ mod tests {
         assert_eq!(row(&buffer, 4), "│              │");
         assert_eq!(row(&buffer, 5), "└──────────────┘");
         // The frame is highlighted; the fill is the surface; both come from theme
-        // roles, so a theme swap re-skins the whole panel.
+        // roles, so a theme swap re-skins the whole panel. The focused border glyph
+        // takes the Accent foreground on the surface fill's background.
         let theme = Theme::catppuccin_mocha();
-        assert_eq!(
-            buffer.get(Position::ORIGIN).unwrap().style,
-            theme.style(Role::Accent)
-        );
+        let corner = buffer.get(Position::ORIGIN).unwrap();
+        assert_eq!(corner.style.fg, theme.style(Role::Accent).fg);
+        assert_eq!(corner.style.bg, theme.style(Role::Surface).bg);
         assert_eq!(
             buffer.get(Position::new(1, 1)).unwrap().style,
             theme.style(Role::Surface)

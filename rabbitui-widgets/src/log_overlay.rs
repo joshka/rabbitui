@@ -266,10 +266,12 @@ mod tests {
         let handle = LogHandle::with_capacity(8);
         handle.push(LogRecord::new(Level::Error, "t", "boom"));
         let buffer = render(&handle, Size::new(30, 3), &theme);
-        // The "ERROR" tag at the inner origin (1,1) carries the danger role.
+        // The "ERROR" tag at the inner origin (1,1) takes the Danger foreground and
+        // sits on the overlay panel's surface fill (transparent-paint composition).
         let cell = buffer.get(Position::new(1, 1)).unwrap();
         assert_eq!(cell.symbol, "E");
-        assert_eq!(cell.style, theme.style(Role::Danger));
+        assert_eq!(cell.style.fg, theme.style(Role::Danger).fg);
+        assert_eq!(cell.style.bg, theme.style(Role::Surface).bg);
     }
 
     #[test]
