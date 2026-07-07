@@ -190,3 +190,14 @@ rabbitui adopts **qwertty** as its terminal substrate.
 - **A published Rust substrate reaches the 2026 bar** (a hypothetical libvaxis-in-Rust with a
   correct query router and async model) — re-price build-vs-adopt if it can match the alignment and
   influence rabbitui gets from qwertty.
+
+## Amendments
+
+- **2026-07-06 (substrate coordination):** The width-oracle ownership rule is amended by mutual
+  agreement recorded in the drop-box status doc §6 item 16: interim ownership stays with rabbitui
+  (unicode-width keyed off qwertty's mode-2027 report), but qwertty will own **terminal-aware width
+  measurement** in its Phase 3 (width is terminal-behavior knowledge; conformance-informed).
+  rabbitui's position, filed before the mechanism freezes: core stays dependency-free via a
+  `WidthPolicy` seam (default unicode-width, overridden by the substrate's policy at session open),
+  preserving the never-two-tables rule; mid-session policy changes must arrive as events (full
+  repaint). Segmentation-for-editing and layout remain rabbitui's.
