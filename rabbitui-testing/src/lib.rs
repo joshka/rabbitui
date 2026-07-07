@@ -186,6 +186,17 @@ impl<S> TestApp<S> {
         self
     }
 
+    /// Switches the active theme between renders, modelling the runtime's
+    /// [`Update::set_theme`] applied before the next frame.
+    ///
+    /// Render, call this, and render again to assert a widget's appearance under a
+    /// theme change — the second frame resolves roles against the new theme.
+    ///
+    /// [`Update::set_theme`]: https://docs.rs/rabbitui/latest/rabbitui/app/struct.Update.html#method.set_theme
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
     /// A mutable handle to the app's state, to set up a scenario directly.
     ///
     /// Prefer [`send`](Self::send) to model an update; this is for arranging

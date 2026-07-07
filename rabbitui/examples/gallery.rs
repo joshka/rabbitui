@@ -64,19 +64,31 @@ fn theme_from_env() -> (Theme, &'static str) {
     }
 }
 
-/// Quit on `q` or Ctrl-C; Tab traversal is a framework default.
-fn update(_app: &mut Gallery, update: Update<'_, ()>) -> ControlFlow<()> {
+/// Number keys 1–4 switch theme live; `q` / Ctrl-C quit. Tab traversal is a
+/// framework default. All guarded by `consumed()`, so a digit typed into the
+/// focused input edits it rather than switching the theme.
+fn update(app: &mut Gallery, update: Update<'_, ()>) -> ControlFlow<()> {
     if let Event::Input(input) = update.event()
         && !update.consumed()
         && let Some(press) = input.as_key()
     {
         match press.key {
+            Key::Char('1') => switch(app, &update, Theme::dark(), "dark"),
+            Key::Char('2') => switch(app, &update, Theme::catppuccin_mocha(), "catppuccin_mocha"),
+            Key::Char('3') => switch(app, &update, Theme::nord(), "nord"),
+            Key::Char('4') => switch(app, &update, Theme::dracula(), "dracula"),
             Key::Char('q') if !press.modifiers.ctrl => return ControlFlow::Break(()),
             Key::Char('c') if press.modifiers.ctrl => return ControlFlow::Break(()),
             _ => {}
         }
     }
     ControlFlow::Continue(())
+}
+
+/// Applies a live theme switch and records its name for the chrome.
+fn switch(app: &mut Gallery, update: &Update<'_, ()>, theme: Theme, name: &'static str) {
+    update.set_theme(theme);
+    app.theme_name = name;
 }
 
 /// The whole gallery: a titled panel wrapping the scroll, plus a footer.
@@ -95,7 +107,7 @@ fn view(app: &Gallery, frame: &mut Frame<'_>) {
     frame.widget(
         key("footer"),
         footer,
-        &Text::new("Tab: cycle focus   ↑/↓/PgUp/PgDn: scroll   q: quit").role(Role::Muted),
+        &Text::new("1–4: theme   Tab: focus   ↑/↓/PgUp/PgDn: scroll   q: quit").role(Role::Muted),
     );
 }
 

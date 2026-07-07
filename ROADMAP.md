@@ -46,9 +46,9 @@ Execution plan: `docs/plans/arc2a-aesthetics.md` (decisions pre-made; read it be
 | Screenshot pipeline: tapes render the README/gallery images (just target)             | ✅     |
 | Gallery example: every widget, every theme, one screen (doubles as visual regression) | ✅     |
 
-**Arc 2A complete.** Carried forward: `Update::set_theme` (runtime theme switching, mirrors
-`set_mode`) — the gallery surfaced this gap and works around it via a startup env var; the framework
-addition is queued in Arc 4 with the keybinding/config work.
+**Arc 2A complete.** Follow-on `Update::set_theme` (runtime theme switching, mirrors `set_mode`) —
+surfaced by the gallery — is now also done (Arc 4 item 9): the gallery's number keys 1–4 switch
+theme live.
 
 ### Arc 2B — the binding constraint (unblocks the flagship)
 

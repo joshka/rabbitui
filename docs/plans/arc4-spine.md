@@ -92,7 +92,12 @@ versions; open P0s (lone-ESC, resize events) re-checked at each step — if lone
 file the follow-up task to restore Esc bindings app-wide and retire the ctrl-chord workaround note
 in ADR 0006.
 
-## 9. `Update::set_theme` (runtime theme switching)
+## 9. `Update::set_theme` (runtime theme switching) — ✅ done 2026-07-07
+
+Landed: `Update::set_theme(Theme)` buffered in the facade `Pending` and applied before the next
+paint (mirroring `set_mode`), last-writer-wins with the theme-file watcher; `TestApp::set_theme` for
+the harness; the gallery's number keys 1–4 switch theme live (verified end-to-end through the run
+loop). Test: `rabbitui/tests/set_theme.rs`.
 
 **Surfaced by the Arc 2A gallery (2026-07-07).** The runtime has no way to change theme mid-run —
 the active theme is a run-loop local fed by the builder and the theme-file watcher. **Position:**

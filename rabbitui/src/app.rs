@@ -142,6 +142,8 @@ pub struct Pending<M = ()> {
     commits: Vec<CommitLine>,
     /// The last mode requested this update, if any (later calls win).
     set_mode: Option<Mode>,
+    /// The last theme requested this update, if any (later calls win).
+    set_theme: Option<Theme>,
     /// Effects to spawn after `update` returns, in call order.
     effects: Vec<Cmd<M>>,
     /// Between-frames widget commands and a deferred focus request, applied by the
@@ -154,6 +156,7 @@ impl<M> Default for Pending<M> {
         Self {
             commits: Vec::new(),
             set_mode: None,
+            set_theme: None,
             effects: Vec::new(),
             widget: WidgetPending::new(),
         }
@@ -165,6 +168,7 @@ impl<M> std::fmt::Debug for Pending<M> {
         f.debug_struct("Pending")
             .field("commits", &self.commits.len())
             .field("set_mode", &self.set_mode)
+            .field("set_theme", &self.set_theme)
             .field("effects", &self.effects.len())
             .field("widget", &self.widget)
             .finish()
@@ -329,6 +333,32 @@ impl<'a, M> Update<'a, M> {
     /// ```
     pub fn set_mode(&self, mode: Mode) {
         self.pending.borrow_mut().set_mode = Some(mode);
+    }
+
+    /// Requests a switch to `theme`, applied by the runtime before the next frame.
+    ///
+    /// Buffered like [`set_mode`](Self::set_mode) — calling twice keeps the last
+    /// theme — and applied by replacing the active theme threaded into every
+    /// widget's [`RenderCtx`](rabbitui_core::widget::RenderCtx). This is how an app
+    /// offers a live theme picker. If a theme file is also configured
+    /// ([`theme_file`](App::theme_file)), it is last-writer-wins: a later file
+    /// change (debug hot-reload) overrides a runtime switch, and vice versa.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::input::{InputEvent, Key};
+    /// use rabbitui_core::theme::Theme;
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Char('2'))), &[], &pending);
+    /// update.set_theme(Theme::nord());
+    /// ```
+    pub fn set_theme(&self, theme: Theme) {
+        self.pending.borrow_mut().set_theme = Some(theme);
     }
 
     /// Commands the declared widget of type `W` at the given root-relative key
@@ -929,6 +959,7 @@ where
         // messages), then flush together when the frame lands.
         let mut commits_buf: Vec<CommitLine> = Vec::new();
         let mut set_mode_buf: Option<Mode> = None;
+        let mut set_theme_buf: Option<Theme> = None;
 
         // The unapplied remainder of the *previous* update's pending set — a focus
         // request that could not be honored against the frame it was made on (the
@@ -1000,6 +1031,7 @@ where
                             &mut widget_remainder,
                             &mut commits_buf,
                             &mut set_mode_buf,
+                            &mut set_theme_buf,
                         );
                         dirty = true;
                     }
@@ -1021,6 +1053,7 @@ where
                                 &mut widget_remainder,
                                 &mut commits_buf,
                                 &mut set_mode_buf,
+                                &mut set_theme_buf,
                             );
                             dirty = true;
                         }
@@ -1038,6 +1071,7 @@ where
                         &mut widget_remainder,
                         &mut commits_buf,
                         &mut set_mode_buf,
+                        &mut set_theme_buf,
                     );
                     dirty = true;
 
@@ -1059,6 +1093,7 @@ where
                             &mut widget_remainder,
                             &mut commits_buf,
                             &mut set_mode_buf,
+                            &mut set_theme_buf,
                         );
                     }
                 }
@@ -1114,6 +1149,10 @@ where
             // frame render should still flush (inline target; empty otherwise).
             let commits = std::mem::take(&mut commits_buf);
             let set_mode = set_mode_buf.take();
+            // Apply a buffered runtime theme switch before this frame's draw.
+            if let Some(new_theme) = set_theme_buf.take() {
+                theme = new_theme;
+            }
             let frame_commits = apply_mode_switch(
                 &mut terminal,
                 &mut engine,
@@ -1235,10 +1274,12 @@ fn drain_pending<M: Send + 'static>(
     remainder: &mut WidgetPending,
     commits_buf: &mut Vec<CommitLine>,
     set_mode_buf: &mut Option<Mode>,
+    set_theme_buf: &mut Option<Theme>,
 ) {
     let Pending {
         commits,
         set_mode,
+        set_theme,
         effects: cmds,
         widget,
     } = pending;
@@ -1250,6 +1291,9 @@ fn drain_pending<M: Send + 'static>(
     commits_buf.extend(commits);
     if set_mode.is_some() {
         *set_mode_buf = set_mode;
+    }
+    if set_theme.is_some() {
+        *set_theme_buf = set_theme;
     }
 }
 
@@ -1272,6 +1316,7 @@ fn deliver_effect<S, M, U>(
     remainder: &mut WidgetPending,
     commits_buf: &mut Vec<CommitLine>,
     set_mode_buf: &mut Option<Mode>,
+    set_theme_buf: &mut Option<Theme>,
 ) -> bool
 where
     M: Send + 'static,
@@ -1293,6 +1338,7 @@ where
         remainder,
         commits_buf,
         set_mode_buf,
+        set_theme_buf,
     );
     broke
 }

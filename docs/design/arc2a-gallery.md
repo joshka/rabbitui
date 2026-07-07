@@ -29,11 +29,11 @@ switch path. Rather than add a core-runtime API unattended, the gallery reads `G
 startup and picks the preset via `App::theme(...)`; the four tapes vary it. This gives the same
 every-widget × every-theme regression without a framework change, and cleanly surfaces the gap:
 
-> **Deferred framework item (Arc 4):** `Update::set_theme(Theme)`, buffered and applied before the
-> next paint exactly like `Update::set_mode`, would let an app offer a live theme picker. It is a
-> small, well-shaped addition (mirrors `set_mode`), but it touches the core runtime + `Pending` +
-> `TestApp`, so it belongs with the keybinding/config work, not a gallery example. Recorded here so
-> the next session picks it up deliberately.
+> **Framework item this surfaced (Arc 4 item 9) — since landed:** `Update::set_theme(Theme)`,
+> buffered and applied before the next paint exactly like `Update::set_mode`. It was implemented
+> right after (facade `Pending` + run loop, `TestApp::set_theme`, `rabbitui/tests/set_theme.rs`), and
+> the gallery's number keys 1–4 now switch theme live — verified end-to-end through the run loop. The
+> startup `GALLERY_THEME` env var remains for the deterministic per-theme tapes.
 
 ## What this revealed
 
