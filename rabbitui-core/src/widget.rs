@@ -80,6 +80,12 @@ impl<'a> RenderCtx<'a> {
         Rect::from_size(self.area.size)
     }
 
+    /// The widget's area size — the shorthand for "how much room do I have".
+    #[must_use]
+    pub fn size(&self) -> crate::geometry::Size {
+        self.area.size
+    }
+
     /// Writes `text` at `position` (relative to the widget's area) in
     /// `style`, clipped to the area's right edge.
     pub fn set_string(&mut self, position: Position, text: &str, style: Style) {

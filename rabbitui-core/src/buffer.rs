@@ -375,6 +375,28 @@ impl Buffer {
         self.cells.resize(size.area() as usize, Cell::default());
     }
 
+    /// Clears every cell to the default, in place, keeping the size.
+    ///
+    /// The runtime resets the back buffer before each frame because widgets
+    /// declare everything every frame (ADR 0001); the diff against the front
+    /// buffer then recovers the damage (ADR 0003).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::style::Style;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(3, 1));
+    /// buffer.set_string(Position::ORIGIN, "abc", Style::new());
+    /// buffer.reset();
+    /// assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, " ");
+    /// ```
+    pub fn reset(&mut self) {
+        self.cells.fill(Cell::default());
+    }
+
     /// Diffs this (current) buffer against `previous`, returning the changed
     /// cells the encoder must repaint.
     ///

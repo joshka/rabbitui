@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["rabbitui", "rabbitui-core", "rabbitui-testing"]
+members = ["rabbitui", "rabbitui-core", "rabbitui-testing", "rabbitui-widgets"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,8 @@ repository = "https://github.com/joshka/rabbitui"
 
 [workspace.dependencies]
 rabbitui-core = { path = "rabbitui-core", version = "0.1.0" }
+rabbitui-widgets = { path = "rabbitui-widgets", version = "0.1.0" }
+rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
 # Path dependency during development; switches to a git (then crates.io) dependency
 # when qwertty publishes. See docs/adr/0012-terminal-substrate.md.
 qwertty = { path = "../../../qwertty", features = ["tokio"] }

@@ -79,6 +79,8 @@ version = "0.1.0"
 dependencies = [
  "qwertty",
  "rabbitui-core",
+ "rabbitui-testing",
+ "rabbitui-widgets",
  "tokio",
 ]
 
@@ -95,6 +97,14 @@ name = "rabbitui-testing"
 version = "0.1.0"
 dependencies = [
  "rabbitui-core",
+]
+
+[[package]]
+name = "rabbitui-widgets"
+version = "0.1.0"
+dependencies = [
+ "rabbitui-core",
+ "rabbitui-testing",
 ]
 
 [[package]]

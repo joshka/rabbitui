@@ -1,6 +1,6 @@
 [package]
-name = "rabbitui"
-description = "A terminal user interface framework"
+name = "rabbitui-widgets"
+description = "The built-in widget catalog for the rabbitui terminal UI framework"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,11 +9,8 @@ repository.workspace = true
 
 [dependencies]
 rabbitui-core.workspace = true
-qwertty.workspace = true
-tokio.workspace = true
 
 [dev-dependencies]
-rabbitui-widgets.workspace = true
 rabbitui-testing.workspace = true
 
 [lints]

@@ -4,16 +4,21 @@
 //! owns the terminal, drives update → view → diff → render, and restores the
 //! terminal on every exit path. The app supplies plain owned state, a
 //! synchronous `update` that folds events into that state, and a synchronous
-//! `view` that paints the state into a buffer.
+//! `view` that declares the state's UI into a [`Frame`].
 //!
-//! # A pre-declared-frame API, replaced in slice 2
+//! # The declared frame
 //!
-//! This is deliberately the smallest loop that renders and quits. It takes a
-//! single `view` closure that paints straight into a [`Buffer`], with no
-//! widgets, identity, frame facts, layout, timers, effects, or frame
-//! scheduling — none of the declared-frame contract (ADR 0001) exists yet.
-//! Slice 2 replaces this `run` signature with the declared-frame builder and a
-//! coalescing scheduler; treat this API as provisional.
+//! `view` receives a [`Frame`] (`docs/adr/0001-programming-model.md`), not a
+//! bare buffer: it declares widgets by key into the frame, which composes their
+//! identities, lends each its framework-retained state from the loop's
+//! [`StateStore`], and paints them into the back buffer. The state store lives
+//! across iterations, so a widget's scroll offset, cursor, or other retained
+//! state survives frame to frame by identity. The loop clears the back buffer
+//! to blank before every `view` call — widgets declare everything each frame,
+//! so nothing carries over except through the store. This *is* the declared
+//! frame; the frame *facts* it collects (hit regions, focus order, outcomes)
+//! arrive in slice 3, but the contract is already the one every widget renders
+//! through.
 //!
 //! # Examples
 //!
@@ -23,16 +28,16 @@
 //! use std::ops::ControlFlow;
 //!
 //! use rabbitui::app::{self, Event};
-//! use rabbitui_core::buffer::Buffer;
-//! use rabbitui_core::geometry::Position;
-//! use rabbitui_core::style::Style;
+//! use rabbitui_core::frame::Frame;
+//! use rabbitui_core::id::key;
+//! use rabbitui_widgets::Text;
 //!
 //! # async fn demo() -> rabbitui::app::Result<()> {
 //! app::run(
 //!     (),
 //!     |_state: &mut (), _event: Event| ControlFlow::Break(()),
-//!     |_state: &(), buffer: &mut Buffer| {
-//!         buffer.set_string(Position::ORIGIN, "hi", Style::new());
+//!     |_state: &(), frame: &mut Frame<'_>| {
+//!         frame.widget(key("greeting"), frame.area(), &Text::new("hi"));
 //!     },
 //! )
 //! .await
@@ -43,7 +48,9 @@ use std::ops::ControlFlow;
 
 use qwertty::InputEvent;
 use rabbitui_core::buffer::Buffer;
+use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::Size;
+use rabbitui_core::store::StateStore;
 
 use crate::render;
 use crate::terminal::Terminal;
@@ -92,6 +99,12 @@ pub enum Event {
 /// the orderly break path the terminal is closed explicitly; a panic is caught
 /// by the restore hook installed when the terminal opened.
 ///
+/// The loop owns a [`StateStore`] across iterations and brackets each `view`
+/// call in [`StateStore::begin_frame`] / [`StateStore::end_frame`], building a
+/// [`Frame`] over the back buffer and the store. The back buffer is cleared to
+/// blank before every `view` call: widgets declare everything each frame, and
+/// the double-buffer diff turns the fresh paint into minimal damage (ADR 0003).
+///
 /// # Errors
 ///
 /// Returns an error if opening the terminal, reading input, polling the size,
@@ -105,9 +118,9 @@ pub enum Event {
 /// use std::ops::ControlFlow;
 ///
 /// use rabbitui::app::{self, Event};
-/// use rabbitui_core::buffer::Buffer;
-/// use rabbitui_core::geometry::Position;
-/// use rabbitui_core::style::Style;
+/// use rabbitui_core::frame::Frame;
+/// use rabbitui_core::id::key;
+/// use rabbitui_widgets::Text;
 ///
 /// # async fn demo() -> rabbitui::app::Result<()> {
 /// app::run(
@@ -116,8 +129,9 @@ pub enum Event {
 ///         *count += 1;
 ///         if *count >= 3 { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
 ///     },
-///     |count: &u32, buffer: &mut Buffer| {
-///         buffer.set_string(Position::ORIGIN, &count.to_string(), Style::new());
+///     |count: &u32, frame: &mut Frame<'_>| {
+///         let text = count.to_string();
+///         frame.widget(key("count"), frame.area(), &Text::new(&text));
 ///     },
 /// )
 /// .await
@@ -126,17 +140,19 @@ pub enum Event {
 pub async fn run<S>(
     mut state: S,
     mut update: impl FnMut(&mut S, Event) -> ControlFlow<()>,
-    view: impl Fn(&S, &mut Buffer),
+    view: impl Fn(&S, &mut Frame<'_>),
 ) -> Result<()> {
     let mut terminal = Terminal::open().await?;
     let mut size = terminal.size()?;
 
     // Front buffer: what the terminal currently shows. Back buffer: what the
     // next frame will show. The initial front is blank, so the first diff is a
-    // full paint of everything `view` writes.
+    // full paint of everything `view` declares. The state store persists across
+    // iterations so widget-retained state (scroll, cursor) survives by identity.
     let mut front = Buffer::new(size);
     let mut back = Buffer::new(size);
-    view(&state, &mut back);
+    let mut store = StateStore::new();
+    draw(&mut back, &mut store, &state, &view);
     render::render(&mut terminal, &back.diff(&front)).await?;
     std::mem::swap(&mut front, &mut back);
 
@@ -161,13 +177,32 @@ pub async fn run<S>(
         }
 
         // Repaint the back buffer from scratch, diff against the front, render
-        // the difference, and swap. Widgets always paint into a fresh buffer;
+        // the difference, and swap. Widgets always declare into a fresh buffer;
         // the diff computes the damage (ADR 0003).
-        back.resize(size);
-        view(&state, &mut back);
+        back.reset();
+        draw(&mut back, &mut store, &state, &view);
         render::render(&mut terminal, &back.diff(&front)).await?;
         std::mem::swap(&mut front, &mut back);
     }
+}
+
+/// Declares one frame: brackets `view` in the store's frame lifecycle and
+/// builds a [`Frame`] over `buffer` and `store` for it to declare into.
+///
+/// The caller has already cleared (or resized) `buffer` to blank, matching the
+/// declared-frame rule that widgets re-declare everything each frame.
+fn draw<S>(
+    buffer: &mut Buffer,
+    store: &mut StateStore,
+    state: &S,
+    view: &impl Fn(&S, &mut Frame<'_>),
+) {
+    store.begin_frame();
+    {
+        let mut frame = Frame::new(buffer, store);
+        view(state, &mut frame);
+    }
+    store.end_frame();
 }
 
 #[cfg(test)]
