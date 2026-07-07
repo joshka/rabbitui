@@ -27,7 +27,7 @@ wheel normalization, hardware-cursor via facts, WidthPolicy seam (waits on qwert
 kitty-shaped KeyEvent adaptation (pre-pin blocker), macOS /dev/tty workaround upstreaming. Slice-8
 strain findings (slice-9 inputs): variable-height measurement + a real scroll container (the
 fixed-slot Collapsible stack wastes rows), styled-span soft wrap (Text takes one style while commits
-are Vec<Span> — styling pops at commit), Attrs::remove, block-level early commit for bounded tails.
+are `Vec<Span>` — styling pops at commit), Attrs::remove, block-level early commit for bounded tails.
 
 ## Slice 0 — Substrate smoke (`examples/smoke.rs`)
 
