@@ -12,7 +12,7 @@ use rabbitui_core::id::{WidgetId, key};
 use rabbitui_core::style::{Attrs, Color};
 use rabbitui_core::theme::Theme;
 use rabbitui_testing::{TestApp, assert_snapshot};
-use rabbitui_widgets::{Collapsible, SelectionList, TextInput};
+use rabbitui_widgets::{Collapsible, Panel, SelectionList, Text, TextInput};
 
 /// Renders `buffer` as glyph rows followed by a legend: for each non-blank cell,
 /// its position and a terse style description. This makes a themed snapshot
@@ -203,4 +203,38 @@ fn collapsible_expanded_focused_snapshot() {
         "collapsible_expanded_focused",
         styled_snapshot(app.buffer())
     );
+}
+
+/// A titled, padded, focused [`Panel`] with content declared into its inner area
+/// — the pre-composition backdrop pattern. The snapshot pins the box-drawing
+/// frame, the title in the top border, the surface fill on every cell, and the
+/// focused-highlight border role, all resolved through the theme.
+#[test]
+fn panel_titled_focused_snapshot() {
+    let mut app = TestApp::new(Size::new(20, 6), ()).with_theme(Theme::catppuccin_mocha());
+    app.render(|_s, frame| {
+        let area = frame.area();
+        let panel = Panel::new().title("Settings").padding(1).focused(true);
+        frame.widget(key("panel"), area, &panel);
+        // Content declared into the computed inner area (the backdrop pattern).
+        let inner = Panel::inner(area, &panel);
+        frame.widget(key("body"), inner, &Text::new("name: rabbitui"));
+    });
+    assert_snapshot!("panel_titled_focused", styled_snapshot(app.buffer()));
+}
+
+/// A borderless [`Panel`] — a bare wash of the surface role with padding but no
+/// frame. The snapshot pins that no box-drawing glyphs appear and the fill still
+/// covers every cell.
+#[test]
+fn panel_borderless_snapshot() {
+    let mut app = TestApp::new(Size::new(16, 3), ()).with_theme(Theme::catppuccin_mocha());
+    app.render(|_s, frame| {
+        let area = frame.area();
+        let panel = Panel::new().border(false).padding(1);
+        frame.widget(key("panel"), area, &panel);
+        let inner = Panel::inner(area, &panel);
+        frame.widget(key("body"), inner, &Text::new("borderless"));
+    });
+    assert_snapshot!("panel_borderless", styled_snapshot(app.buffer()));
 }

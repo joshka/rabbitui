@@ -38,10 +38,10 @@ use rabbitui::app::{Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
+use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::{Role, Theme};
-use rabbitui_widgets::{SelectionList, Text, TextInput};
+use rabbitui_widgets::{Panel, SelectionList, Text, TextInput};
 
 /// The app's owned state: the todos, the current input draft, and the list's
 /// selection.
@@ -108,15 +108,31 @@ fn update(app: &mut App0, update: Update<'_>) -> ControlFlow<()> {
     ControlFlow::Continue(())
 }
 
-/// Declares the input, the list, and the status line.
+/// Declares the input, the list, and the status line inside a centered panel.
+///
+/// The panel is capped at a sensible width so the list does not stretch across a
+/// wide terminal, and reads as focused because one of its two widgets always
+/// holds focus.
 fn view(app: &App0, frame: &mut Frame<'_>) {
-    let [input_row, _gap, list_area, status_row, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ]);
+    // A centered panel, capped in width and given most of the screen's height.
+    let full = frame.area();
+    let width = full.size.width.min(56);
+    let height = full.size.height.saturating_sub(4).clamp(10, 24);
+    let area = center(full, width, height);
+    let panel = Panel::new().title("todo").padding(1).focused(true);
+    frame.widget(key("panel"), area, &panel);
+
+    let inner = Panel::inner(area, &panel);
+    let [input_row, _gap, list_area, status_row, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ],
+    );
 
     // A stable key: the field is cleared on submit by a widget command, not by
     // re-keying, so its identity (and thus focus) survives across submits.
@@ -143,6 +159,6 @@ fn view(app: &App0, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus  Enter: add  d: delete  q/Esc: quit").role(Role::Muted),
+        &Text::new("Tab: focus   Enter: add   d: delete   q/Esc: quit").role(Role::Muted),
     );
 }

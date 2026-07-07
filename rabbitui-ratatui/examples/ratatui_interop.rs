@@ -17,10 +17,10 @@ use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
-use rabbitui_core::style::{Color, Style};
+use rabbitui_core::layout::{Constraint, center, split_rows};
+use rabbitui_core::theme::Role;
 use rabbitui_ratatui::RatatuiWidget;
-use rabbitui_widgets::Text;
+use rabbitui_widgets::{Panel, Text};
 use ratatui::style::{Color as RatColor, Modifier, Style as RatStyle};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, Paragraph, Wrap};
@@ -49,22 +49,31 @@ fn update(percent: &mut u16, update: Update<'_>) -> ControlFlow<()> {
 /// Declares the UI: a native title, a bridged bordered paragraph, a bridged
 /// gauge, and a native hint — native and ratatui widgets side by side.
 fn view(percent: &u16, frame: &mut Frame<'_>) {
-    let [title_row, _, panel, _, gauge_row, _, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(5),
-        Constraint::Length(1),
-        Constraint::Length(3),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ]);
+    // A native rabbitui Panel frames the whole demo; the ratatui widgets (each
+    // with its own ratatui Block) sit inside it, native and bridged chrome nested.
+    let area = center(frame.area(), 52, 15);
+    let outer = Panel::new().title("interop").padding(1);
+    frame.widget(key("panel"), area, &outer);
+    let inner = Panel::inner(area, &outer);
 
-    // A native rabbitui widget: styled by literal Style here for brevity.
-    let title = Style::new().fg(Color::GREEN).bold();
+    let [title_row, _, ratatui_panel, _, gauge_row, _, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(5),
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ],
+    );
+
+    // A native rabbitui widget, styled by theme role.
     frame.widget(
         key("title"),
         title_row,
-        &Text::new("rabbitui + ratatui interop").style(title),
+        &Text::new("rabbitui + ratatui interop").role(Role::Accent),
     );
 
     // A ratatui Paragraph inside a ratatui bordered Block — a classic ratatui
@@ -84,7 +93,7 @@ fn view(percent: &u16, frame: &mut Frame<'_>) {
     ])
     .block(Block::bordered().title("ratatui panel"))
     .wrap(Wrap { trim: true });
-    frame.widget(key("panel"), panel, &RatatuiWidget::new(body));
+    frame.widget(key("body"), ratatui_panel, &RatatuiWidget::new(body));
 
     // A ratatui Gauge, driven by app state.
     let gauge = Gauge::default()
@@ -94,10 +103,9 @@ fn view(percent: &u16, frame: &mut Frame<'_>) {
     frame.widget(key("gauge"), gauge_row, &RatatuiWidget::new(gauge));
 
     // A native rabbitui hint line.
-    let hint = Style::new().fg(Color::Indexed(245)).italic();
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("press +/- to move the gauge, q or Esc to quit").style(hint),
+        &Text::new("+/-: move the gauge   q/Esc: quit").role(Role::Muted),
     );
 }

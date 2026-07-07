@@ -16,7 +16,7 @@ Wait+Screen "TAPE_BUILD_READY"
 Type "./target/debug/examples/counter"
 Show
 Enter
-Wait+Screen "press"
+Wait+Screen "count:"
 Sleep 200ms
 Screenshot target/betamax/counter-initial.png
 Type "+++"

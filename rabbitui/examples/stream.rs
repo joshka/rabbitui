@@ -36,7 +36,7 @@ use rabbitui_core::input::Key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::style::{Color, Style};
+use rabbitui_core::theme::Role;
 use rabbitui_widgets::{Text, TextInput};
 
 /// The bounded live-tail height, in rows: one input row, one status row, one hint
@@ -124,6 +124,11 @@ fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
 /// buffer to `TAIL_HEIGHT`); in alt-screen it is the whole viewport. The same
 /// declaration works in both — the tail rows pin to the top of whatever area the
 /// mode provides.
+///
+/// This is an inline-mode example, so the tail is *not* wrapped in a panel: the
+/// committed scrollback above belongs to the terminal, and a border around a
+/// bottom-pinned strip that shares its top edge with native history would read
+/// wrong. Styling stays inside the tail, via theme roles.
 fn view(app: &Stream, frame: &mut Frame<'_>) {
     let [input_row, status_row, hint_row] = frame.rows([
         Constraint::Length(1),
@@ -142,14 +147,13 @@ fn view(app: &Stream, frame: &mut Frame<'_>) {
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status).style(Style::new().fg(Color::GREEN).bold()),
+        &Text::new(&status).role(Role::Success),
     );
 
-    let hint = Style::new().fg(Color::Indexed(245)).italic();
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("n: commit  m: toggle mode  Tab: focus input  q: quit").style(hint),
+        &Text::new("n: commit   m: toggle mode   Tab: focus input   q: quit").role(Role::Muted),
     );
 }
 

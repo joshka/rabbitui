@@ -17,10 +17,10 @@ use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
+use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::style::{Color, Style};
-use rabbitui_widgets::{Button, Text};
+use rabbitui_core::theme::Role;
+use rabbitui_widgets::{Button, Panel, Text};
 
 /// The app's owned state: which button was last activated, if any.
 #[derive(Default)]
@@ -56,18 +56,27 @@ fn update(app: &mut App, update: Update<'_>) -> ControlFlow<()> {
     ControlFlow::Continue(())
 }
 
-/// Declares the two buttons and the status line.
+/// Declares the two buttons and the status line inside a centered panel.
+///
+/// Focus lives inside this panel (one of the buttons is always focused), so the
+/// panel draws its border in the focused-highlight role — the container reads as
+/// active, matching where the focus ring sits.
 fn view(app: &App, frame: &mut Frame<'_>) {
-    let hint = Style::new().fg(Color::Indexed(245)).italic();
+    let area = center(frame.area(), 52, 9);
+    let panel = Panel::new().title("focus").padding(1).focused(true);
+    frame.widget(key("panel"), area, &panel);
 
-    let [_, ok_row, cancel_row, _, status_row, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ]);
+    let inner = Panel::inner(area, &panel);
+    let [ok_row, cancel_row, _, status_row, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ],
+    );
 
     frame.widget(key("ok"), ok_row, &Button::new("OK"));
     frame.widget(key("cancel"), cancel_row, &Button::new("Cancel"));
@@ -76,10 +85,10 @@ fn view(app: &App, frame: &mut Frame<'_>) {
         Some(name) => format!("last activated: {name}"),
         None => "last activated: (none)".to_string(),
     };
-    frame.widget(key("status"), status_row, &Text::new(&status));
+    frame.widget(key("status"), status_row, &Text::new(&status).role(Role::Text));
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab to move focus, Enter/Space to activate, q to quit").style(hint),
+        &Text::new("Tab: focus   Enter/Space: activate   q/Esc: quit").role(Role::Muted),
     );
 }

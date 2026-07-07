@@ -38,10 +38,10 @@ use rabbitui::effect::Cmd;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
+use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::style::{Color, Style};
-use rabbitui_widgets::{SelectionList, Text, TextInput};
+use rabbitui_core::theme::Role;
+use rabbitui_widgets::{Panel, SelectionList, Text, TextInput};
 
 /// A message an effect produces, re-entering the loop as [`Event::Message`].
 #[derive(Debug, Clone)]
@@ -140,15 +140,27 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
     ControlFlow::Continue(())
 }
 
-/// Declares the input, the results list, and the status/clock/hint lines.
+/// Declares the input, the results list, and the status/clock/hint lines inside
+/// a centered, focused panel.
 fn view(app: &Fetch, frame: &mut Frame<'_>) {
-    let [input_row, list_area, clock_row, status_row, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Fill(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ]);
+    let full = frame.area();
+    let width = full.size.width.min(60);
+    let height = full.size.height.saturating_sub(4).clamp(12, 26);
+    let area = center(full, width, height);
+    let panel = Panel::new().title("fetch").padding(1).focused(true);
+    frame.widget(key("panel"), area, &panel);
+
+    let inner = Panel::inner(area, &panel);
+    let [input_row, list_area, clock_row, status_row, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ],
+    );
 
     frame.widget(
         key("input"),
@@ -166,27 +178,22 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
     } else {
         "clock: off (press t)".to_string()
     };
-    frame.widget(
-        key("clock"),
-        clock_row,
-        &Text::new(&clock).style(Style::new().fg(Color::CYAN)),
-    );
+    frame.widget(key("clock"), clock_row, &Text::new(&clock).role(Role::Accent));
 
-    let status = match &app.last_error {
-        Some(error) => format!("error: {error}"),
-        None => format!("{} fetches completed", app.completed),
+    let (status, status_role) = match &app.last_error {
+        Some(error) => (format!("error: {error}"), Role::Danger),
+        None => (format!("{} fetches completed", app.completed), Role::Success),
     };
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status).style(Style::new().fg(Color::GREEN).bold()),
+        &Text::new(&status).role(status_role),
     );
 
-    let hint = Style::new().fg(Color::Indexed(245)).italic();
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("Tab: focus  type: search  Ctrl-L: clear  t: clock  q: quit").style(hint),
+        &Text::new("Tab: focus   type: search   Ctrl-L: clear   t: clock   q: quit").role(Role::Muted),
     );
 }
 

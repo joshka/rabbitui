@@ -12,9 +12,9 @@ use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
-use rabbitui_core::style::{Color, Style};
-use rabbitui_widgets::Text;
+use rabbitui_core::layout::{Constraint, center, split_rows};
+use rabbitui_core::theme::Role;
+use rabbitui_widgets::{Panel, Text};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,30 +36,33 @@ fn update(count: &mut i64, update: Update<'_>) -> ControlFlow<()> {
     ControlFlow::Continue(())
 }
 
-/// Declares the counter UI: a title row and the current count, each a [`Text`].
+/// Declares the counter UI inside a centered, titled panel: the count value
+/// centered, a hint muted at the foot.
 fn view(count: &i64, frame: &mut Frame<'_>) {
-    let title = Style::new().fg(Color::GREEN).bold();
-    let value = Style::new().fg(Color::YELLOW).bold();
-    let hint = Style::new().fg(Color::Indexed(245)).italic();
+    let area = center(frame.area(), 44, 7);
+    let panel = Panel::new().title("counter").padding(1);
+    frame.widget(key("panel"), area, &panel);
 
-    let [title_row, _, count_row, _, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ]);
+    let inner = Panel::inner(area, &panel);
+    let [_, count_row, _, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ],
+    );
 
     let count_text = format!("count: {count}");
-    frame.widget(key("title"), title_row, &Text::new("Counter").style(title));
     frame.widget(
         key("count"),
         count_row,
-        &Text::new(&count_text).style(value),
+        &Text::new(&count_text).role(Role::Accent),
     );
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("press +/space to add, - to subtract, q to quit").style(hint),
+        &Text::new("+/space: add   -: subtract   q/Esc: quit").role(Role::Muted),
     );
 }

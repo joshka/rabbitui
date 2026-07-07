@@ -1,7 +1,9 @@
 //! The walking skeleton: run the full loop to draw a greeting and quit.
 //!
-//! Draws "Hello, rabbitui!" and a styled hint through the declared frame, then
-//! quits on `q` or Escape. Run with `cargo run --example hello`.
+//! Draws "Hello, rabbitui!" inside a centered, titled [`Panel`] with a muted hint
+//! line, then quits on `q` or Escape. The panel is the pre-composition backdrop
+//! (`rabbitui_widgets::panel`): declare it first, then declare content into its
+//! [`Panel::inner`] area. Run with `cargo run --example hello`.
 
 use std::ops::ControlFlow;
 
@@ -9,59 +11,59 @@ use rabbitui::app::{self, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
-use rabbitui_core::style::{Color, Style};
-use rabbitui_widgets::Text;
+use rabbitui_core::layout::{Constraint, center, split_rows};
+use rabbitui_core::theme::Role;
+use rabbitui_widgets::{Panel, Text};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    app::run(
-        (),
-        |(): &mut (), update: Update<'_>| {
-            if quit_requested(&update) {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        },
-        |(): &(), frame: &mut Frame<'_>| {
-            let title = Style::new().fg(Color::GREEN).bold();
-            let hint = Style::new().fg(Color::Indexed(245)).italic();
-            // A blank spacer row, the title, another spacer, then the hint.
-            let [_, title_row, _, hint_row, _] = frame.rows([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Fill(1),
-            ]);
-            frame.widget(
-                key("title"),
-                title_row,
-                &Text::new("Hello, rabbitui!").style(title),
-            );
-            frame.widget(
-                key("hint"),
-                hint_row,
-                &Text::new("press q or Esc to quit").style(hint),
-            );
-        },
-    )
-    .await?;
+    app::run((), update, view).await?;
     Ok(())
 }
 
-/// Returns true if this update carries a quit key: `q` or Escape.
+/// Quits on `q` or Escape; every other event falls through untouched.
 ///
 /// The event reaches `update` because no widget consumed it — the hello view has
 /// no interactive widgets, so every key falls through to the app (ADR 0006's
 /// unconsumed-event path).
-fn quit_requested(update: &Update<'_>) -> bool {
-    let Event::Input(input) = update.event() else {
-        return false;
-    };
-    matches!(
-        input.as_key().map(|k| k.key),
-        Some(Key::Char('q') | Key::Escape)
-    )
+fn update((): &mut (), update: Update<'_>) -> ControlFlow<()> {
+    if let Event::Input(input) = update.event() {
+        if matches!(
+            input.as_key().map(|k| k.key),
+            Some(Key::Char('q') | Key::Escape)
+        ) {
+            return ControlFlow::Break(());
+        }
+    }
+    ControlFlow::Continue(())
+}
+
+/// Declares the greeting inside a centered, titled panel.
+fn view((): &(), frame: &mut Frame<'_>) {
+    // A small panel, centered on the screen: the app no longer starts flush at
+    // the top-left corner spanning the void.
+    let area = center(frame.area(), 40, 7);
+    let panel = Panel::new().title("hello").padding(1);
+    frame.widget(key("panel"), area, &panel);
+
+    // Content goes into the panel's inner area: a greeting, a spacer, the hint.
+    let inner = Panel::inner(area, &panel);
+    let [greeting_row, _, hint_row] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ],
+    );
+    frame.widget(
+        key("greeting"),
+        greeting_row,
+        &Text::new("Hello, rabbitui!").role(Role::Accent),
+    );
+    frame.widget(
+        key("hint"),
+        hint_row,
+        &Text::new("press q or Esc to quit").role(Role::Muted),
+    );
 }

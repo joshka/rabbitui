@@ -51,8 +51,9 @@ use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::theme::Role;
 use rabbitui_core::text::Span;
-use rabbitui_widgets::{Collapsible, Text, TextInput};
+use rabbitui_widgets::{Collapsible, Panel, Text, TextInput};
 
 /// The bounded live-tail height in inline mode, in rows: the streaming preview
 /// region (a few rows) plus the status line plus the composer plus a hint.
@@ -417,6 +418,11 @@ fn view(app: &Agent, frame: &mut Frame<'_>) {
 
 /// The inline live tail: a streaming preview (soft-wrapped), the status line, the
 /// composer, and a hint. Everything above is committed history the terminal owns.
+///
+/// This is the inline path, so the tail is *not* wrapped in a panel — the
+/// committed transcript above is native scrollback the terminal owns, and a
+/// border around a bottom-pinned strip would fight it. Styling stays inside the
+/// tail via theme roles.
 fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
     let [preview, status_row, composer_row, hint_row] = frame.rows([
         Constraint::Fill(1),
@@ -434,45 +440,54 @@ fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(
         key("preview"),
         preview,
-        &Text::new(&preview_text).wrap(true),
+        &Text::new(&preview_text).wrap(true).role(Role::Text),
     );
 
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status_line(app)).style(status_style(app)),
+        &Text::new(&status_line(app)).role(status_role(app)),
     );
     frame.widget(
         composer_key(app),
         composer_row,
         &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
     );
-    frame.widget(key("hint"), hint_row, &Text::new(HINT).style(hint_style()));
+    frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
 }
 
-/// The alt-screen transcript: a scrollable column of collapsible cells, plus the
-/// status line, composer, and hint pinned to the bottom.
+/// The alt-screen transcript: a scrollable column of collapsible cells inside a
+/// titled panel, plus the status line, composer, and hint pinned to the bottom.
+///
+/// Alt-screen owns the whole viewport (not native scrollback), so here a panel is
+/// the right frame: the transcript reads as a bordered, titled chat column, the
+/// composer/status/hint sit below it, and the panel highlights because focus
+/// lives inside it.
 fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
-    let [transcript, status_row, composer_row, hint_row] = frame.rows([
+    let [transcript_area, status_row, composer_row, hint_row] = frame.rows([
         Constraint::Fill(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
     ]);
 
-    render_transcript(app, frame, transcript);
+    // The transcript column gets a titled panel; cells render into its inner area.
+    let panel = Panel::new().title("transcript").padding(1).focused(true);
+    frame.widget(key("panel"), transcript_area, &panel);
+    let inner = Panel::inner(transcript_area, &panel);
+    render_transcript(app, frame, inner);
 
     frame.widget(
         key("status"),
         status_row,
-        &Text::new(&status_line(app)).style(status_style(app)),
+        &Text::new(&status_line(app)).role(status_role(app)),
     );
     frame.widget(
         composer_key(app),
         composer_row,
         &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
     );
-    frame.widget(key("hint"), hint_row, &Text::new(HINT).style(hint_style()));
+    frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
 }
 
 /// Renders the transcript as a scrolling column of collapsible cells into `area`.
@@ -525,19 +540,13 @@ fn render_cell(
     match cell {
         TranscriptCell::User(prompt) => {
             let text = format!("❯ {prompt}");
-            frame.widget(
-                cell_key,
-                slot,
-                &Text::new(&text).style(Style::new().fg(Color::CYAN).bold()),
-            );
+            frame.widget(cell_key, slot, &Text::new(&text).role(Role::Accent));
         }
         TranscriptCell::Assistant { source } => {
             frame.widget(
                 cell_key,
                 slot,
-                &Text::new(source)
-                    .wrap(true)
-                    .role(rabbitui_core::theme::Role::Text),
+                &Text::new(source).wrap(true).role(Role::Text),
             );
         }
         TranscriptCell::Tool {
@@ -578,23 +587,18 @@ fn status_line(app: &Agent) -> String {
     }
 }
 
-/// The status line's style: accent while streaming, success when idle.
-fn status_style(app: &Agent) -> Style {
+/// The status line's role: accent while streaming, success when idle.
+fn status_role(app: &Agent) -> Role {
     if app.is_streaming() {
-        Style::new().fg(Color::CYAN).bold()
+        Role::Accent
     } else {
-        Style::new().fg(Color::GREEN)
+        Role::Success
     }
 }
 
 /// The one-line help/hint under the composer.
 const HINT: &str =
     "Tab: focus  Enter: send  Esc: cancel  m: mode (inline scrollback is immutable)  q: quit";
-
-/// The hint's style: a muted italic.
-fn hint_style() -> Style {
-    Style::new().fg(Color::Indexed(245)).italic()
-}
 
 /// The composer's key for this frame, carrying the generation so a submit re-keys
 /// (and clears) it.

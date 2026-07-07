@@ -31,10 +31,10 @@ use rabbitui::app::{Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_core::layout::Constraint;
+use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_widgets::{Button, SelectionList, Text, TextInput};
+use rabbitui_widgets::{Button, Panel, SelectionList, Text, TextInput};
 
 /// The form's owned state.
 #[derive(Default)]
@@ -163,6 +163,14 @@ fn close_modal(form: &mut Form, _update: &Update<'_>) {
 
 /// Declares the form and, when confirming, the modal layer over it.
 fn view(form: &Form, frame: &mut Frame<'_>) {
+    // A centered form panel at a sensible width — a form shouldn't sprawl across
+    // a wide terminal. Its border highlights while a field (not the modal) holds
+    // focus; while the modal is up, the base reads as inert (unfocused border).
+    let area = center(frame.area(), 60, 13);
+    let panel = Panel::new().title("form").padding(1).focused(!form.confirming);
+    frame.widget(key("panel"), area, &panel);
+    let inner = Panel::inner(area, &panel);
+
     let [
         name_row,
         name_status,
@@ -171,15 +179,18 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
         notes_area,
         submit_row,
         result_row,
-    ] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(NOTES.len() as u16),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ]);
+    ] = split_rows(
+        inner,
+        [
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(NOTES.len() as u16),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ],
+    );
 
     // Name field + its validation status.
     frame.widget(key("name"), name_row, &TextInput::new().placeholder("Name"));
@@ -244,15 +255,24 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
 
     // The confirm modal, on a higher layer. While declared, Tab cycles only its
     // two buttons and clicks over it never reach the base (facts hit-test prefers
-    // the top layer).
+    // the top layer). It is its own centered, focused panel floating over the
+    // form — the overlay reads as a distinct surface, not text over text.
     if form.confirming {
+        let modal_area = center(frame.area(), 44, 8);
         frame.layer(key("modal"), |modal| {
-            let [prompt, ok_row, cancel_row, _] = modal.rows([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Fill(1),
-            ]);
+            let modal_panel = Panel::new().title("confirm").padding(1).focused(true);
+            modal.widget(key("bg"), modal_area, &modal_panel);
+            let modal_inner = Panel::inner(modal_area, &modal_panel);
+
+            let [prompt, _, ok_row, cancel_row] = split_rows(
+                modal_inner,
+                [
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ],
+            );
             modal.widget(
                 key("prompt"),
                 prompt,

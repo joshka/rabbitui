@@ -26,6 +26,11 @@
 //!   retained by identity; Enter or a header click toggles it, emitting
 //!   [`Outcome::Toggled`](rabbitui_core::outcome::Outcome::Toggled). The
 //!   transcript's alt-screen cell (slice 8).
+//! - [`Panel`] — a container-look *backdrop*: a role-filled surface with an
+//!   optional light-box border, a title in the top border, and inner padding.
+//!   Because widgets cannot nest yet, it paints behind content declared into its
+//!   [`Panel::inner`] area (the pre-composition pattern; the catalog arc turns it
+//!   into a real container).
 //!
 //! Every widget references semantic [`Role`]s rather than hard-coded colors, so
 //! the active [`Theme`] re-skins the whole catalog (ADR 0007).
@@ -47,12 +52,14 @@
 
 pub mod button;
 pub mod collapsible;
+pub mod panel;
 pub mod selection_list;
 pub mod text;
 pub mod text_input;
 
 pub use button::Button;
 pub use collapsible::Collapsible;
+pub use panel::Panel;
 pub use selection_list::{ListSource, SelectionList};
 pub use text::Text;
 pub use text_input::TextInput;
