@@ -11,7 +11,7 @@
 use std::io::Write as _;
 use std::sync::Once;
 
-use qwertty::{CommandBuffer, InputEvent, ProtocolPosition, TokioTerminalSession, commands};
+use qwertty::{InputEvent, ProtocolPosition, TokioTerminalSession, commands};
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::style::Style;
 
@@ -64,20 +64,27 @@ static PANIC_RESTORE_HOOK: Once = Once::new();
 
 /// Exclusive ownership of the interactive terminal.
 ///
-/// Opening a `Terminal` enters raw mode and the alternate screen and hides the
-/// cursor; [`close`](Self::close) undoes all of it in order. If the program
-/// panics or the value is dropped without `close`, a best-effort restore
-/// sequence is written directly to `/dev/tty` so the user's shell comes back
-/// usable — the guarantee every framework in the research survey eventually
-/// learned to make first.
+/// Opening a `Terminal` enters raw mode only; the active render **engine**
+/// (`crate::engine`) drives screen setup — entering/leaving the alternate screen
+/// or the inline live region — by producing bytes this type merely writes (ADR
+/// 0013's pure-engine split). If the program panics or the value is dropped
+/// without [`close`](Self::close), a best-effort restore sequence is written
+/// directly to `/dev/tty` — and it *unconditionally* leaves the alternate screen,
+/// whichever mode was active, so a panic never strands the user there. That
+/// guarantee every framework in the research survey eventually learned to make
+/// first.
 #[derive(Debug)]
 pub struct Terminal {
     session: Option<TokioTerminalSession>,
 }
 
 impl Terminal {
-    /// Opens the interactive terminal: raw mode, alternate screen, hidden
-    /// cursor, cleared screen.
+    /// Opens the interactive terminal in raw mode.
+    ///
+    /// Screen setup (alternate screen, cursor visibility, clearing, or the inline
+    /// live region) is the engine's job now — [`run`](crate::app::run) writes the
+    /// engine's mode-entry bytes as its first frame. This only installs the
+    /// panic-restore hook and puts the tty in raw mode.
     ///
     /// # Errors
     ///
@@ -91,12 +98,28 @@ impl Terminal {
             }));
         });
 
-        let mut session = TokioTerminalSession::open()?;
-        session.bytes(encode::ENTER_ALT_SCREEN).await?;
-        session.command(commands::cursor::hide()).await?;
-        session.command(commands::screen::clear()).await?;
-        session.flush().await?;
+        let session = TokioTerminalSession::open()?;
         Ok(Self { session: Some(session) })
+    }
+
+    /// Writes raw `bytes` to the terminal and flushes them.
+    ///
+    /// The single primitive the render engines drive through: an engine produces
+    /// a whole frame's (or mode transition's) bytes and this writes them. All
+    /// cursor, mode, and SGR encoding stays in the engines/encoder behind this
+    /// substrate seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing or flushing fails.
+    pub async fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let session = self.session_mut();
+        session.bytes(bytes).await?;
+        session.flush().await?;
+        Ok(())
     }
 
     /// The current terminal size in cells.
@@ -132,23 +155,6 @@ impl Terminal {
         Ok(())
     }
 
-    /// Writes a pre-encoded frame to the terminal and flushes it.
-    ///
-    /// The renderer (`render.rs`) builds a whole frame's bytes — cursor moves,
-    /// SGR runs, text, and synchronized-output framing — into a
-    /// [`CommandBuffer`] and hands it here in one call, so the cursor and mode
-    /// encoding stays behind this substrate seam.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if writing or flushing fails.
-    pub(crate) async fn write_frame(&mut self, frame: CommandBuffer) -> Result<()> {
-        let session = self.session_mut();
-        session.bytes(frame.into_bytes()).await?;
-        session.flush().await?;
-        Ok(())
-    }
-
     /// Flushes buffered output to the terminal.
     ///
     /// # Errors
@@ -168,8 +174,15 @@ impl Terminal {
         Ok(self.session_mut().next_event().await?)
     }
 
-    /// Restores the terminal (leave alternate screen, reset styles, show the
-    /// cursor, cooked mode) and releases it.
+    /// Restores the terminal and releases it (leaves raw mode).
+    ///
+    /// The active engine has already written its own teardown frame (leave alt
+    /// screen, or drop below the inline tail; reset styles; show the cursor)
+    /// through [`write_bytes`](Self::write_bytes) before `run` calls this. As an
+    /// unconditional backstop this still emits leave-alt-screen, reset, and
+    /// show-cursor — leaving the alt screen is a harmless no-op when inline, so
+    /// the invariant "RESTORE always leaves the alt screen" holds regardless of
+    /// mode — then leaves raw mode.
     ///
     /// # Errors
     ///

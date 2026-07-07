@@ -9,6 +9,12 @@ repository.workspace = true
 
 [dependencies]
 rabbitui-core.workspace = true
+# The vt100 escape-level harness (ADR 0009 layer 3): a real terminal-emulator
+# model that the engine bytes are fed through, so tests assert on the screen a
+# terminal would show — the layer that catches framing/clear/cursor bugs buffer
+# equality cannot. A regular dependency of the testing crate; it never enters
+# core, widgets, or the facade.
+vt100 = "0.16"
 
 [dev-dependencies]
 rabbitui-widgets.workspace = true

@@ -7,9 +7,13 @@
 //! the core uses. This crate depends only on [`rabbitui_core`]; it never touches
 //! tokio or a terminal, so tests run deterministically with no I/O.
 //!
-//! Slice 2 lands the first layer of the three in ADR 0009: a headless
-//! [`TestApp`] driver plus buffer-snapshot assertions with an update flag. The
-//! vt100 escape-level harness follows in slice 5.
+//! Slice 2 landed the first two layers of the three in ADR 0009: a headless
+//! [`TestApp`] driver plus buffer-snapshot assertions with an update flag. Slice
+//! 5 adds the third — the [`vt`] escape-level harness, a real [`vt100`] terminal
+//! model the render engines' emitted bytes are fed through, so tests assert on
+//! the *screen a terminal would show*. That is the layer that catches
+//! synchronized-output framing, clears, cursor discipline, and inline
+//! commit/tail interleaving that buffer equality cannot see.
 //!
 //! # The driver mirrors the real loop
 //!
@@ -73,8 +77,10 @@
 //! ```
 
 pub mod snapshot;
+pub mod vt;
 
 pub use snapshot::assert_snapshot;
+pub use vt::VtScreen;
 
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::facts::FrameFacts;

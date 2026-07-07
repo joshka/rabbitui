@@ -23,10 +23,62 @@ pub const BEGIN_SYNC: &[u8] = b"\x1b[?2026h";
 /// frame in one update.
 pub const END_SYNC: &[u8] = b"\x1b[?2026l";
 
+/// Hide the cursor (`CSI ? 25 l`).
+pub const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
+/// Show the cursor (`CSI ? 25 h`).
+pub const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
+/// Clear the whole screen (`CSI 2 J`).
+pub const CLEAR_SCREEN: &[u8] = b"\x1b[2J";
+/// Erase from the cursor to the end of the display (`CSI 0 J`), leaving
+/// everything above and to the left untouched. The inline engine clears its
+/// live region this way — anchored at the region's top, it wipes the old tail
+/// and everything below without disturbing committed scrollback (ADR 0013's
+/// ED + repaint region mechanic).
+pub const ERASE_BELOW: &[u8] = b"\x1b[0J";
+/// Move the cursor to column 1 of the current row (`CR`).
+pub const CARRIAGE_RETURN: &[u8] = b"\r";
+
 /// The restore-of-last-resort sequence: leave alt screen, reset styles, show
 /// the cursor. Written on drop and from the panic hook; every byte here must
 /// be safe to emit unconditionally on any terminal state.
+///
+/// The leave-alt-screen byte is unconditional by design (ADR 0013): whichever
+/// mode was active, RESTORE must always leave the alternate screen so a panic
+/// mid-alt-screen never strands the user there.
 pub const RESTORE: &[u8] = b"\x1b[?1049l\x1b[0m\x1b[?25h";
+
+/// Encodes "move the cursor up `n` rows" (`CSI n A`). A zero count emits
+/// nothing (the cursor is already on the target row), matching terminals that
+/// treat `CSI 0 A` as a one-row move.
+#[must_use]
+pub fn cursor_up(n: u16) -> Vec<u8> {
+    if n == 0 {
+        return Vec::new();
+    }
+    format!("\x1b[{n}A").into_bytes()
+}
+
+/// Encodes "move the cursor down `n` rows" (`CSI n B`). A zero count emits
+/// nothing.
+#[must_use]
+pub fn cursor_down(n: u16) -> Vec<u8> {
+    if n == 0 {
+        return Vec::new();
+    }
+    format!("\x1b[{n}B").into_bytes()
+}
+
+/// Encodes "move the cursor right `n` columns" (`CSI n C`). A zero count emits
+/// nothing (the cursor is already at the target column). Used by the inline
+/// engine to reach a changed run's start column from column 1 without absolute
+/// row addressing.
+#[must_use]
+pub fn cursor_right(n: u16) -> Vec<u8> {
+    if n == 0 {
+        return Vec::new();
+    }
+    format!("\x1b[{n}C").into_bytes()
+}
 
 /// Encodes a style as an SGR sequence, starting from a reset so the result is
 /// self-contained (no dependency on the terminal's current attribute state).
@@ -120,5 +172,24 @@ mod tests {
     fn sgr_encodes_indexed_colors() {
         let style = Style::new().bg(Color::Indexed(200));
         assert_eq!(sgr(style), b"\x1b[0;48;5;200m".as_slice());
+    }
+
+    #[test]
+    fn cursor_up_encodes_csi_a() {
+        assert_eq!(cursor_up(3), b"\x1b[3A".as_slice());
+        // A zero move emits nothing, so it never becomes a stray one-row move.
+        assert!(cursor_up(0).is_empty());
+    }
+
+    #[test]
+    fn cursor_down_encodes_csi_b() {
+        assert_eq!(cursor_down(2), b"\x1b[2B".as_slice());
+        assert!(cursor_down(0).is_empty());
+    }
+
+    #[test]
+    fn cursor_right_encodes_csi_c() {
+        assert_eq!(cursor_right(5), b"\x1b[5C".as_slice());
+        assert!(cursor_right(0).is_empty());
     }
 }

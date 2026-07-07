@@ -16,12 +16,14 @@
 //! ```
 
 pub mod buffer;
+pub mod commit;
 pub mod facts;
 pub mod frame;
 pub mod geometry;
 pub mod id;
 pub mod input;
 pub mod layout;
+pub mod mode;
 pub mod outcome;
 pub mod routing;
 pub mod store;

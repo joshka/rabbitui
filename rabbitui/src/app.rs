@@ -47,21 +47,24 @@
 //! # }
 //! ```
 
+use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use rabbitui_core::buffer::Buffer;
+use rabbitui_core::commit::CommitLine;
 use rabbitui_core::facts::FrameFacts;
 use rabbitui_core::frame::{Frame, HandlerMap};
 use rabbitui_core::geometry::Size;
 use rabbitui_core::id::{Key, WidgetId};
 use rabbitui_core::input::InputEvent;
+use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::routing::{Focus, route};
 use rabbitui_core::store::StateStore;
 use rabbitui_core::theme::Theme;
 
-use crate::render;
+use crate::engine::{AltEngine, InlineEngine};
 use crate::terminal::Terminal;
 
 pub use crate::terminal::{Error, Result};
@@ -99,18 +102,44 @@ pub enum Event {
     Resize(Size),
 }
 
-/// One call into the app's `update`: the event that occurred, plus any typed
-/// outcomes routing produced from it.
+/// Buffered side effects an `update` requested: lines to commit into scrollback
+/// and a mode switch, applied by the runtime between frames.
+///
+/// Per the slice-5 design note, committing and mode switching are *update-time*
+/// actions (event-driven, naturally once), never view-time ones — a view re-runs
+/// every frame and would double-emit. [`Update::commit`] and
+/// [`Update::set_mode`] record here; the loop drains this after `update` returns
+/// and hands it to the active engine (commits flush *before* an alt-screen entry
+/// so nothing is lost behind the alternate screen).
+///
+/// This type is opaque: construct it with [`Default::default`] (a test builds one
+/// to pass to [`Update::new`]) and read it back only through the runtime. Its
+/// fields are private and may change.
+#[derive(Debug, Default)]
+pub struct Pending {
+    /// Lines committed this update, in call order.
+    commits: Vec<CommitLine>,
+    /// The last mode requested this update, if any (later calls win).
+    set_mode: Option<Mode>,
+}
+
+/// One call into the app's `update`: the event that occurred, the typed outcomes
+/// routing produced from it, and a sink for buffered side effects (commits, mode
+/// switches).
 ///
 /// Per `docs/adr/0001-programming-model.md`, a widget handler emits outcomes
 /// rather than mutating app state; the loop collects the frame's outcomes and
 /// hands them to `update` *in the same call* as the event, so the app applies
 /// every effect itself. Query them with [`outcome_for`](Self::outcome_for) by
-/// the widget's root-relative key path.
+/// the widget's root-relative key path. Inline scrollback commits and runtime
+/// mode switches are requested with [`commit`](Self::commit) and
+/// [`set_mode`](Self::set_mode).
 ///
 /// # Examples
 ///
 /// ```
+/// use std::cell::RefCell;
+///
 /// use rabbitui::app::{Event, Update};
 /// use rabbitui_core::id::{WidgetId, key};
 /// use rabbitui_core::input::{InputEvent, Key};
@@ -118,7 +147,8 @@ pub enum Event {
 ///
 /// let id = WidgetId::ROOT.child(key("ok"));
 /// let outcomes = [(id, Outcome::Activated)];
-/// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes);
+/// let pending = RefCell::new(Default::default());
+/// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
 ///
 /// assert_eq!(update.outcome_for(&[key("ok")]), Some(&Outcome::Activated));
 /// assert_eq!(update.outcome_for(&[key("cancel")]), None);
@@ -127,16 +157,76 @@ pub enum Event {
 pub struct Update<'a> {
     event: Event,
     outcomes: &'a [(WidgetId, Outcome)],
+    pending: &'a RefCell<Pending>,
 }
 
 impl<'a> Update<'a> {
-    /// Builds an update from an event and the outcomes routing produced.
+    /// Builds an update from an event, the outcomes routing produced, and a
+    /// pending-effects sink.
     ///
     /// The loop constructs this; it is public so tests (and the harness) can
-    /// build one directly.
+    /// build one directly — pass a `&RefCell<Default::default()>` when the test
+    /// ignores commits and mode switches.
     #[must_use]
-    pub fn new(event: Event, outcomes: &'a [(WidgetId, Outcome)]) -> Self {
-        Self { event, outcomes }
+    pub fn new(
+        event: Event,
+        outcomes: &'a [(WidgetId, Outcome)],
+        pending: &'a RefCell<Pending>,
+    ) -> Self {
+        Self { event, outcomes, pending }
+    }
+
+    /// Commits `line` into the terminal's native scrollback (inline mode).
+    ///
+    /// The line is appended once, above the live tail, and thereafter owned by
+    /// the terminal — never repainted, reflowed by the terminal on resize (ADR
+    /// 0013's append-once channel). Multiple calls in one update stay in order.
+    /// In alt-screen mode a commit is still buffered and is flushed into
+    /// scrollback if/when the app switches to inline (or on quit for a pending
+    /// alt→inline order); the runtime flushes buffered commits *before* entering
+    /// the alt screen so nothing is lost behind it.
+    ///
+    /// Committing is an update-time action: a view re-runs every frame, so
+    /// committing there would double-emit. This is the event-driven path.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::input::{InputEvent, Key};
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+    /// update.commit("build finished");
+    /// ```
+    pub fn commit(&self, line: impl Into<CommitLine>) {
+        self.pending.borrow_mut().commits.push(line.into());
+    }
+
+    /// Requests a switch to `mode`, applied by the runtime before the next frame.
+    ///
+    /// The switch is buffered and ordered against any commits made in the same
+    /// update: commits flush into scrollback *before* an alt-screen entry, so
+    /// content committed just before switching to alt is not lost behind the
+    /// alternate screen (slice-5 design note). Calling twice keeps the last mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::input::{InputEvent, Key};
+    /// use rabbitui_core::mode::Mode;
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update = Update::new(Event::Input(InputEvent::key(Key::Char('m'))), &[], &pending);
+    /// update.set_mode(Mode::inline(4));
+    /// ```
+    pub fn set_mode(&self, mode: Mode) {
+        self.pending.borrow_mut().set_mode = Some(mode);
     }
 
     /// The event this update is delivering.
@@ -162,6 +252,8 @@ impl<'a> Update<'a> {
     /// # Examples
     ///
     /// ```
+    /// use std::cell::RefCell;
+    ///
     /// use rabbitui::app::{Event, Update};
     /// use rabbitui_core::id::{WidgetId, key};
     /// use rabbitui_core::input::{InputEvent, Key};
@@ -170,7 +262,8 @@ impl<'a> Update<'a> {
     /// // A widget declared inside a "panel" scope.
     /// let id = WidgetId::ROOT.child(key("panel")).child(key("ok"));
     /// let outcomes = [(id, Outcome::Activated)];
-    /// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes);
+    /// let pending = RefCell::new(Default::default());
+    /// let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
     ///
     /// assert_eq!(update.outcome_for(&[key("panel"), key("ok")]), Some(&Outcome::Activated));
     /// ```
@@ -291,6 +384,7 @@ pub struct App<S, U, V> {
     view: V,
     theme: Theme,
     theme_file: Option<PathBuf>,
+    mode: Mode,
 }
 
 impl<S, U, V> App<S, U, V>
@@ -299,13 +393,54 @@ where
     V: Fn(&S, &mut Frame<'_>),
 {
     /// Creates an app from owned `state`, an `update`, and a `view`, using the
-    /// default theme and no theme file.
+    /// default theme, no theme file, and the default screen [`Mode`]
+    /// ([`Mode::AltScreen`]).
     ///
-    /// The result behaves exactly like [`run`] until [`theme`](Self::theme) or
-    /// [`theme_file`](Self::theme_file) is called.
+    /// The result behaves exactly like [`run`] until [`theme`](Self::theme),
+    /// [`theme_file`](Self::theme_file), or [`mode`](Self::mode) is called.
     #[must_use]
     pub fn new(state: S, update: U, view: V) -> Self {
-        Self { state, update, view, theme: Theme::default(), theme_file: None }
+        Self {
+            state,
+            update,
+            view,
+            theme: Theme::default(),
+            theme_file: None,
+            mode: Mode::default(),
+        }
+    }
+
+    /// Sets the initial screen [`Mode`] — [`Mode::AltScreen`] (the default) or
+    /// [`Mode::Inline`] with a bounded live tail.
+    ///
+    /// The mode can also change at runtime via
+    /// [`Update::set_mode`](Update::set_mode); this sets the startup mode. In
+    /// inline mode the app declares a frame sized to the live tail (the runtime
+    /// caps it at `min(max_height, viewport_height)`), commits finalized lines
+    /// with [`Update::commit`], and the terminal keeps native scrollback,
+    /// selection, and copy above the tail (ADR 0013).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use rabbitui::App;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::mode::Mode;
+    ///
+    /// let app = App::new(
+    ///     (),
+    ///     |_: &mut (), _| ControlFlow::Break(()),
+    ///     |_: &(), _: &mut Frame<'_>| {},
+    /// )
+    /// .mode(Mode::inline(3));
+    /// let _ = app;
+    /// ```
+    #[must_use]
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Sets the active [`Theme`] the loop threads into every frame.
@@ -372,7 +507,7 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
-        let App { mut state, mut update, view, theme: base_theme, theme_file } = self;
+        let App { mut state, mut update, view, theme: base_theme, theme_file, mode } = self;
 
         // Load the initial theme from the file (if any), layered over the base.
         // A startup error is fatal; a mid-run reload error is not (see below).
@@ -380,19 +515,28 @@ where
         let mut theme = watcher.theme();
 
         let mut terminal = Terminal::open().await?;
-        let mut size = terminal.size()?;
+        let mut viewport = terminal.size()?;
 
-        // Front buffer: what the terminal shows. Back buffer: what the next frame
-        // will show. The state store, focus, and theme persist across iterations.
-        let mut front = Buffer::new(size);
-        let mut back = Buffer::new(size);
+        // The render engine for the active mode; `enter` produces the mode-entry
+        // bytes (alt-screen switch, or inline cursor-hide). The state store,
+        // focus, and theme persist across iterations.
+        let mut engine = ModeEngine::new(mode);
         let mut store = StateStore::new();
         let mut focus = Focus::new();
 
-        // The first frame: no focus yet, capture its facts and handlers.
+        // Buffers are sized for the mode: the full viewport in alt-screen, or the
+        // bounded live-tail height in inline. `front` is what the terminal shows,
+        // `back` the frame being built. `apply_mode_switch` and the resize branch
+        // re-size both when the mode or viewport changes.
+        let initial_size = engine.buffer_size(viewport);
+        let mut front = Buffer::new(initial_size);
+        let mut back = Buffer::new(initial_size);
+
+        // Enter the mode, then render the first frame.
+        terminal.write_bytes(&engine.enter()).await?;
         let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
         focus.reconcile(&facts);
-        render::render(&mut terminal, &back.diff(&front)).await?;
+        terminal.write_bytes(&engine.render(&back, &front, &[])).await?;
         std::mem::swap(&mut front, &mut back);
 
         loop {
@@ -404,17 +548,25 @@ where
                 theme = watcher.theme();
             }
 
+            // Buffered side effects the app requests this iteration (commits, a
+            // mode switch). Drained after `update` and applied between frames.
+            let pending = RefCell::new(Pending::default());
+
             // Poll for a resize (substrate has no resize event; see `Event`). On a
-            // change, resize both buffers to blank so the next diff is a full
-            // repaint, then deliver the resize to `update`.
-            let new_size = terminal.size()?;
-            if new_size != size {
-                size = new_size;
+            // change, re-lay-out for the new viewport (a full repaint) and deliver
+            // the resize to `update`.
+            let new_viewport = terminal.size()?;
+            if new_viewport != viewport {
+                viewport = new_viewport;
+                let size = engine.buffer_size(viewport);
                 front.resize(size);
                 back.resize(size);
-                let update_ctx = Update::new(Event::Resize(size), &[]);
-                if let ControlFlow::Break(()) = update(&mut state, update_ctx) {
-                    return terminal.close().await;
+                // The live tail re-lays-out to the new width and fully repaints;
+                // committed history is the terminal's problem (it reflows).
+                engine.force_repaint();
+                let ctx = Update::new(Event::Resize(viewport), &[], &pending);
+                if let ControlFlow::Break(()) = update(&mut state, ctx) {
+                    return leave(terminal, &mut engine).await;
                 }
             }
 
@@ -426,11 +578,49 @@ where
                 // consumed event still carries context, and its effect is
                 // delivered as an outcome rather than a raw key to re-interpret.
                 let result = route(&facts, &handlers, &mut focus, &mut store, &event);
-                let ctx = Update::new(Event::Input(event), &result.outcomes);
+                let ctx = Update::new(Event::Input(event), &result.outcomes, &pending);
                 if let ControlFlow::Break(()) = update(&mut state, ctx) {
-                    return terminal.close().await;
+                    // Flush any commits made in this final update into scrollback
+                    // before leaving (they belong in history), then tear down.
+                    let Pending { commits, set_mode } = pending.into_inner();
+                    let remaining = apply_mode_switch(
+                        &mut terminal,
+                        &mut engine,
+                        set_mode,
+                        commits,
+                        viewport,
+                        &mut front,
+                        &mut back,
+                    )
+                    .await?;
+                    if !remaining.is_empty() {
+                        // Land any commits still pending as one last inline frame
+                        // (an empty tail — the app is quitting).
+                        let empty = Buffer::new(Size::new(viewport.width, 0));
+                        terminal
+                            .write_bytes(&engine.render(&empty, &front, &remaining))
+                            .await?;
+                    }
+                    return leave(terminal, &mut engine).await;
                 }
             }
+
+            let Pending { commits, set_mode } = pending.into_inner();
+
+            // Apply a requested mode switch, flushing pending commits into
+            // scrollback *before* an alt-screen entry so nothing is lost behind
+            // it. Returns the commits that the frame render should still flush
+            // (for an inline target; empty otherwise).
+            let frame_commits = apply_mode_switch(
+                &mut terminal,
+                &mut engine,
+                set_mode,
+                commits,
+                viewport,
+                &mut front,
+                &mut back,
+            )
+            .await?;
 
             // Repaint from scratch, capturing this frame's facts for the next
             // event. A hot-reloaded theme repaints the whole frame (the diff
@@ -440,8 +630,162 @@ where
             facts = drawn.0;
             handlers = drawn.1;
             focus.reconcile(&facts);
-            render::render(&mut terminal, &back.diff(&front)).await?;
+            terminal.write_bytes(&engine.render(&back, &front, &frame_commits)).await?;
             std::mem::swap(&mut front, &mut back);
+        }
+    }
+}
+
+/// Writes the active engine's teardown bytes, then closes the terminal.
+///
+/// The engine's `leave` frame does the mode-specific restore (leave alt screen,
+/// or drop below the inline tail); [`Terminal::close`] then leaves raw mode with
+/// the unconditional alt-screen-leave backstop.
+async fn leave(mut terminal: Terminal, engine: &mut ModeEngine) -> Result<()> {
+    terminal.write_bytes(&engine.leave()).await?;
+    terminal.close().await
+}
+
+/// Applies a requested mode switch (if any), consuming `commits`, and returns
+/// the commits the *current* frame render should still flush.
+///
+/// Ordering matters (slice-5 design note): when switching to alt-screen, commits
+/// flush into native scrollback through the inline engine *before* the alt-screen
+/// entry, so content committed just before the switch is not lost behind the
+/// alternate screen. When switching to (or staying in) inline, the commits are
+/// returned so the caller's frame render lands them above the fresh live tail.
+/// Alt-screen has no scrollback, so with no switch to inline the commits are
+/// simply dropped.
+async fn apply_mode_switch(
+    terminal: &mut Terminal,
+    engine: &mut ModeEngine,
+    set_mode: Option<Mode>,
+    commits: Vec<CommitLine>,
+    viewport: Size,
+    front: &mut Buffer,
+    back: &mut Buffer,
+) -> Result<Vec<CommitLine>> {
+    let switching = match set_mode {
+        Some(target) if target != engine.mode() => Some(target),
+        _ => None,
+    };
+
+    let Some(target) = switching else {
+        // No switch: an inline engine flushes the commits this frame; an
+        // alt-screen engine has no scrollback, so they are dropped.
+        return Ok(if engine.is_inline() { commits } else { Vec::new() });
+    };
+
+    match (engine.mode(), target) {
+        // Leaving inline for alt: flush pending commits into scrollback through
+        // the inline engine first (an empty tail, so only history is written),
+        // then tear the inline region down.
+        (Mode::Inline { .. }, Mode::AltScreen) => {
+            if !commits.is_empty() {
+                let empty = Buffer::new(Size::new(viewport.width, 0));
+                terminal.write_bytes(&engine.render(&empty, front, &commits)).await?;
+            }
+            terminal.write_bytes(&engine.leave()).await?;
+        }
+        // Any other switch tears the current mode down first.
+        _ => {
+            terminal.write_bytes(&engine.leave()).await?;
+        }
+    }
+
+    *engine = ModeEngine::new(target);
+    let size = engine.buffer_size(viewport);
+    front.resize(size);
+    back.resize(size);
+    terminal.write_bytes(&engine.enter()).await?;
+
+    // Entering inline: hand the commits back so the caller's frame render lands
+    // them above the new live tail. Entering alt: the commits (if any) were
+    // flushed above, so none remain.
+    Ok(if engine.is_inline() { commits } else { Vec::new() })
+}
+
+/// The active render engine, dispatched by [`Mode`].
+///
+/// Wraps [`AltEngine`] or [`InlineEngine`] behind one uniform interface the loop
+/// drives: [`buffer_size`](Self::buffer_size) sizes the frame buffers for the
+/// mode, [`enter`](Self::enter)/[`leave`](Self::leave) produce mode-transition
+/// bytes, and [`render`](Self::render) produces one frame's bytes. Commits are
+/// meaningful only to the inline engine; the alt engine ignores them (the loop
+/// flushes them before entering alt-screen).
+#[derive(Debug)]
+enum ModeEngine {
+    /// The alternate-screen engine and its declared mode.
+    Alt(AltEngine),
+    /// The inline engine and its `max_height`.
+    Inline { engine: InlineEngine, max_height: u16 },
+}
+
+impl ModeEngine {
+    /// Builds the engine for `mode`.
+    fn new(mode: Mode) -> Self {
+        match mode {
+            Mode::AltScreen => Self::Alt(AltEngine::new()),
+            Mode::Inline { max_height } => {
+                Self::Inline { engine: InlineEngine::new(), max_height }
+            }
+        }
+    }
+
+    /// The mode this engine renders.
+    fn mode(&self) -> Mode {
+        match self {
+            Self::Alt(_) => Mode::AltScreen,
+            Self::Inline { max_height, .. } => Mode::Inline { max_height: *max_height },
+        }
+    }
+
+    /// Whether this is the inline engine.
+    fn is_inline(&self) -> bool {
+        matches!(self, Self::Inline { .. })
+    }
+
+    /// The frame-buffer size for this mode at `viewport`: the full viewport in
+    /// alt-screen, or the bounded live-tail height (`min(max_height, viewport
+    /// height)`) at full width in inline.
+    fn buffer_size(&self, viewport: Size) -> Size {
+        match self {
+            Self::Alt(_) => viewport,
+            Self::Inline { max_height, .. } => {
+                Size::new(viewport.width, (*max_height).min(viewport.height))
+            }
+        }
+    }
+
+    /// The mode-entry bytes.
+    fn enter(&mut self) -> Vec<u8> {
+        match self {
+            Self::Alt(engine) => engine.enter(),
+            Self::Inline { engine, .. } => engine.enter(),
+        }
+    }
+
+    /// The mode-teardown bytes.
+    fn leave(&mut self) -> Vec<u8> {
+        match self {
+            Self::Alt(engine) => engine.leave(),
+            Self::Inline { engine, .. } => engine.leave(),
+        }
+    }
+
+    /// Forces the next render to fully repaint (resize / desync recovery).
+    fn force_repaint(&mut self) {
+        if let Self::Inline { engine, .. } = self {
+            engine.force_repaint();
+        }
+    }
+
+    /// One frame's bytes: the alt engine diffs `current` against `previous`; the
+    /// inline engine flushes `commits` then paints `current` as the live tail.
+    fn render(&mut self, current: &Buffer, previous: &Buffer, commits: &[CommitLine]) -> Vec<u8> {
+        match self {
+            Self::Alt(engine) => engine.render(current, previous),
+            Self::Inline { engine, .. } => engine.render(current, commits),
         }
     }
 }
@@ -561,7 +905,8 @@ mod tests {
     fn outcome_for_matches_root_level_key_path() {
         let id = WidgetId::ROOT.child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
-        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes);
+        let pending = RefCell::new(Pending::default());
+        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
         assert_eq!(update.outcome_for(&[key("ok")]), Some(&Outcome::Activated));
         assert_eq!(update.outcome_for(&[key("nope")]), None);
     }
@@ -570,9 +915,38 @@ mod tests {
     fn outcome_for_matches_nested_key_path() {
         let id = WidgetId::ROOT.child(key("panel")).child(key("ok"));
         let outcomes = [(id, Outcome::Activated)];
-        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes);
+        let pending = RefCell::new(Pending::default());
+        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &outcomes, &pending);
         assert_eq!(update.outcome_for(&[key("panel"), key("ok")]), Some(&Outcome::Activated));
         // The wrong depth does not match.
         assert_eq!(update.outcome_for(&[key("ok")]), None);
+    }
+
+    #[test]
+    fn commit_and_set_mode_are_buffered() {
+        let pending = RefCell::new(Pending::default());
+        let update = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+        update.commit("first");
+        update.commit("second");
+        update.set_mode(Mode::inline(3));
+        let drained = pending.into_inner();
+        assert_eq!(drained.commits.len(), 2);
+        assert_eq!(drained.commits[0].text(), "first");
+        assert_eq!(drained.set_mode, Some(Mode::inline(3)));
+    }
+
+    #[test]
+    fn alt_engine_buffer_is_full_viewport() {
+        let engine = ModeEngine::new(Mode::AltScreen);
+        assert_eq!(engine.buffer_size(Size::new(80, 24)), Size::new(80, 24));
+    }
+
+    #[test]
+    fn inline_engine_buffer_is_bounded_tail() {
+        let engine = ModeEngine::new(Mode::inline(3));
+        // Capped by max_height when the viewport is taller…
+        assert_eq!(engine.buffer_size(Size::new(80, 24)), Size::new(80, 3));
+        // …and by the viewport when it is shorter.
+        assert_eq!(engine.buffer_size(Size::new(80, 2)), Size::new(80, 2));
     }
 }

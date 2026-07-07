@@ -90,3 +90,63 @@ timers are slice 6): each press of `n` commits a numbered "log line" and the
 live tail shows a TextInput + a status line; `m` toggles AltScreen/Inline
 live; `q` quits. Demonstrates: scrollback accumulates natively (scroll up in
 your terminal!), live tail stays bounded, mode switching works.
+
+## Implementation deltas
+
+Deviations and clarifications recorded during the slice-5 build; the design
+above is otherwise implemented as written.
+
+- **Live-tail height is realized by buffer sizing, not a separate
+  `content_height` measurement.** The runtime sizes the inline back buffer to
+  `min(max_height, viewport_height)` rows at full width, and the engine renders
+  the *whole* buffer as the tail. The `min(content_height, …)` bound is honored
+  by the app declaring a frame it sizes; a dedicated intrinsic-height measurement
+  is deferred (layout's `desired_height` is not in the slice-5 scope). Growth and
+  shrink still work: the buffer re-sizes on max-height or viewport change, and a
+  height change forces a full tail repaint.
+
+- **Relative cursor addressing in the inline diff path.** Because the live region
+  floats (no absolute rows), the stable-height cell-diff path addresses columns
+  with `CR` + `CSI n C` (cursor-right) and rows with `CSI n B` (cursor-down),
+  climbing to the region top with `CSI n A` (cursor-up). These plus `CSI 0 J`
+  (erase-below) were added to `rabbitui/src/encode.rs`. Full repaints paint each
+  row from column 1 with `\r\n` between rows (no trailing `\n`, so the region
+  never self-scrolls). The engine leaves the cursor at column 1 of the tail's
+  bottom row as its frame invariant, which the next frame's cursor-up arithmetic
+  depends on.
+
+- **`Update` gained a buffered-effects sink.** `Update::commit` and
+  `Update::set_mode` record into a `RefCell<Pending>` the runtime drains between
+  frames, so `Update::new` is now three-argument (event, outcomes, pending). Test
+  and doc call sites pass `&RefCell::new(Default::default())`.
+
+- **`Terminal` only writes bytes.** Alt-screen enter/leave moved out of
+  `Terminal::open`/`close` into the engines (`AltEngine::enter`/`leave`);
+  `Terminal::open` now only enters raw mode, and the first loop iteration writes
+  the active engine's mode-entry bytes. `Terminal::write_bytes` is public (the
+  engine-driven write path; `smoke.rs` uses it to enter/leave the alt screen).
+  The panic/drop `RESTORE` still leaves the alt screen **unconditionally**, and
+  `Terminal::close` keeps an unconditional leave-alt-screen backstop (a no-op when
+  inline), so the restore guarantee is intact regardless of mode.
+
+- **The "commits before alt entry" escape-level test asserts byte emission order,
+  not post-entry scrollback.** vt100 faithfully models the alternate screen
+  *hiding* the primary screen's scrollback — so once the alt screen is entered,
+  `all_lines()` cannot see a line committed to primary scrollback (correct
+  emulator behavior, the whole point of the alt screen). The test therefore (a)
+  asserts the commit lands in primary scrollback *before* the alt entry, and (b)
+  asserts the commit bytes precede the `CSI ? 1049 h` alt-entry byte in the
+  stream — the design note's documented fallback. This is a property of what the
+  alt screen *is*, not an inline-invariant gap.
+
+- **vt100 finding: `all_lines` must walk scrollback, not just max the offset.**
+  vt100's `rows()`/`contents()` report a single viewport-height window at the
+  current scrollback offset. Reading committed history deeper than the screen
+  height requires stepping the offset from the top down and collecting the row
+  that scrolls off at each step (implemented in `VtScreen::all_lines`). This is
+  the one non-obvious wrapper over the parser; everything else is a thin
+  passthrough. No inline-invariant bug surfaced — the region mechanics (ED-down +
+  repaint, unwrapped `\r\n` commits, bottom-row cursor anchor) produced the
+  expected screen in every escape-level test, including tail shrink (no orphan
+  rows), stable-tail cell diffs (no erase-below, unchanged rows untouched), and
+  resize repaint at a new width.

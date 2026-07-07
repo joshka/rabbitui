@@ -1,0 +1,149 @@
+//! Inline mode + a fake streaming transcript: the slice-5 flagship.
+//!
+//! Demonstrates ADR 0013's inline invariant — an append-once scrollback commit
+//! channel plus a bounded live tail — and runtime mode switching. Run with
+//! `cargo run --example stream` and **scroll up in your terminal**: committed log
+//! lines accumulate in *native* scrollback (with working selection and copy),
+//! while the live tail stays pinned to the bottom and never grows past its bound.
+//!
+//! # Controls
+//!
+//! - `n` — commit the next numbered log line into scrollback (an update-time
+//!   [`Update::commit`], so it happens exactly once per press).
+//! - `m` — toggle between [`Mode::Inline`] and [`Mode::AltScreen`] live, via
+//!   [`Update::set_mode`]. In alt-screen the transcript is a full-screen buffer;
+//!   switch back to inline and the committed history is back in scrollback.
+//! - Tab — focus the input; type and press Enter to commit your own line.
+//! - `q` — quit.
+//!
+//! # A timer-free demo
+//!
+//! Real streaming (a timer emitting lines on a schedule) is slice 6; this v1 is
+//! keypress-driven so it needs no async effects. Each `n` stands in for one
+//! arrival of streamed output.
+//!
+//! Note (substrate gap): the input is only reachable via Tab (qwertty decodes no
+//! Shift-Tab yet); while it is focused it consumes printable keys, so press Tab
+//! again to cycle focus away before using `n`/`m`/`q`. See `rabbitui::input`.
+
+use std::ops::ControlFlow;
+
+use rabbitui::App;
+use rabbitui::app::{Event, Update};
+use rabbitui_core::frame::Frame;
+use rabbitui_core::id::key;
+use rabbitui_core::input::Key;
+use rabbitui_core::layout::Constraint;
+use rabbitui_core::mode::Mode;
+use rabbitui_core::outcome::Outcome;
+use rabbitui_core::style::{Color, Style};
+use rabbitui_widgets::{Text, TextInput};
+
+/// The bounded live-tail height, in rows: one input row, one status row, one hint
+/// row. Everything above is committed history the terminal owns.
+const TAIL_HEIGHT: u16 = 3;
+
+/// The app's owned state: how many lines have been committed, whether we are
+/// currently inline, the input draft, and its generation (bumped to clear the
+/// input after a submit — the slice-4 uncontrolled-input workaround).
+struct Stream {
+    committed: u32,
+    inline: bool,
+    draft: String,
+    input_generation: u64,
+}
+
+impl Default for Stream {
+    fn default() -> Self {
+        Self { committed: 0, inline: true, draft: String::new(), input_generation: 0 }
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    App::new(Stream::default(), update, view)
+        .mode(Mode::inline(TAIL_HEIGHT))
+        .run()
+        .await?;
+    Ok(())
+}
+
+/// Folds one update into the app: commit lines, toggle mode, quit.
+fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
+    // Track the input draft on every edit; a submit (Enter) commits it.
+    if let Some(Outcome::Changed(value)) = update.outcome_for(&[input_key(app)]) {
+        app.draft = value.clone();
+    }
+    if update.outcome_for(&[input_key(app)]) == Some(&Outcome::Submitted) {
+        let line = app.draft.trim().to_string();
+        if !line.is_empty() {
+            app.committed += 1;
+            update.commit(format!("{:>3}  {line}", app.committed));
+        }
+        // Re-key the input to clear it, and reset the tracked draft.
+        app.input_generation += 1;
+        app.draft.clear();
+    }
+
+    // App-level bindings fire only on keys no focused widget consumed (the input
+    // eats printables while focused, so press Tab away first — see the note).
+    if let Event::Input(input) = update.event() {
+        match input.as_key().map(|k| k.key) {
+            // Commit the next numbered log line into native scrollback.
+            Some(Key::Char('n')) => {
+                app.committed += 1;
+                update.commit(format!("{:>3}  log line", app.committed));
+            }
+            // Toggle inline ↔ alt-screen live.
+            Some(Key::Char('m')) => {
+                app.inline = !app.inline;
+                update.set_mode(if app.inline {
+                    Mode::inline(TAIL_HEIGHT)
+                } else {
+                    Mode::AltScreen
+                });
+            }
+            Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
+            _ => {}
+        }
+    }
+
+    ControlFlow::Continue(())
+}
+
+/// Declares the live tail: an input, a status line, and a hint.
+///
+/// In inline mode the frame's area is the bounded tail (the runtime sizes the
+/// buffer to `TAIL_HEIGHT`); in alt-screen it is the whole viewport. The same
+/// declaration works in both — the tail rows pin to the top of whatever area the
+/// mode provides.
+fn view(app: &Stream, frame: &mut Frame<'_>) {
+    let [input_row, status_row, hint_row] = frame.rows([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ]);
+
+    frame.widget(input_key(app), input_row, &TextInput::new().placeholder("Tab, type, Enter…"));
+
+    let mode = if app.inline { "inline" } else { "alt-screen" };
+    let status = format!("[{mode}]  {} committed", app.committed);
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status).style(Style::new().fg(Color::GREEN).bold()),
+    );
+
+    let hint = Style::new().fg(Color::Indexed(245)).italic();
+    frame.widget(
+        key("hint"),
+        hint_row,
+        &Text::new("n: commit  m: toggle mode  Tab: focus input  q: quit").style(hint),
+    );
+}
+
+/// The input's key for this frame, carrying the generation so a submit re-keys
+/// (and clears) it.
+fn input_key(app: &Stream) -> rabbitui_core::id::Key {
+    key("input").index(usize::try_from(app.input_generation).unwrap_or(usize::MAX))
+}
