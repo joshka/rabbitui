@@ -239,6 +239,85 @@ impl Theme {
         Self { styles }
     }
 
+    /// The Nord preset.
+    ///
+    /// Truecolor values from the published Nord palette (Polar Night, Snow
+    /// Storm, Frost, Aurora).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::theme::{Role, Theme};
+    ///
+    /// let nord = Theme::nord();
+    /// assert_ne!(nord, Theme::default());
+    /// ```
+    #[must_use]
+    pub const fn nord() -> Self {
+        // Palette: nord0 #2e3440 (base), nord4 #d8dee9 (text), nord3 #4c566a
+        // (muted/border), nord8 #88c0d0 (accent), nord14 #a3be8c (success),
+        // nord13 #ebcb8b (warning), nord11 #bf616a (danger), nord0 on nord8
+        // (highlight).
+        const BASE: Color = Color::Rgb(0x2e, 0x34, 0x40);
+        const TEXT: Color = Color::Rgb(0xd8, 0xde, 0xe9);
+        const MUTED: Color = Color::Rgb(0x4c, 0x56, 0x6a);
+        const FROST: Color = Color::Rgb(0x88, 0xc0, 0xd0);
+        const GREEN: Color = Color::Rgb(0xa3, 0xbe, 0x8c);
+        const YELLOW: Color = Color::Rgb(0xeb, 0xcb, 0x8b);
+        const RED: Color = Color::Rgb(0xbf, 0x61, 0x6a);
+        const BORDER: Color = Color::Rgb(0x4c, 0x56, 0x6a);
+
+        let mut styles = [Style::new(); Role::ALL.len()];
+        styles[role_index(Role::Surface)] = Style::new().fg(TEXT).bg(BASE);
+        styles[role_index(Role::Text)] = Style::new().fg(TEXT);
+        styles[role_index(Role::Muted)] = Style::new().fg(MUTED);
+        styles[role_index(Role::Accent)] = Style::new().fg(FROST);
+        styles[role_index(Role::Success)] = Style::new().fg(GREEN);
+        styles[role_index(Role::Warning)] = Style::new().fg(YELLOW);
+        styles[role_index(Role::Danger)] = Style::new().fg(RED);
+        styles[role_index(Role::Border)] = Style::new().fg(BORDER);
+        styles[role_index(Role::Highlight)] = Style::new().fg(BASE).bg(FROST);
+        Self { styles }
+    }
+
+    /// The Dracula preset.
+    ///
+    /// Truecolor values from the published Dracula palette.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::theme::{Role, Theme};
+    ///
+    /// let dracula = Theme::dracula();
+    /// assert_ne!(dracula, Theme::nord());
+    /// ```
+    #[must_use]
+    pub const fn dracula() -> Self {
+        // Palette: background #282a36, foreground #f8f8f2, comment #6272a4
+        // (muted/border), purple #bd93f9 (accent), green #50fa7b,
+        // yellow #f1fa8c, red #ff5555, background on purple (highlight).
+        const BASE: Color = Color::Rgb(0x28, 0x2a, 0x36);
+        const TEXT: Color = Color::Rgb(0xf8, 0xf8, 0xf2);
+        const COMMENT: Color = Color::Rgb(0x62, 0x72, 0xa4);
+        const PURPLE: Color = Color::Rgb(0xbd, 0x93, 0xf9);
+        const GREEN: Color = Color::Rgb(0x50, 0xfa, 0x7b);
+        const YELLOW: Color = Color::Rgb(0xf1, 0xfa, 0x8c);
+        const RED: Color = Color::Rgb(0xff, 0x55, 0x55);
+
+        let mut styles = [Style::new(); Role::ALL.len()];
+        styles[role_index(Role::Surface)] = Style::new().fg(TEXT).bg(BASE);
+        styles[role_index(Role::Text)] = Style::new().fg(TEXT);
+        styles[role_index(Role::Muted)] = Style::new().fg(COMMENT);
+        styles[role_index(Role::Accent)] = Style::new().fg(PURPLE);
+        styles[role_index(Role::Success)] = Style::new().fg(GREEN);
+        styles[role_index(Role::Warning)] = Style::new().fg(YELLOW);
+        styles[role_index(Role::Danger)] = Style::new().fg(RED);
+        styles[role_index(Role::Border)] = Style::new().fg(COMMENT);
+        styles[role_index(Role::Highlight)] = Style::new().fg(BASE).bg(PURPLE);
+        Self { styles }
+    }
+
     /// The concrete [`Style`] this theme maps `role` to.
     ///
     /// # Examples
@@ -360,5 +439,7 @@ mod tests {
     #[test]
     fn presets_differ_from_default() {
         assert_ne!(Theme::default(), Theme::catppuccin_mocha());
+        assert_ne!(Theme::nord(), Theme::dracula());
+        assert_ne!(Theme::nord(), Theme::catppuccin_mocha());
     }
 }
