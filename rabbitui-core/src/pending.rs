@@ -175,6 +175,39 @@ impl Pending {
         self.focus = Some(id);
     }
 
+    /// Merges `other` into this set: appends its commands after this set's (call
+    /// order preserved) and takes its focus request if it made one (later wins).
+    ///
+    /// This is the **unapplied-remainder** primitive (slice-7 carry-forward): a
+    /// runtime that could not fully apply a pending set against this frame's facts
+    /// — a focus request whose target only appears in the frame the request
+    /// *triggers* — carries the remainder forward and `extend`s it onto the next
+    /// update's pending set, so declare-then-focus is retried once against the
+    /// next frame's facts before the `debug_assert` fires.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::pending::Pending;
+    ///
+    /// let a = WidgetId::ROOT.child(key("a"));
+    /// let b = WidgetId::ROOT.child(key("b"));
+    /// let mut first = Pending::new();
+    /// first.request_focus(a);
+    /// let mut second = Pending::new();
+    /// second.request_focus(b);
+    /// first.extend(second);
+    /// // The later focus request wins.
+    /// assert_eq!(first.focus_request(), Some(b));
+    /// ```
+    pub fn extend(&mut self, other: Pending) {
+        self.commands.extend(other.commands);
+        if other.focus.is_some() {
+            self.focus = other.focus;
+        }
+    }
+
     /// The deferred focus request, if any (for a runtime that carries it across
     /// the reconcile boundary).
     #[must_use]
@@ -192,8 +225,45 @@ impl Pending {
     /// target is present-and-focusable in `facts`; otherwise it is dropped with a
     /// `debug_assert` naming the id (the ADR 0006 "reveal or fail loudly" clause).
     ///
+    /// This is the direct, single-shot apply (the test harness's
+    /// `apply_pending`). A runtime that wants the **one-frame retry** for
+    /// declare-then-focus uses [`apply_deferred`](Self::apply_deferred) instead,
+    /// which returns the unhonored focus request as a remainder rather than
+    /// asserting on the first miss.
+    ///
     /// This consumes the pending set (the commands are `FnOnce`).
     pub fn apply(self, store: &mut StateStore, facts: &FrameFacts, focus: &mut Focus) {
+        let remainder = self.apply_deferred(store, facts, focus);
+        if let Some(id) = remainder.focus {
+            debug_assert!(
+                false,
+                "focus request for {id:?}: not present-and-focusable in the frame after \
+                 the request (declare-then-focus failed — check the path)"
+            );
+        }
+    }
+
+    /// Applies every buffered widget command and attempts the focus request,
+    /// returning the **unapplied remainder** — a [`Pending`] carrying only the
+    /// focus request when it could not be honored this frame.
+    ///
+    /// This is the retry-aware apply (slice-7 carry-forward). Commands always run
+    /// (and `debug_assert` on a missing state row, an unambiguous app bug). The
+    /// focus request is honored when the target is present-and-focusable; when it
+    /// is not, it is returned in the remainder **without** asserting, so a runtime
+    /// can [`extend`](Self::extend) it onto the next frame's pending set and retry
+    /// once — closing the declare-then-focus edge where the target only appears in
+    /// the frame the request triggers. Only after that second miss does
+    /// [`apply`](Self::apply) fire the `debug_assert`.
+    ///
+    /// This consumes the pending set (the commands are `FnOnce`).
+    #[must_use]
+    pub fn apply_deferred(
+        self,
+        store: &mut StateStore,
+        facts: &FrameFacts,
+        focus: &mut Focus,
+    ) -> Pending {
         for (id, command) in self.commands {
             match store.get_dyn_mut(id) {
                 Some(state) => command(state),
@@ -205,17 +275,17 @@ impl Pending {
             }
         }
 
+        let mut remainder = Pending::new();
         if let Some(id) = self.focus {
             if facts.get(id).is_some_and(|entry| entry.focusable) {
                 focus.set(Some(id));
             } else {
-                debug_assert!(
-                    false,
-                    "focus request for {id:?}: not present-and-focusable in the frame after \
-                     the request (declare-then-focus failed — check the path)"
-                );
+                // Not honorable against this frame — carry it forward for one
+                // retry rather than dropping or asserting now.
+                remainder.focus = Some(id);
             }
         }
+        remainder
     }
 }
 
@@ -328,6 +398,50 @@ mod tests {
         pending.request_focus(input_id());
         pending.request_focus(WidgetId::ROOT.child(key("other")));
         assert_eq!(pending.focus_request(), Some(WidgetId::ROOT.child(key("other"))));
+    }
+
+    #[test]
+    fn extend_merges_commands_in_order_and_takes_later_focus() {
+        let (facts, mut store) = declared();
+        // First set: one command + a focus request.
+        let mut first = Pending::new();
+        first.command::<Input>(input_id(), |state| state.value.push('a'));
+        first.request_focus(WidgetId::ROOT.child(key("stale")));
+        // Second set: another command + a newer focus request.
+        let mut second = Pending::new();
+        second.command::<Input>(input_id(), |state| state.value.push('b'));
+        second.request_focus(input_id());
+        first.extend(second);
+
+        // The later focus request won.
+        assert_eq!(first.focus_request(), Some(input_id()));
+        let mut focus = Focus::new();
+        first.apply(&mut store, &facts, &mut focus);
+        // Commands applied in call order across both sets.
+        assert_eq!(value(&mut store), "ab");
+        assert_eq!(focus.current(), Some(input_id()));
+    }
+
+    #[test]
+    fn declare_then_focus_retries_against_the_next_frame() {
+        // Frame 1: the target is NOT declared, so its focus request cannot be
+        // honored. `apply_deferred` returns it as a remainder without asserting.
+        let mut store = StateStore::new();
+        let empty = FrameFacts::new();
+        let mut pending = Pending::new();
+        pending.request_focus(input_id());
+        let mut focus = Focus::new();
+        let remainder = pending.apply_deferred(&mut store, &empty, &mut focus);
+        assert_eq!(remainder.focus_request(), Some(input_id()));
+        assert!(focus.current().is_none(), "nothing focusable yet");
+
+        // Frame 2: the widget is now declared. The carried-forward remainder,
+        // extended onto the next (empty) update, applies cleanly.
+        let (facts, mut store2) = declared();
+        let mut next = Pending::new();
+        next.extend(remainder);
+        next.apply(&mut store2, &facts, &mut focus);
+        assert_eq!(focus.current(), Some(input_id()), "the retry frame honored the focus");
     }
 
     #[cfg(debug_assertions)]

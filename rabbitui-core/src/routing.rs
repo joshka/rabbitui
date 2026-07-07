@@ -62,7 +62,7 @@ use crate::facts::FrameFacts;
 use crate::frame::HandlerMap;
 use crate::geometry::Rect;
 use crate::id::WidgetId;
-use crate::input::{InputEvent, Key};
+use crate::input::{InputEvent, Key, MouseKind};
 use crate::outcome::Outcome;
 use crate::store::StateStore;
 use crate::widget::{HandleCtx, Handled, Phase};
@@ -155,8 +155,9 @@ pub struct RouteResult {
 ///
 /// The single shared routing path (ADR 0006). Steps, in order:
 ///
-/// 1. **Target.** Key events target `focus.current`. With no focus there is no
-///    target, so only the framework defaults (step 4) can act.
+/// 1. **Target.** Key events target `focus.current`. Mouse events target the
+///    topmost hit region under the pointer (layer-aware [`FrameFacts::hit`]).
+///    With no target only the framework defaults (step 4) can act.
 /// 2. **Capture.** Walk `path_to(target)` root → target, calling each ancestor's
 ///    handler (excluding the target) with [`Phase::Capture`]; a [`Handled::Yes`]
 ///    stops routing.
@@ -164,6 +165,9 @@ pub struct RouteResult {
 ///    root with [`Phase::Bubble`], stopping on [`Handled::Yes`].
 /// 4. **Framework defaults.** An unconsumed [`Key::Tab`]/[`Key::BackTab`]
 ///    advances focus through `focus_order()`, wrapping, and consumes the event.
+///    A **mouse Down** on a focusable target focuses it (consumed or not)
+///    (click-to-focus, the universal expectation), but does *not* consume the
+///    event — it falls through to the app's `update` too.
 /// 5. Anything still unconsumed is left for the app (its `update` sees the raw
 ///    event); `consumed` is `false`.
 ///
@@ -179,9 +183,26 @@ pub fn route(
     let mut dispatcher = Dispatcher { facts, handlers, store, event };
     let mut result = RouteResult::default();
 
-    // Step 1: target selection. Only key events exist in slice 3; they target
-    // the focused widget.
-    let target = focus.current.filter(|id| facts.get(*id).is_some());
+    // Step 1: target selection. Key events target the focused widget; mouse
+    // events hit-test the pointer position against the facts (layer-aware).
+    let target = match event {
+        InputEvent::Mouse(mouse) => facts.hit(mouse.position).map(|entry| entry.id),
+        _ => focus.current.filter(|id| facts.get(*id).is_some()),
+    };
+
+    // Click-to-focus runs BEFORE dispatch (Textual's rule): a left Down on a
+    // focusable target moves focus whether or not a handler consumes the
+    // click, so activation happens as the focused widget and the next Tab
+    // starts from where the user last clicked. It never consumes the event.
+    if let InputEvent::Mouse(mouse) = event {
+        if matches!(mouse.kind, MouseKind::Down) {
+            if let Some(entry) = target.and_then(|id| facts.get(id)) {
+                if entry.focusable {
+                    focus.current = Some(entry.id);
+                }
+            }
+        }
+    }
 
     if let Some(target) = target {
         let path = facts.path_to(target); // root → target, inclusive.
@@ -315,7 +336,7 @@ mod tests {
     use crate::id::key;
     use crate::widget::{RenderCtx, Widget};
 
-    /// A focusable widget that activates on Enter.
+    /// A focusable widget that activates on Enter or a left-button press.
     struct Button;
     impl Widget for Button {
         type State = ();
@@ -326,6 +347,12 @@ mod tests {
             if matches!(event.as_key().map(|k| k.key), Some(Key::Enter)) {
                 ctx.emit(Outcome::Activated);
                 return Handled::Yes;
+            }
+            if let Some(mouse) = event.as_mouse() {
+                if mouse.kind == crate::input::MouseKind::Down {
+                    ctx.emit(Outcome::Activated);
+                    return Handled::Yes;
+                }
             }
             Handled::No
         }
@@ -458,6 +485,94 @@ mod tests {
             route(&facts, &handlers, &mut focus, &mut store, &InputEvent::key(Key::Escape));
         assert!(result.consumed, "the trap consumed Escape on capture");
         assert_eq!(result.outcomes, vec![(trap, Outcome::Dismissed)]);
+    }
+
+    use crate::input::{MouseButton, MouseEvent, MouseKind};
+    use crate::geometry::Position;
+
+    #[test]
+    fn mouse_down_activates_the_button_under_the_pointer() {
+        // Two stacked one-row buttons: `a` at row 0, `b` at row 1.
+        let (facts, handlers, mut store, a, b) = two_buttons();
+        let mut focus = Focus::new();
+        // Click on row 1 → button `b` activates (Button consumes Down).
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(0, 1),
+        ));
+        let result = route(&facts, &handlers, &mut focus, &mut store, &click);
+        assert!(result.consumed);
+        assert_eq!(result.outcomes, vec![(b, Outcome::Activated)]);
+        let _ = a;
+    }
+
+    #[test]
+    fn unconsumed_click_focuses_a_focusable_target() {
+        // A widget that does not consume mouse events but is focusable.
+        struct ClickTarget;
+        impl Widget for ClickTarget {
+            type State = ();
+            fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+                ctx.focusable(true);
+            }
+            // Default handle: ignores everything, including the mouse.
+        }
+
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        frame.widget(key("hit"), Rect::from_size(Size::new(4, 1)), &ClickTarget);
+        let (facts, handlers) = frame.into_parts();
+        store.end_frame();
+
+        let hit = WidgetId::ROOT.child(key("hit"));
+        let mut focus = Focus::new();
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(1, 0),
+        ));
+        let result = route(&facts, &handlers, &mut focus, &mut store, &click);
+        // The handler ignored it, so it is unconsumed — but click-to-focus moved
+        // focus to the target so the app still sees a raw click.
+        assert!(!result.consumed);
+        assert_eq!(focus.current(), Some(hit));
+    }
+
+    #[test]
+    fn consumed_click_also_focuses_the_target() {
+        // Textual's rule: focus follows the click even when the widget consumes
+        // it — activation happens as the focused widget, and the next Tab
+        // starts from where the user last clicked.
+        let (facts, handlers, mut store, _a, b) = two_buttons();
+        let mut focus = Focus::new();
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(0, 1),
+        ));
+        let result = route(&facts, &handlers, &mut focus, &mut store, &click);
+        assert!(result.consumed);
+        assert_eq!(result.outcomes, vec![(b, Outcome::Activated)]);
+        assert_eq!(focus.current(), Some(b));
+    }
+
+    #[test]
+    fn click_outside_any_hit_region_does_nothing() {
+        let (facts, handlers, mut store, _a, _b) = two_buttons();
+        let mut focus = Focus::new();
+        // Row 5 is past both buttons; no hit region contains it.
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(0, 5),
+        ));
+        let result = route(&facts, &handlers, &mut focus, &mut store, &click);
+        assert!(!result.consumed);
+        assert!(result.outcomes.is_empty());
+        assert!(focus.current().is_none());
     }
 
     #[test]

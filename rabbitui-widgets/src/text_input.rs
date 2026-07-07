@@ -315,6 +315,11 @@ impl Widget for TextInput<'_> {
     }
 
     fn handle(state: &mut TextInputState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        // A mouse press over the field is left *unconsumed* so the router's
+        // click-to-focus focuses this focusable field (slice-7 design note:
+        // "TextInput Down → focus"). Placing the cursor at the clicked column is a
+        // recorded later refinement; for now a click only focuses, and the cursor
+        // stays where it was.
         let Some(key) = event.as_key() else { return Handled::No };
         // Modifiers other than Shift are not text editing here; leave them for
         // the app (e.g. Ctrl-C to quit).
@@ -648,6 +653,23 @@ mod tests {
         state.set_value("hello");
         assert_eq!(state.value(), "hello");
         assert_eq!(state.cursor(), "hello".len());
+    }
+
+    #[test]
+    fn mouse_press_is_unconsumed_so_router_click_to_focus_applies() {
+        use rabbitui_core::geometry::Position;
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        // The field does not consume a click (cursor placement is deferred); it
+        // returns Handled::No so the router focuses this focusable field.
+        let mut state = TextInputState::default();
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::ORIGIN,
+        ));
+        let (handled, outcomes) = dispatch(&mut state, click);
+        assert_eq!(handled, Handled::No);
+        assert!(outcomes.is_empty());
     }
 
     #[test]

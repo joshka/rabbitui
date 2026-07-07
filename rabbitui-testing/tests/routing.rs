@@ -9,13 +9,13 @@
 //! [`route`]: rabbitui_core::routing::route
 
 use rabbitui_core::frame::Frame;
-use rabbitui_core::geometry::Size;
+use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::{WidgetId, key};
-use rabbitui_core::input::Key;
+use rabbitui_core::input::{Key, MouseKind};
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_testing::TestApp;
-use rabbitui_widgets::Button;
+use rabbitui_widgets::{Button, SelectionList};
 
 /// A view with three stacked buttons keyed `a`, `b`, `c`.
 fn three_buttons(_state: &(), frame: &mut Frame<'_>) {
@@ -171,6 +171,131 @@ fn space_activates_the_focused_button() {
     let result = app.send_key(Key::Char(' '));
     assert!(result.consumed);
     assert_eq!(result.outcomes, vec![(id("a"), Outcome::Activated)]);
+}
+
+#[test]
+fn click_activates_and_focuses_the_button_under_the_pointer() {
+    let mut app = TestApp::new(Size::new(6, 4), ());
+    app.render(three_buttons);
+    // Button `b` is on row 1. A left click there activates it (Button consumes
+    // the press).
+    let result = app.send_mouse(MouseKind::Down, Position::new(0, 1));
+    assert!(result.consumed);
+    assert_eq!(result.outcomes, vec![(id("b"), Outcome::Activated)]);
+}
+
+#[test]
+fn click_to_focus_moves_focus_to_an_unconsumed_focusable_target() {
+    // A focusable widget that does *not* consume clicks — the click-to-focus path
+    // (ADR 0006 §5 / slice-7 design note: "unconsumed clicks focus the target if
+    // focusable, then fall through to update").
+    struct Panel;
+    impl rabbitui_core::widget::Widget for Panel {
+        type State = ();
+        fn render(&self, _s: &mut (), ctx: &mut rabbitui_core::widget::RenderCtx<'_>) {
+            ctx.focusable(true);
+        }
+        // Default handle: ignores the click, so it is unconsumed.
+    }
+    fn view(_s: &(), frame: &mut Frame<'_>) {
+        frame.widget(key("panel"), frame.area(), &Panel);
+    }
+    let mut app = TestApp::new(Size::new(8, 3), ());
+    app.render(view);
+    assert_eq!(app.focus(), None);
+    // The click is unconsumed (the panel ignores it) but focuses the panel.
+    let result = app.send_mouse(MouseKind::Down, Position::new(0, 1));
+    assert!(!result.consumed, "the panel ignored the click");
+    assert_eq!(app.focus(), Some(id("panel")), "click-to-focus moved focus to the target");
+}
+
+#[test]
+fn wheel_over_a_list_moves_the_selection() {
+    fn view(_s: &(), frame: &mut Frame<'_>) {
+        let items: Vec<String> = (0..10).map(|i| format!("row{i}")).collect();
+        frame.widget(key("list"), frame.area(), &SelectionList::new(items));
+    }
+    let mut app = TestApp::new(Size::new(8, 4), ());
+    app.render(view);
+    // A wheel-down notch over the list advances the selection and emits Selected.
+    let result = app.send_mouse(MouseKind::Scroll(1), Position::new(0, 0));
+    assert_eq!(result.outcomes, vec![(id("list"), Outcome::Selected(1))]);
+}
+
+#[test]
+fn modal_layer_contains_focus_traversal() {
+    // A base button plus a modal layer with two buttons. While the modal exists,
+    // Tab cycles only the modal's buttons — the base is unreachable.
+    fn view(_s: &(), frame: &mut Frame<'_>) {
+        let [base_area, _] = frame.rows([Constraint::Length(1), Constraint::Fill(1)]);
+        frame.widget(key("base"), base_area, &Button::new("Base"));
+        frame.layer(key("modal"), |modal| {
+            let [ok_area, cancel_area] =
+                modal.rows([Constraint::Length(1), Constraint::Length(1)]);
+            modal.widget(key("ok"), ok_area, &Button::new("OK"));
+            modal.widget(key("cancel"), cancel_area, &Button::new("Cancel"));
+        });
+    }
+
+    let ok = WidgetId::ROOT.child(key("modal")).child(key("ok"));
+    let cancel = WidgetId::ROOT.child(key("modal")).child(key("cancel"));
+
+    let mut app = TestApp::new(Size::new(10, 4), ());
+    app.render(view);
+    // Tab lands on the first modal focusable, never the base.
+    app.send_key(Key::Tab);
+    assert_eq!(app.focus(), Some(ok));
+    app.send_key(Key::Tab);
+    assert_eq!(app.focus(), Some(cancel));
+    app.send_key(Key::Tab);
+    assert_eq!(app.focus(), Some(ok), "Tab wraps within the modal, never reaching the base");
+    // The base button is never focused while the modal exists.
+    assert_ne!(app.focus(), Some(id("base")));
+}
+
+#[test]
+fn base_widget_gets_no_key_while_modal_exists() {
+    // A base button that would activate on Enter, and a modal whose OK button is
+    // focused. Enter must reach the modal's OK, not the base.
+    fn view(_s: &(), frame: &mut Frame<'_>) {
+        let [base_area, _] = frame.rows([Constraint::Length(1), Constraint::Fill(1)]);
+        frame.widget(key("base"), base_area, &Button::new("Base"));
+        frame.layer(key("modal"), |modal| {
+            modal.widget(key("ok"), modal.area(), &Button::new("OK"));
+        });
+    }
+    let ok = WidgetId::ROOT.child(key("modal")).child(key("ok"));
+    let mut app = TestApp::new(Size::new(10, 4), ());
+    app.render(view);
+    app.send_key(Key::Tab); // focuses the modal's OK (top layer only)
+    assert_eq!(app.focus(), Some(ok));
+    let result = app.send_key(Key::Enter);
+    assert_eq!(result.outcomes, vec![(ok, Outcome::Activated)]);
+    // The base never saw the Enter.
+    assert!(result.outcomes.iter().all(|(w, _)| *w != id("base")));
+}
+
+#[test]
+fn dismissing_a_modal_reconciles_focus_to_the_base() {
+    // A view that shows the modal only while `open`. Focus starts in the modal;
+    // after it closes, focus reconciles to the surviving base focusable.
+    fn view(open: &bool, frame: &mut Frame<'_>) {
+        let [base_area, _] = frame.rows([Constraint::Length(1), Constraint::Fill(1)]);
+        frame.widget(key("base"), base_area, &Button::new("Base"));
+        if *open {
+            frame.layer(key("modal"), |modal| {
+                modal.widget(key("ok"), modal.area(), &Button::new("OK"));
+            });
+        }
+    }
+    let ok = WidgetId::ROOT.child(key("modal")).child(key("ok"));
+    let mut app = TestApp::new(Size::new(10, 4), true);
+    app.render(view);
+    app.send_key(Key::Tab);
+    assert_eq!(app.focus(), Some(ok), "focus is trapped in the modal");
+    // Close the modal: `ok` vanishes, so focus reconciles to the base survivor.
+    app.send(|open| *open = false, view);
+    assert_eq!(app.focus(), Some(id("base")), "focus reconciles to the base when the modal goes");
 }
 
 #[test]

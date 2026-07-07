@@ -8,9 +8,11 @@
 //!   (Textual `@work(exclusive=True)`), so **rapid typing completes far fewer
 //!   fetches than keystrokes**; a completed-fetch counter proves it.
 //! - **A stream "subscription".** `t` toggles a clock ticker — a
-//!   [`Cmd::stream`] over a hand-rolled 1-second interval — whose messages update
-//!   a live clock line. Stopping it drops the stream (a subscription is just a
-//!   long stream the app chose to start, ADR 0005).
+//!   [`Cmd::stream`] over a hand-rolled 1-second interval, spawned into the
+//!   `"clock"` group — whose messages update a live clock line. Toggling it off
+//!   spawns a [`Cmd::cancel_group`] that aborts the stream for good (the
+//!   stream-stop primitive, ADR 0005 / slice 7), rather than leaving it running
+//!   with its ticks ignored.
 //! - **A widget command.** `Ctrl-L` clears the input via
 //!   `update.widget::<TextInput>(…, |s| s.clear())`, applied between frames.
 //! - **Contained failures.** Effect panics arrive as [`Event::EffectFailed`] and
@@ -117,11 +119,14 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 Key::Char('t') if !k.modifiers.ctrl => {
                     app.ticking = !app.ticking;
                     if app.ticking {
-                        update.spawn(Cmd::stream(Ticker::every(Duration::from_secs(1))));
+                        // Start the ticker under the "clock" group so it can be
+                        // aborted on demand.
+                        update.spawn(Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"));
+                    } else {
+                        // Stop it for good: cancel_group aborts the stream task
+                        // without replacing it (the stream-stop primitive).
+                        update.spawn(Cmd::cancel_group("clock"));
                     }
-                    // Stopping is implicit: the stream keeps running but we ignore
-                    // its ticks. (A real app would carry a stop handle; a stream
-                    // that must die on demand is future sugar — ADR 0005.)
                 }
                 Key::Char('q') | Key::Escape => return ControlFlow::Break(()),
                 _ => {}

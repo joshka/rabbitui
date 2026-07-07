@@ -51,7 +51,7 @@ use std::any::Any;
 use std::collections::HashMap;
 
 use crate::buffer::Buffer;
-use crate::facts::{FactEntry, FrameFacts};
+use crate::facts::{FactEntry, FrameFacts, VisibilityRequest};
 use crate::geometry::Rect;
 use crate::id::{Key, WidgetId};
 use crate::input::InputEvent;
@@ -115,6 +115,10 @@ pub struct Frame<'a> {
     /// The active theme, lent to every widget's [`RenderCtx`] so it can resolve
     /// roles to styles (ADR 0007).
     theme: &'a Theme,
+    /// The overlay layer widgets declared into this frame land in. Base = 0;
+    /// [`layer`](Self::layer) increments it for the scope it brackets (slice-7
+    /// layers, ADR 0003 delta).
+    layer: u8,
     /// Facts collected as widgets declare, in declaration order.
     facts: FrameFacts,
     /// Handler thunks registered as widgets declare.
@@ -136,6 +140,7 @@ impl<'a> Frame<'a> {
             parent: WidgetId::ROOT,
             focus: None,
             theme: DEFAULT_THEME,
+            layer: 0,
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
@@ -159,6 +164,7 @@ impl<'a> Frame<'a> {
             parent: WidgetId::ROOT,
             focus,
             theme: DEFAULT_THEME,
+            layer: 0,
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
@@ -201,6 +207,7 @@ impl<'a> Frame<'a> {
             parent: WidgetId::ROOT,
             focus,
             theme,
+            layer: 0,
             facts: FrameFacts::new(),
             handlers: HandlerMap::new(),
         }
@@ -241,14 +248,23 @@ impl<'a> Frame<'a> {
         let bounds = Rect::from_size(self.buffer.size());
         let clipped = area.intersection(bounds);
 
-        let focusable = {
+        let (focusable, visibility) = {
             let state = self.store.get_or_default::<W::State>(id);
             let mut ctx = RenderCtx::new_themed(self.buffer, area, focused, self.theme);
             widget.render(state, &mut ctx);
-            ctx.is_focusable()
+            (ctx.is_focusable(), ctx.requested_visibility())
         };
 
-        self.facts.push(FactEntry { id, parent: self.parent, area: clipped, focusable });
+        self.facts.push(FactEntry {
+            id,
+            parent: self.parent,
+            area: clipped,
+            focusable,
+            layer: self.layer,
+        });
+        if let Some(area) = visibility {
+            self.facts.push_visibility(VisibilityRequest { id, area });
+        }
         self.handlers.insert(id, handler_thunk::<W>());
     }
 
@@ -266,11 +282,71 @@ impl<'a> Frame<'a> {
             parent: scope_id,
             focus: self.focus,
             theme: self.theme,
+            layer: self.layer,
             facts: std::mem::take(&mut self.facts),
             handlers: std::mem::take(&mut self.handlers),
         };
         scope(&mut child);
         // Reclaim the accumulated facts and handlers from the child scope.
+        self.facts = child.facts;
+        self.handlers = child.handlers;
+    }
+
+    /// Declares an **overlay layer**: widgets declared inside `scope` land in a
+    /// layer one above this frame's, and compose their identities under `key`
+    /// (a scope, exactly like [`scoped`](Self::scoped)) so a modal gets its own
+    /// identity subtree.
+    ///
+    /// Layers are the slice-7 overlay primitive (ADR 0003 delta). Declaration
+    /// order is already the painter's algorithm in one buffer, so a layer needs
+    /// no separate compositing pass; what it adds is **input containment**:
+    ///
+    /// - Hit-testing prefers the highest layer, so a click lands on the modal,
+    ///   not the base beneath it ([`FrameFacts::hit`]).
+    /// - Focus traversal is restricted to the topmost layer, so Tab cycles only
+    ///   the modal's focusables while it exists, and reconciles back to the base
+    ///   when the layer disappears ([`FrameFacts::focus_order`]).
+    ///
+    /// A modal is therefore a `layer(key, |f| …)` that declares its backdrop and
+    /// controls; while it is declared, the base is inert to keyboard and its
+    /// clicks are swallowed by the overlay's hit region. Painting a dimming wash
+    /// over the base is a widgets-crate utility, not core.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::Size;
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::store::StateStore;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(20, 5));
+    /// let mut store = StateStore::new();
+    /// store.begin_frame();
+    /// let mut frame = Frame::new(&mut buffer, &mut store);
+    /// frame.layer(key("confirm"), |modal| {
+    ///     // declare the modal's widgets here; they land in layer 1.
+    ///     let _ = modal;
+    /// });
+    /// # let _ = frame.finish();
+    /// store.end_frame();
+    /// ```
+    pub fn layer(&mut self, key: Key, scope: impl FnOnce(&mut Frame<'_>)) {
+        let scope_id = self.parent.child(key);
+        let mut child = Frame {
+            buffer: self.buffer,
+            store: self.store,
+            parent: scope_id,
+            focus: self.focus,
+            theme: self.theme,
+            layer: self.layer.saturating_add(1),
+            facts: std::mem::take(&mut self.facts),
+            handlers: std::mem::take(&mut self.handlers),
+        };
+        scope(&mut child);
+        // Reclaim the accumulated facts and handlers; the base frame's own layer
+        // is unchanged, so widgets declared after this call stay on the base.
         self.facts = child.facts;
         self.handlers = child.handlers;
     }
@@ -392,6 +468,82 @@ mod tests {
         let panel = WidgetId::ROOT.child(key("panel"));
         let btn = panel.child(key("btn"));
         assert_eq!(facts.get(btn).unwrap().parent, panel);
+    }
+
+    #[test]
+    fn layer_tags_facts_and_restricts_focus_to_top() {
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        // A base focusable, then a modal layer with two focusables.
+        frame.widget(key("base"), Rect::from_size(Size::new(8, 1)), &Focusable);
+        frame.layer(key("modal"), |modal| {
+            modal.widget(key("ok"), Rect::from_size(Size::new(4, 1)), &Focusable);
+            modal.widget(key("cancel"), Rect::from_size(Size::new(4, 1)), &Focusable);
+        });
+        let facts = frame.finish();
+        store.end_frame();
+
+        let base = WidgetId::ROOT.child(key("base"));
+        let modal = WidgetId::ROOT.child(key("modal"));
+        let ok = modal.child(key("ok"));
+        let cancel = modal.child(key("cancel"));
+
+        // The base sits on layer 0; the modal's widgets on layer 1.
+        assert_eq!(facts.get(base).unwrap().layer, 0);
+        assert_eq!(facts.get(ok).unwrap().layer, 1);
+        assert_eq!(facts.get(ok).unwrap().parent, modal);
+        assert_eq!(facts.top_layer(), 1);
+
+        // Focus traversal is restricted to the top layer — the base is unreachable.
+        let order: Vec<_> = facts.focus_order().map(|e| e.id).collect();
+        assert_eq!(order, vec![ok, cancel]);
+    }
+
+    #[test]
+    fn layer_hit_prefers_the_overlay() {
+        let mut buffer = Buffer::new(Size::new(8, 4));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        let full = Rect::from_size(Size::new(8, 4));
+        frame.widget(key("base"), full, &Focusable);
+        frame.layer(key("modal"), |modal| {
+            modal.widget(key("backdrop"), full, &Focusable);
+        });
+        let facts = frame.finish();
+        store.end_frame();
+
+        let backdrop = WidgetId::ROOT.child(key("modal")).child(key("backdrop"));
+        // A click anywhere over both lands on the higher-layer backdrop.
+        assert_eq!(facts.hit(Position::new(2, 2)).unwrap().id, backdrop);
+    }
+
+    struct VisibilityRequester;
+    impl Widget for VisibilityRequester {
+        type State = ();
+        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+            ctx.request_visibility(Rect::from_size(Size::new(2, 1)));
+        }
+    }
+
+    #[test]
+    fn widget_visibility_request_is_recorded_as_a_fact() {
+        let mut buffer = Buffer::new(Size::new(8, 2));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        let area = Rect::new(Position::new(1, 1), Size::new(4, 1));
+        frame.widget(key("scroll"), area, &VisibilityRequester);
+        let facts = frame.finish();
+        store.end_frame();
+
+        let id = WidgetId::ROOT.child(key("scroll"));
+        let request = facts.visibility_requests().next().unwrap();
+        assert_eq!(request.id, id);
+        // The area-relative request is resolved to the widget's absolute origin.
+        assert_eq!(request.area.origin, Position::new(1, 1));
     }
 
     struct FocusPainter;

@@ -99,12 +99,15 @@ type BoxFuture<M> = Pin<Box<dyn Future<Output = M> + Send>>;
 /// A boxed stream producing many messages.
 type BoxStream<M> = Pin<Box<dyn Stream<Item = M> + Send>>;
 
-/// What a [`Cmd`] carries: a single future, or a stream of messages.
+/// What a [`Cmd`] carries: a single future, a stream of messages, or a request
+/// to cancel a group's live task without replacing it.
 enum Kind<M> {
     /// A future yielding exactly one message.
     Future(BoxFuture<M>),
     /// A stream yielding zero or more messages, ending when the stream does.
     Stream(BoxStream<M>),
+    /// Abort the named group's live task, if any, and start nothing.
+    Cancel,
 }
 
 /// An async effect the app hands to the runtime: a future or a stream of
@@ -169,6 +172,29 @@ impl<M: Send + 'static> Cmd<M> {
             tokio::time::sleep(duration).await;
             f()
         })
+    }
+
+    /// A command that **aborts** the named group's live task without starting a
+    /// replacement — the stream-stop primitive (ADR 0005 / slice-7 carry-forward).
+    ///
+    /// [`group`](Self::group) starts a new task *and* cancels the group's previous
+    /// one; `cancel_group` is the missing half: it cancels the group's task and
+    /// starts nothing. This is how a toggled subscription (a clock ticker, a live
+    /// feed) is stopped on demand rather than left running with its messages
+    /// ignored. Spawning a `cancel_group("clock")` after `Cmd::stream(...).group("clock")`
+    /// stops the stream for good; the aborted task delivers no further messages.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui::effect::Cmd;
+    ///
+    /// // Later: stop the ticker started under the "clock" group.
+    /// let stop: Cmd<u32> = Cmd::cancel_group("clock");
+    /// let _ = stop;
+    /// ```
+    pub fn cancel_group(name: impl Into<String>) -> Self {
+        Self { kind: Kind::Cancel, group: Some(name.into()) }
     }
 
     /// Tags this command with a **cancel-previous** group.
@@ -237,6 +263,18 @@ impl<M: Send + 'static> Effects<M> {
     /// sends an [`EffectError`] (with the group name) instead of crashing.
     pub fn spawn(&mut self, cmd: Cmd<M>) {
         let Cmd { kind, group } = cmd;
+
+        // A cancel-group command aborts the group's live task and starts nothing.
+        // Removing the entry lets the group be re-armed later by a fresh spawn.
+        if let Kind::Cancel = kind {
+            if let Some(name) = group {
+                if let Some(previous) = self.groups.remove(&name) {
+                    previous.abort();
+                }
+            }
+            return;
+        }
+
         let tx = self.tx.clone();
         let group_for_error = group.clone();
 
@@ -266,6 +304,8 @@ impl<M: Send + 'static> Effects<M> {
                 })
                 .await;
             }),
+            // Handled above with an early return; the match cannot reach here.
+            Kind::Cancel => unreachable!("Kind::Cancel is handled before spawning a task"),
         };
 
         // Watch the task: on a panic, surface an `EffectError` on the mailbox so
@@ -433,6 +473,29 @@ mod tests {
         assert_eq!(effects.recv().await, Some(Outbox::Message("second")));
         assert!(effects.try_recv().is_none());
         assert_eq!(effects.group_count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancel_group_aborts_the_live_task_without_replacing_it() {
+        let mut effects = Effects::new();
+        // Start a grouped fetch, then cancel the group before it fires.
+        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "result").group("search"));
+        assert_eq!(effects.group_count(), 1);
+        effects.spawn(Cmd::<&str>::cancel_group("search"));
+        // The group is gone and nothing replaced the task.
+        assert_eq!(effects.group_count(), 0);
+        tokio::time::advance(Duration::from_millis(300)).await;
+        // The aborted task delivers no message.
+        assert!(effects.try_recv().is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_group_of_an_absent_group_is_a_no_op() {
+        let mut effects = Effects::<&str>::new();
+        // Cancelling a group that was never spawned into does nothing, cleanly.
+        effects.spawn(Cmd::cancel_group("nope"));
+        assert_eq!(effects.group_count(), 0);
+        assert!(effects.try_recv().is_none());
     }
 
     #[tokio::test]

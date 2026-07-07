@@ -9,7 +9,10 @@
 //! headless test harness.
 //!
 //! [`FrameFacts`] preserves declaration order, which doubles as paint order and
-//! (until layers land, ADR 0006 §5) approximates z-order for hit-testing.
+//! last-declared-wins z-order *within a layer*. Layers (slice 7, ADR 0003 delta)
+//! add a coarser z-order on top: each entry carries a [`layer`](FactEntry::layer)
+//! (base = 0, incremented per nested [`Frame::layer`](crate::frame::Frame::layer)
+//! declaration), and hit-testing and focus traversal prefer the topmost layer.
 //!
 //! # Examples
 //!
@@ -27,12 +30,14 @@
 //!     parent: WidgetId::ROOT,
 //!     area: Rect::new(Position::ORIGIN, Size::new(4, 1)),
 //!     focusable: true,
+//!     layer: 0,
 //! });
 //! facts.push(FactEntry {
 //!     id: b,
 //!     parent: WidgetId::ROOT,
 //!     area: Rect::new(Position::new(0, 1), Size::new(4, 1)),
 //!     focusable: false,
+//!     layer: 0,
 //! });
 //!
 //! assert_eq!(facts.get(a).unwrap().parent, WidgetId::ROOT);
@@ -56,6 +61,28 @@ pub struct FactEntry {
     pub area: Rect,
     /// Whether the widget can hold keyboard focus.
     pub focusable: bool,
+    /// The overlay layer this widget was declared in. Base = 0; each nested
+    /// [`Frame::layer`](crate::frame::Frame::layer) increments it. Hit-testing
+    /// prefers the highest layer and focus traversal is restricted to it
+    /// (slice 7, ADR 0003 delta).
+    pub layer: u8,
+}
+
+/// A widget's request to be scrolled into view, recorded as a fact.
+///
+/// Per the slice-7 design note this is **plumbing only**: a widget calls
+/// [`RenderCtx::request_visibility`](crate::widget::RenderCtx::request_visibility)
+/// with an area-relative rectangle it wants revealed, the frame records it here
+/// keyed by the widget's identity, and a future scrollable container consumes it.
+/// No generic container exists yet, so the fact is recorded and queryable
+/// ([`FrameFacts::visibility_requests`]) but nothing acts on it this slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VisibilityRequest {
+    /// The requesting widget's identity.
+    pub id: WidgetId,
+    /// The rectangle to reveal, in absolute buffer coordinates (the frame
+    /// resolves the widget's area-relative request against its area).
+    pub area: Rect,
 }
 
 /// The facts collected while declaring one frame.
@@ -66,19 +93,42 @@ pub struct FactEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FrameFacts {
     entries: Vec<FactEntry>,
+    visibility: Vec<VisibilityRequest>,
 }
 
 impl FrameFacts {
     /// Creates an empty facts record.
     #[must_use]
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self { entries: Vec::new(), visibility: Vec::new() }
     }
 
     /// Records one widget's facts. Called by [`Frame`](crate::frame::Frame) as
     /// each widget is declared, so entries accumulate in declaration order.
     pub fn push(&mut self, entry: FactEntry) {
         self.entries.push(entry);
+    }
+
+    /// Records a widget's scroll-into-view request (slice-7 plumbing).
+    ///
+    /// Called by [`Frame`](crate::frame::Frame) when a widget invokes
+    /// [`RenderCtx::request_visibility`](crate::widget::RenderCtx::request_visibility).
+    /// The requests are queryable through [`visibility_requests`](Self::visibility_requests);
+    /// no container consumes them yet.
+    pub fn push_visibility(&mut self, request: VisibilityRequest) {
+        self.visibility.push(request);
+    }
+
+    /// The scroll-into-view requests recorded this frame, in declaration order.
+    pub fn visibility_requests(&self) -> impl Iterator<Item = &VisibilityRequest> {
+        self.visibility.iter()
+    }
+
+    /// The highest layer any entry declared this frame (0 when there are no
+    /// entries, or none declared above the base).
+    #[must_use]
+    pub fn top_layer(&self) -> u8 {
+        self.entries.iter().map(|entry| entry.layer).max().unwrap_or(0)
     }
 
     /// True if no facts were recorded (an empty frame, or before the first
@@ -110,20 +160,32 @@ impl FrameFacts {
 
     /// The topmost entry whose area contains `position`, or `None`.
     ///
-    /// "Topmost" is the **last** declared containing entry, since declaration
-    /// order approximates z-order until layers land (ADR 0006 §5). This is the
-    /// hit-test mouse routing will use in a later slice.
+    /// "Topmost" prefers the **highest layer** first (an overlay swallows clicks
+    /// over the base beneath it), then the **last** declared containing entry
+    /// within that layer, since declaration order is last-wins z-order inside a
+    /// layer. This is the hit-test mouse routing uses (ADR 0006 §5, slice-7
+    /// layers).
     #[must_use]
     pub fn hit(&self, position: Position) -> Option<&FactEntry> {
-        self.entries.iter().rev().find(|entry| entry.area.contains(position))
+        // Scan from the highest layer down; within a layer prefer the last
+        // declared (topmost) containing entry.
+        self.entries
+            .iter()
+            .filter(|entry| entry.area.contains(position))
+            .max_by_key(|entry| entry.layer)
     }
 
-    /// The focusable entries in declaration order — the tab-traversal order.
+    /// The focusable entries of the **topmost layer**, in declaration order —
+    /// the tab-traversal order.
     ///
     /// Traversal derives from facts each frame (ADR 0006 §2), not from a
-    /// retained tab-index attribute.
+    /// retained tab-index attribute. When a modal declares a higher layer,
+    /// traversal is restricted to it (containment): Tab cycles only the modal's
+    /// focusables while it exists, and reconciles back to the base when it
+    /// disappears (slice-7 layers).
     pub fn focus_order(&self) -> impl Iterator<Item = &FactEntry> {
-        self.entries.iter().filter(|entry| entry.focusable)
+        let top = self.top_layer();
+        self.entries.iter().filter(move |entry| entry.focusable && entry.layer == top)
     }
 
     /// The path from the root to `id` (inclusive), following parent links.
@@ -166,7 +228,17 @@ mod tests {
     }
 
     fn entry(id: WidgetId, parent: WidgetId, area: Rect, focusable: bool) -> FactEntry {
-        FactEntry { id, parent, area, focusable }
+        FactEntry { id, parent, area, focusable, layer: 0 }
+    }
+
+    fn layered(
+        id: WidgetId,
+        parent: WidgetId,
+        area: Rect,
+        focusable: bool,
+        layer: u8,
+    ) -> FactEntry {
+        FactEntry { id, parent, area, focusable, layer }
     }
 
     #[test]
@@ -212,6 +284,52 @@ mod tests {
         facts.push(entry(scope, WidgetId::ROOT, Rect::default(), false));
         facts.push(entry(leaf, scope, Rect::default(), true));
         assert_eq!(facts.path_to(leaf), vec![WidgetId::ROOT, scope, leaf]);
+    }
+
+    #[test]
+    fn hit_prefers_highest_layer_over_last_declared() {
+        // A base entry declared last would win by declaration order, but an
+        // overlay on a higher layer sits on top and takes the click.
+        let mut facts = FrameFacts::new();
+        let base = id("base");
+        let modal = id("modal");
+        let area = Rect::from_size(Size::new(4, 4));
+        facts.push(layered(modal, WidgetId::ROOT, area, false, 1));
+        facts.push(layered(base, WidgetId::ROOT, area, false, 0));
+        // Even though `base` was declared later, the higher layer wins.
+        assert_eq!(facts.hit(Position::new(1, 1)).unwrap().id, modal);
+    }
+
+    #[test]
+    fn focus_order_is_restricted_to_the_top_layer() {
+        let mut facts = FrameFacts::new();
+        let base = id("base");
+        let ok = id("ok");
+        let cancel = id("cancel");
+        facts.push(layered(base, WidgetId::ROOT, Rect::default(), true, 0));
+        facts.push(layered(ok, WidgetId::ROOT, Rect::default(), true, 1));
+        facts.push(layered(cancel, WidgetId::ROOT, Rect::default(), true, 1));
+        // A modal (layer 1) exists, so traversal never reaches the base focusable.
+        let order: Vec<_> = facts.focus_order().map(|e| e.id).collect();
+        assert_eq!(order, vec![ok, cancel]);
+        assert_eq!(facts.top_layer(), 1);
+    }
+
+    #[test]
+    fn visibility_requests_are_recorded_in_order() {
+        let mut facts = FrameFacts::new();
+        let a = id("a");
+        let b = id("b");
+        facts.push_visibility(VisibilityRequest {
+            id: a,
+            area: Rect::from_size(Size::new(2, 1)),
+        });
+        facts.push_visibility(VisibilityRequest {
+            id: b,
+            area: Rect::from_size(Size::new(3, 1)),
+        });
+        let ids: Vec<_> = facts.visibility_requests().map(|request| request.id).collect();
+        assert_eq!(ids, vec![a, b]);
     }
 
     #[test]

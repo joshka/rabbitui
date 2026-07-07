@@ -23,6 +23,17 @@ pub const BEGIN_SYNC: &[u8] = b"\x1b[?2026h";
 /// frame in one update.
 pub const END_SYNC: &[u8] = b"\x1b[?2026l";
 
+/// Enable mouse reporting: button-event tracking (mode 1000) plus SGR extended
+/// coordinates (mode 1006), so presses/releases arrive as `CSI < b;x;y M/m`
+/// reports the facade bridges into [`MouseEvent`](rabbitui_core::input::MouseEvent).
+/// Emitted at mode entry when mouse capture is on (ADR 0006 §5, slice-7 design
+/// note).
+pub const ENABLE_MOUSE: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+/// Disable mouse reporting: the reverse of [`ENABLE_MOUSE`], in reverse order.
+/// Emitted at mode leave and unconditionally in [`RESTORE`] (disabling when it
+/// was never enabled is harmless).
+pub const DISABLE_MOUSE: &[u8] = b"\x1b[?1006l\x1b[?1000l";
+
 /// Hide the cursor (`CSI ? 25 l`).
 pub const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
 /// Show the cursor (`CSI ? 25 h`).
@@ -38,14 +49,17 @@ pub const ERASE_BELOW: &[u8] = b"\x1b[0J";
 /// Move the cursor to column 1 of the current row (`CR`).
 pub const CARRIAGE_RETURN: &[u8] = b"\r";
 
-/// The restore-of-last-resort sequence: leave alt screen, reset styles, show
-/// the cursor. Written on drop and from the panic hook; every byte here must
-/// be safe to emit unconditionally on any terminal state.
+/// The restore-of-last-resort sequence: disable mouse reporting, leave alt
+/// screen, reset styles, show the cursor. Written on drop and from the panic
+/// hook; every byte here must be safe to emit unconditionally on any terminal
+/// state.
 ///
 /// The leave-alt-screen byte is unconditional by design (ADR 0013): whichever
 /// mode was active, RESTORE must always leave the alternate screen so a panic
-/// mid-alt-screen never strands the user there.
-pub const RESTORE: &[u8] = b"\x1b[?1049l\x1b[0m\x1b[?25h";
+/// mid-alt-screen never strands the user there. Mouse disable is likewise
+/// unconditional (ADR 0006 §5) — disabling when it was never enabled is a
+/// harmless no-op, and leaving mouse capture on would break the user's shell.
+pub const RESTORE: &[u8] = b"\x1b[?1006l\x1b[?1000l\x1b[?1049l\x1b[0m\x1b[?25h";
 
 /// Encodes "move the cursor up `n` rows" (`CSI n A`). A zero count emits
 /// nothing (the cursor is already on the target row), matching terminals that
@@ -172,6 +186,25 @@ mod tests {
     fn sgr_encodes_indexed_colors() {
         let style = Style::new().bg(Color::Indexed(200));
         assert_eq!(sgr(style), b"\x1b[0;48;5;200m".as_slice());
+    }
+
+    #[test]
+    fn enable_mouse_sets_modes_1000_and_1006() {
+        assert_eq!(ENABLE_MOUSE, b"\x1b[?1000h\x1b[?1006h".as_slice());
+    }
+
+    #[test]
+    fn disable_mouse_clears_modes_in_reverse() {
+        assert_eq!(DISABLE_MOUSE, b"\x1b[?1006l\x1b[?1000l".as_slice());
+    }
+
+    #[test]
+    fn restore_disables_mouse_before_leaving_alt_screen() {
+        // RESTORE must start by disabling mouse (unconditionally safe), then leave
+        // the alt screen, reset, and show the cursor.
+        assert!(RESTORE.starts_with(DISABLE_MOUSE));
+        assert!(RESTORE.windows(LEAVE_ALT_SCREEN.len()).any(|w| w == LEAVE_ALT_SCREEN));
+        assert!(RESTORE.ends_with(SHOW_CURSOR));
     }
 
     #[test]

@@ -6,9 +6,9 @@
 //! these, owning all Escape/CSI interpretation; core routes events expressed in
 //! this vocabulary through frame facts to widget handlers.
 //!
-//! Only key input exists in slice 3. Mouse, paste, and focus events arrive in
-//! later slices (ADR 0006 §5–7); [`InputEvent`] is `#[non_exhaustive]` so
-//! adding them is not a breaking change.
+//! Key input landed in slice 3; **mouse** input lands in slice 7 (ADR 0006 §5).
+//! Paste and focus events arrive in later slices (§6–7); [`InputEvent`] is
+//! `#[non_exhaustive]` so adding them is not a breaking change.
 //!
 //! # Examples
 //!
@@ -23,16 +23,37 @@
 //! let ctrl_c = InputEvent::Key(KeyEvent::new(Key::Char('c')).ctrl());
 //! assert!(ctrl_c.as_key().unwrap().modifiers.ctrl);
 //! ```
+//!
+//! A mouse press carries its position, so the runtime can hit-test it against
+//! the previous frame's facts (ADR 0006 §5):
+//!
+//! ```
+//! use rabbitui_core::geometry::Position;
+//! use rabbitui_core::input::{InputEvent, MouseButton, MouseEvent, MouseKind};
+//!
+//! let click = InputEvent::Mouse(MouseEvent::new(
+//!     MouseKind::Down,
+//!     MouseButton::Left,
+//!     Position::new(4, 2),
+//! ));
+//! assert_eq!(click.as_mouse().unwrap().position, Position::new(4, 2));
+//! assert!(click.as_key().is_none());
+//! ```
+
+use crate::geometry::Position;
 
 /// One decoded input event routed through the frame.
 ///
-/// Slice 3 carries only [`InputEvent::Key`]; mouse and paste events join it in
-/// later slices, which is why this enum is `#[non_exhaustive]`.
+/// Slice 3 carried only [`InputEvent::Key`]; slice 7 adds [`InputEvent::Mouse`].
+/// Paste and focus events join later, which is why this enum is
+/// `#[non_exhaustive]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InputEvent {
     /// A key press.
     Key(KeyEvent),
+    /// A mouse press, release, drag, or wheel scroll.
+    Mouse(MouseEvent),
 }
 
 impl InputEvent {
@@ -64,8 +85,113 @@ impl InputEvent {
     pub const fn as_key(&self) -> Option<&KeyEvent> {
         match self {
             Self::Key(event) => Some(event),
+            Self::Mouse(_) => None,
         }
     }
+
+    /// The mouse event, if this is a mouse press, drag, or scroll.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::geometry::Position;
+    /// use rabbitui_core::input::{InputEvent, MouseButton, MouseEvent, MouseKind};
+    ///
+    /// let event = InputEvent::Mouse(MouseEvent::new(
+    ///     MouseKind::Down,
+    ///     MouseButton::Left,
+    ///     Position::ORIGIN,
+    /// ));
+    /// assert_eq!(event.as_mouse().unwrap().kind, MouseKind::Down);
+    /// ```
+    #[must_use]
+    pub const fn as_mouse(&self) -> Option<&MouseEvent> {
+        match self {
+            Self::Mouse(event) => Some(event),
+            Self::Key(_) => None,
+        }
+    }
+}
+
+/// A mouse press, release, drag, or wheel scroll at a cell position.
+///
+/// Per `docs/adr/0006-input-focus-events.md` §5, pointer events target the
+/// topmost hit region under [`position`](Self::position) (a facts lookup against
+/// the last rendered frame), then dispatch capture → target → bubble exactly
+/// like keys. The facade maps qwertty's SGR mouse reports into these; core never
+/// sees escape bytes.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_core::geometry::Position;
+/// use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind, Modifiers};
+///
+/// let drag = MouseEvent::new(MouseKind::Drag, MouseButton::Left, Position::new(2, 3))
+///     .with_modifiers(Modifiers::NONE.with_shift());
+/// assert!(drag.modifiers.shift);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MouseEvent {
+    /// What the pointer did: press, release, drag, or scroll.
+    pub kind: MouseKind,
+    /// Which button was involved. For a wheel scroll the button is the
+    /// terminal's reported wheel "button"; most handlers match on
+    /// [`kind`](Self::kind) instead.
+    pub button: MouseButton,
+    /// The cell the pointer is over, in absolute buffer coordinates.
+    pub position: Position,
+    /// The modifiers held during the event.
+    pub modifiers: Modifiers,
+}
+
+impl MouseEvent {
+    /// A mouse event with no modifiers.
+    #[must_use]
+    pub const fn new(kind: MouseKind, button: MouseButton, position: Position) -> Self {
+        Self { kind, button, position, modifiers: Modifiers::NONE }
+    }
+
+    /// This event with the given modifiers.
+    #[must_use]
+    pub const fn with_modifiers(mut self, modifiers: Modifiers) -> Self {
+        self.modifiers = modifiers;
+        self
+    }
+}
+
+/// What a [`MouseEvent`] did.
+///
+/// [`MouseKind::Scroll`] carries a signed line count — positive scrolls the
+/// content down (wheel toward the user), negative up — normalized to whole lines
+/// (the per-terminal wheel/trackpad normalization of ADR 0006 §6 is deferred;
+/// v1 reports one line per notch).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum MouseKind {
+    /// A button was pressed.
+    Down,
+    /// A button was released.
+    Up,
+    /// The pointer moved with a button held.
+    Drag,
+    /// The wheel scrolled by this many lines (positive down, negative up).
+    Scroll(i8),
+}
+
+/// Which mouse button an event concerns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum MouseButton {
+    /// The primary (left) button.
+    Left,
+    /// The middle button (wheel click).
+    Middle,
+    /// The secondary (right) button.
+    Right,
+    /// No button (a bare move, or a wheel scroll the terminal did not attribute
+    /// to a button).
+    None,
 }
 
 /// A key press: which [`Key`], and which [`Modifiers`] were held.
@@ -254,5 +380,31 @@ mod tests {
     fn empty_modifiers_is_default() {
         assert_eq!(Modifiers::default(), Modifiers::NONE);
         assert!(Modifiers::NONE.is_empty());
+    }
+
+    #[test]
+    fn mouse_event_carries_position_and_kind() {
+        let event = MouseEvent::new(MouseKind::Down, MouseButton::Left, Position::new(3, 4));
+        let input = InputEvent::Mouse(event);
+        assert_eq!(input.as_mouse().unwrap().position, Position::new(3, 4));
+        assert_eq!(input.as_mouse().unwrap().kind, MouseKind::Down);
+        // A mouse event is not a key event.
+        assert!(input.as_key().is_none());
+    }
+
+    #[test]
+    fn scroll_kind_carries_a_signed_line_count() {
+        let up = MouseEvent::new(MouseKind::Scroll(-1), MouseButton::None, Position::ORIGIN);
+        let down = MouseEvent::new(MouseKind::Scroll(2), MouseButton::None, Position::ORIGIN);
+        assert_eq!(up.kind, MouseKind::Scroll(-1));
+        assert_eq!(down.kind, MouseKind::Scroll(2));
+    }
+
+    #[test]
+    fn mouse_modifiers_compose() {
+        let event = MouseEvent::new(MouseKind::Drag, MouseButton::Left, Position::new(1, 1))
+            .with_modifiers(Modifiers::NONE.with_ctrl());
+        assert!(event.modifiers.ctrl);
+        assert!(!event.modifiers.shift);
     }
 }

@@ -69,7 +69,7 @@
 //! ```
 
 use crate::buffer::Buffer;
-use crate::geometry::{Position, Rect};
+use crate::geometry::{Position, Rect, Size};
 use crate::input::InputEvent;
 use crate::outcome::Outcome;
 use crate::style::Style;
@@ -164,6 +164,11 @@ pub struct RenderCtx<'a> {
     /// Whether the widget declared itself focusable this frame. The frame reads
     /// this back after `render` to record the focus fact.
     focusable: bool,
+    /// A scroll-into-view rectangle the widget requested this frame (in
+    /// area-relative coordinates), read back by the frame to record a
+    /// visibility-request fact (slice-7 plumbing). At most one is kept — the
+    /// last request wins.
+    visibility: Option<Rect>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -208,7 +213,7 @@ impl<'a> RenderCtx<'a> {
     ) -> Self {
         let bounds = Rect::from_size(buffer.size());
         let area = area.intersection(bounds);
-        Self { buffer, area, theme, focused, focusable: false }
+        Self { buffer, area, theme, focused, focusable: false, visibility: None }
     }
 
     /// The widget's area size (relative coordinates run from the origin to
@@ -251,6 +256,49 @@ impl<'a> RenderCtx<'a> {
     #[must_use]
     pub fn is_focusable(&self) -> bool {
         self.focusable
+    }
+
+    /// Requests that `area` (relative to this widget's own area) be scrolled into
+    /// view (slice-7 plumbing, ADR 0006's scroll-into-view request).
+    ///
+    /// The frame records this as a
+    /// [`VisibilityRequest`](crate::facts::VisibilityRequest) fact keyed by the
+    /// widget's identity, resolving the relative rectangle against the widget's
+    /// absolute area. No scrollable container consumes it yet — this establishes
+    /// the contract the container work (catalog phase) will implement. Calling
+    /// more than once keeps the last request.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Position, Rect, Size};
+    /// use rabbitui_core::widget::RenderCtx;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(8, 4));
+    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, 4)), false);
+    /// ctx.request_visibility(Rect::new(Position::new(0, 2), Size::new(8, 1)));
+    /// ```
+    pub fn request_visibility(&mut self, area: Rect) {
+        self.visibility = Some(area);
+    }
+
+    /// The scroll-into-view rectangle the widget requested this frame, resolved
+    /// to absolute buffer coordinates, or `None`.
+    ///
+    /// Read by [`Frame`](crate::frame::Frame) after `render` to record the
+    /// visibility fact; not typically called by widgets. The request's origin is
+    /// offset by the widget's area origin, so the recorded rectangle is in the
+    /// same absolute coordinates as [`FactEntry`](crate::facts::FactEntry) areas.
+    #[must_use]
+    pub fn requested_visibility(&self) -> Option<Rect> {
+        self.visibility.map(|relative| {
+            let origin = Position::new(
+                self.area.origin.x.saturating_add(relative.origin.x),
+                self.area.origin.y.saturating_add(relative.origin.y),
+            );
+            Rect::new(origin, Size::new(relative.size.width, relative.size.height))
+        })
     }
 
     /// The concrete [`Style`] the active theme maps `role` to.
@@ -429,6 +477,20 @@ mod tests {
         assert!(!ctx.is_focusable());
         ctx.focusable(true);
         assert!(ctx.is_focusable());
+    }
+
+    #[test]
+    fn request_visibility_records_area_relative_rect_in_absolute_coords() {
+        let mut buffer = Buffer::new(Size::new(10, 5));
+        let area = Rect::new(Position::new(2, 1), Size::new(6, 3));
+        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        assert!(ctx.requested_visibility().is_none());
+        // Request row 1 (relative) of the widget; the frame resolves it to
+        // absolute row 2 (area origin y=1 + relative y=1).
+        ctx.request_visibility(Rect::new(Position::new(0, 1), Size::new(6, 1)));
+        let resolved = ctx.requested_visibility().unwrap();
+        assert_eq!(resolved.origin, Position::new(2, 2));
+        assert_eq!(resolved.size, Size::new(6, 1));
     }
 
     #[test]

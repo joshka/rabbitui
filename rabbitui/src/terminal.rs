@@ -190,6 +190,10 @@ impl Terminal {
     /// still restored on a best-effort basis.
     pub async fn close(mut self) -> Result<()> {
         let mut session = self.session.take().expect("session present until close");
+        // Disable mouse reporting unconditionally (harmless if never enabled), so
+        // the shell does not inherit mouse capture. The engine's leave frame has
+        // already disabled it if it was on; this backstop matches RESTORE.
+        session.bytes(encode::DISABLE_MOUSE).await?;
         session.bytes(encode::SGR_RESET).await?;
         session.command(commands::cursor::show()).await?;
         session.bytes(encode::LEAVE_ALT_SCREEN).await?;

@@ -1,7 +1,7 @@
 //! A focusable push button.
 
 use rabbitui_core::geometry::Position;
-use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
@@ -125,6 +125,16 @@ impl Widget for Button<'_> {
     }
 
     fn handle((): &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        // A left-button press over the button activates it (click), mirroring
+        // Enter/Space. The router has already resolved the hit region, so the
+        // press need only be checked for button + kind.
+        if let Some(mouse) = event.as_mouse() {
+            if mouse.button == MouseButton::Left && mouse.kind == MouseKind::Down {
+                ctx.emit(Outcome::Activated);
+                return Handled::Yes;
+            }
+            return Handled::No;
+        }
         let Some(key) = event.as_key() else { return Handled::No };
         match key.key {
             Key::Enter | Key::Char(' ') => {
@@ -220,6 +230,34 @@ mod tests {
     #[test]
     fn other_keys_are_ignored() {
         let (handled, outcomes) = dispatch(InputEvent::key(Key::Char('x')));
+        assert_eq!(handled, Handled::No);
+        assert!(outcomes.is_empty());
+    }
+
+    #[test]
+    fn left_click_activates() {
+        use rabbitui_core::geometry::Position;
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::ORIGIN,
+        ));
+        let (handled, outcomes) = dispatch(click);
+        assert_eq!(handled, Handled::Yes);
+        assert_eq!(outcomes, vec![Outcome::Activated]);
+    }
+
+    #[test]
+    fn mouse_release_does_not_activate() {
+        use rabbitui_core::geometry::Position;
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        let release = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Up,
+            MouseButton::Left,
+            Position::ORIGIN,
+        ));
+        let (handled, outcomes) = dispatch(release);
         assert_eq!(handled, Handled::No);
         assert!(outcomes.is_empty());
     }

@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use rabbitui_core::geometry::Position;
-use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
@@ -247,6 +247,12 @@ impl<S: ListSource> Widget for SelectionList<S> {
     }
 
     fn handle(state: &mut SelectionListState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        // Mouse: a left press on a visible row selects it; the wheel moves the
+        // selection one row per notch (the natural list gestures). The row is the
+        // click's offset from the widget's area top, plus the scroll offset.
+        if let Some(mouse) = event.as_mouse() {
+            return handle_mouse(state, ctx, mouse);
+        }
         let Some(key) = event.as_key() else { return Handled::No };
         if key.modifiers.ctrl || key.modifiers.alt {
             return Handled::No;
@@ -266,6 +272,49 @@ impl<S: ListSource> Widget for SelectionList<S> {
             }
             _ => Handled::No,
         }
+    }
+}
+
+/// Handles a mouse event for the list: a left press selects the clicked row; the
+/// wheel moves the selection one row per notch.
+///
+/// The clicked row is the pointer's row minus the widget's area top, plus the
+/// scroll offset — the visible window is `offset .. offset + height`, so a click
+/// on the `k`-th visible row selects item `offset + k`. Movement past the source
+/// length is re-clamped at the next render, as with key movement. Every mouse
+/// event over the list is consumed; a bare release (`Up`) or a non-left button is
+/// ignored (not handled), so it can fall through to the app.
+fn handle_mouse(
+    state: &mut SelectionListState,
+    ctx: &mut HandleCtx<'_>,
+    mouse: &rabbitui_core::input::MouseEvent,
+) -> Handled {
+    match mouse.kind {
+        MouseKind::Down if mouse.button == MouseButton::Left => {
+            let top = ctx.area().origin.y;
+            let row = mouse.position.y.saturating_sub(top);
+            let index = state.offset.saturating_add(usize::from(row));
+            let before = state.selected;
+            state.select(index);
+            if state.selected != before {
+                ctx.emit(Outcome::Selected(index));
+            }
+            Handled::Yes
+        }
+        MouseKind::Scroll(lines) => {
+            let before = state.selected;
+            if lines > 0 {
+                // Scroll down: advance the selection, re-clamped at render.
+                state.selected = state.selected.saturating_add(usize::from(lines.unsigned_abs()));
+            } else if lines < 0 {
+                state.selected = state.selected.saturating_sub(usize::from(lines.unsigned_abs()));
+            }
+            if state.selected != before {
+                ctx.emit(Outcome::Selected(state.selected));
+            }
+            Handled::Yes
+        }
+        _ => Handled::No,
     }
 }
 
@@ -423,6 +472,81 @@ mod tests {
         let (handled, outcomes) = dispatch(&mut state, Key::Enter);
         assert_eq!(handled, Handled::Yes);
         assert_eq!(outcomes, vec![Outcome::Activated]);
+    }
+
+    fn dispatch_mouse(
+        state: &mut SelectionListState,
+        event: InputEvent,
+        area: Rect,
+    ) -> (Handled, Vec<Outcome>) {
+        let mut outcomes = Vec::new();
+        let mut request_focus = false;
+        let handled = {
+            let mut ctx = HandleCtx::new(Phase::Bubble, area, &mut outcomes, &mut request_focus);
+            <SelectionList<Vec<String>>>::handle(state, &event, &mut ctx)
+        };
+        (handled, outcomes)
+    }
+
+    #[test]
+    fn click_selects_the_clicked_row_and_emits_selected() {
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        // The list occupies rows 2..6; offset 0. A click on absolute row 4 is the
+        // third visible row → index 2.
+        let area = Rect::new(Position::new(0, 2), Size::new(8, 4));
+        let mut state = SelectionListState::default();
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(0, 4),
+        ));
+        let (handled, outcomes) = dispatch_mouse(&mut state, click, area);
+        assert_eq!(handled, Handled::Yes);
+        assert_eq!(state.selected(), 2);
+        assert_eq!(outcomes, vec![Outcome::Selected(2)]);
+    }
+
+    #[test]
+    fn click_respects_scroll_offset() {
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        let area = Rect::new(Position::new(0, 0), Size::new(8, 3));
+        // Offset 5: the top visible row is item 5. Clicking the second visible row
+        // selects item 6.
+        let mut state = SelectionListState { selected: 5, offset: 5 };
+        let click = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Down,
+            MouseButton::Left,
+            Position::new(0, 1),
+        ));
+        let (_h, outcomes) = dispatch_mouse(&mut state, click, area);
+        assert_eq!(state.selected(), 6);
+        assert_eq!(outcomes, vec![Outcome::Selected(6)]);
+    }
+
+    #[test]
+    fn wheel_moves_selection() {
+        use rabbitui_core::input::{MouseButton, MouseEvent, MouseKind};
+        let area = Rect::new(Position::ORIGIN, Size::new(8, 5));
+        let mut state = SelectionListState { selected: 3, offset: 0 };
+        // Wheel down advances the selection.
+        let down = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Scroll(1),
+            MouseButton::None,
+            Position::ORIGIN,
+        ));
+        let (handled, outcomes) = dispatch_mouse(&mut state, down, area);
+        assert_eq!(handled, Handled::Yes);
+        assert_eq!(state.selected(), 4);
+        assert_eq!(outcomes, vec![Outcome::Selected(4)]);
+        // Wheel up retreats it.
+        let up = InputEvent::Mouse(MouseEvent::new(
+            MouseKind::Scroll(-1),
+            MouseButton::None,
+            Position::ORIGIN,
+        ));
+        let (_h, outcomes) = dispatch_mouse(&mut state, up, area);
+        assert_eq!(state.selected(), 3);
+        assert_eq!(outcomes, vec![Outcome::Selected(3)]);
     }
 
     #[test]

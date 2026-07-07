@@ -87,7 +87,7 @@ use rabbitui_core::facts::FrameFacts;
 use rabbitui_core::frame::{Frame, HandlerMap};
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::WidgetId;
-use rabbitui_core::input::{InputEvent, Key};
+use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseEvent, MouseKind};
 use rabbitui_core::pending::Pending;
 use rabbitui_core::routing::{Focus, RouteResult, route};
 use rabbitui_core::store::StateStore;
@@ -376,6 +376,41 @@ impl<S> TestApp<S> {
     /// see that method for the routing contract and re-render note.
     pub fn send_key(&mut self, key: Key) -> RouteResult {
         self.send_event(InputEvent::key(key))
+    }
+
+    /// Routes a left-button mouse event of `kind` at `position` through the last
+    /// rendered frame (slice-7 mouse routing).
+    ///
+    /// A convenience over [`send_event`](Self::send_event) for the common pointer
+    /// case: it hit-tests `position` against the last frame's facts (layer-aware),
+    /// dispatches capture → target → bubble, and applies click-to-focus for an
+    /// unconsumed press — the exact path `rabbitui::app::run` takes. Like
+    /// [`send_key`](Self::send_key), it does not re-render; call
+    /// [`render`](Self::render) afterward to observe the resulting frame.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::{Position, Size};
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::input::MouseKind;
+    /// use rabbitui_core::outcome::Outcome;
+    /// use rabbitui_testing::TestApp;
+    /// use rabbitui_widgets::Button;
+    ///
+    /// let mut app = TestApp::new(Size::new(4, 1), ());
+    /// app.render(|_s, frame| frame.widget(key("ok"), frame.area(), &Button::new("OK")));
+    /// // A left click over the button activates it.
+    /// let result = app.send_mouse(MouseKind::Down, Position::ORIGIN);
+    /// assert_eq!(result.outcomes[0].1, Outcome::Activated);
+    /// ```
+    pub fn send_mouse(&mut self, kind: MouseKind, position: Position) -> RouteResult {
+        let button = match kind {
+            MouseKind::Scroll(_) => MouseButton::None,
+            _ => MouseButton::Left,
+        };
+        self.send_event(InputEvent::Mouse(MouseEvent::new(kind, button, position)))
     }
 
     /// Injects a message the way the runtime delivers an effect result, folding it

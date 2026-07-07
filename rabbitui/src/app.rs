@@ -528,6 +528,9 @@ pub struct App<S, U, V, M = ()> {
     theme: Theme,
     theme_file: Option<PathBuf>,
     mode: Mode,
+    /// Whether to capture the mouse, or `None` to default by mode (on in
+    /// alt-screen, off in inline). See [`mouse`](Self::mouse).
+    mouse: Option<bool>,
     /// Ties the app to its message type without owning one; the `fn() -> M`
     /// form keeps `App` `Send`-agnostic and variance-correct.
     _marker: std::marker::PhantomData<fn() -> M>,
@@ -554,8 +557,47 @@ where
             theme: Theme::default(),
             theme_file: None,
             mode: Mode::default(),
+            mouse: None,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Sets whether the app captures the mouse, overriding the by-mode default.
+    ///
+    /// Mouse capture is **on by default in alt-screen** and **off by default in
+    /// inline** mode (slice-7 design note): capture steals the terminal's native
+    /// scrollback scrolling, which inline mode exists to preserve, so enabling it
+    /// there would defeat the mode's purpose. Alt-screen has no native scrollback
+    /// to lose, so it captures by default. Call this to force the choice either
+    /// way — `mouse(false)` in alt-screen for a keyboard-only app, or
+    /// `mouse(true)` in inline if the app deliberately wants wheel events over
+    /// scrollback.
+    ///
+    /// When on, the runtime enables mouse reporting (modes 1000 + 1006) at mode
+    /// entry and disables it at leave; the panic/restore path disables it
+    /// unconditionally regardless of this setting.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use rabbitui::App;
+    /// use rabbitui::app::Update;
+    /// use rabbitui_core::frame::Frame;
+    ///
+    /// let app = App::new(
+    ///     (),
+    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
+    ///     |_: &(), _: &mut Frame<'_>| {},
+    /// )
+    /// .mouse(true);
+    /// let _ = app;
+    /// ```
+    #[must_use]
+    pub fn mouse(mut self, mouse: bool) -> Self {
+        self.mouse = Some(mouse);
+        self
     }
 
     /// Sets the initial screen [`Mode`] — [`Mode::AltScreen`] (the default) or
@@ -657,7 +699,8 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
-        let App { mut state, mut update, view, theme: base_theme, theme_file, mode, .. } = self;
+        let App { mut state, mut update, view, theme: base_theme, theme_file, mode, mouse, .. } =
+            self;
 
         // Load the initial theme from the file (if any), layered over the base.
         // A startup error is fatal; a mid-run reload error is not (see below).
@@ -670,7 +713,7 @@ where
         // The render engine for the active mode; `enter` produces the mode-entry
         // bytes (alt-screen switch, or inline cursor-hide). The state store,
         // focus, and theme persist across iterations.
-        let mut engine = ModeEngine::new(mode);
+        let mut engine = ModeEngine::new(mode, mouse);
         let mut store = StateStore::new();
         let mut focus = Focus::new();
 
@@ -712,6 +755,13 @@ where
         // messages), then flush together when the frame lands.
         let mut commits_buf: Vec<CommitLine> = Vec::new();
         let mut set_mode_buf: Option<Mode> = None;
+
+        // The unapplied remainder of the *previous* update's pending set — a focus
+        // request that could not be honored against the frame it was made on (the
+        // declare-then-focus case). It is carried across exactly one frame: after
+        // the next redraw, the remainder retries against the fresh facts, and only
+        // then does it fail loudly if still unhonored (slice-7 carry-forward).
+        let mut widget_remainder = WidgetPending::new();
 
         loop {
             // Debug-build hot reload: one stat per iteration. On a changed mtime,
@@ -773,6 +823,7 @@ where
                             &mut store,
                             &facts,
                             &mut focus,
+                            &mut widget_remainder,
                             &mut commits_buf,
                             &mut set_mode_buf,
                         );
@@ -793,6 +844,7 @@ where
                                 &mut store,
                                 &facts,
                                 &mut focus,
+                            &mut widget_remainder,
                                 &mut commits_buf,
                                 &mut set_mode_buf,
                             );
@@ -809,6 +861,7 @@ where
                         &mut store,
                         &facts,
                         &mut focus,
+                        &mut widget_remainder,
                         &mut commits_buf,
                         &mut set_mode_buf,
                     );
@@ -827,6 +880,7 @@ where
                             &mut store,
                             &facts,
                             &mut focus,
+                            &mut widget_remainder,
                             &mut commits_buf,
                             &mut set_mode_buf,
                         );
@@ -893,6 +947,13 @@ where
             let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
             facts = drawn.0;
             handlers = drawn.1;
+            // Retry the carried-forward remainder (a declare-then-focus request
+            // that missed its own frame) against this fresh frame's facts. This is
+            // the second and final attempt: `apply` fails loudly if the target is
+            // still not present-and-focusable.
+            if !widget_remainder.is_empty() {
+                std::mem::take(&mut widget_remainder).apply(&mut store, &facts, &mut focus);
+            }
             focus.reconcile(&facts);
             terminal.write_bytes(&engine.render(&back, &front, &frame_commits)).await?;
             std::mem::swap(&mut front, &mut back);
@@ -939,6 +1000,12 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 /// the store immediately (a redraw follows because the loop marks itself dirty),
 /// so a cleared field or a moved focus shows on the next frame — the between-frames
 /// semantics, using the exact function `TestApp` uses.
+///
+/// A focus request that cannot be honored against the last-drawn facts (the
+/// declare-then-focus case, where the target only appears in the frame this
+/// update triggers) is **not** dropped: [`Pending::apply_deferred`] returns it as
+/// an unapplied remainder, which is folded into `remainder` for the loop to retry
+/// once against the *next* frame's facts before asserting (slice-7 carry-forward).
 #[allow(clippy::too_many_arguments)]
 fn drain_pending<M: Send + 'static>(
     pending: Pending<M>,
@@ -946,6 +1013,7 @@ fn drain_pending<M: Send + 'static>(
     store: &mut StateStore,
     facts: &FrameFacts,
     focus: &mut Focus,
+    remainder: &mut WidgetPending,
     commits_buf: &mut Vec<CommitLine>,
     set_mode_buf: &mut Option<Mode>,
 ) {
@@ -953,7 +1021,8 @@ fn drain_pending<M: Send + 'static>(
     for cmd in cmds {
         effects.spawn(cmd);
     }
-    widget.apply(store, facts, focus);
+    let unapplied = widget.apply_deferred(store, facts, focus);
+    remainder.extend(unapplied);
     commits_buf.extend(commits);
     if set_mode.is_some() {
         *set_mode_buf = set_mode;
@@ -976,6 +1045,7 @@ fn deliver_effect<S, M, U>(
     store: &mut StateStore,
     facts: &FrameFacts,
     focus: &mut Focus,
+    remainder: &mut WidgetPending,
     commits_buf: &mut Vec<CommitLine>,
     set_mode_buf: &mut Option<Mode>,
 ) -> bool
@@ -990,7 +1060,16 @@ where
     let pending = RefCell::new(Pending::default());
     let ctx = Update::new(event, &[], &pending);
     let broke = update(state, ctx).is_break();
-    drain_pending(pending.into_inner(), effects, store, facts, focus, commits_buf, set_mode_buf);
+    drain_pending(
+        pending.into_inner(),
+        effects,
+        store,
+        facts,
+        focus,
+        remainder,
+        commits_buf,
+        set_mode_buf,
+    );
     broke
 }
 
@@ -1051,7 +1130,7 @@ async fn apply_mode_switch(
         }
     }
 
-    *engine = ModeEngine::new(target);
+    *engine = ModeEngine::new(target, engine.mouse_override);
     let size = engine.buffer_size(viewport);
     front.resize(size);
     back.resize(size);
@@ -1072,7 +1151,16 @@ async fn apply_mode_switch(
 /// meaningful only to the inline engine; the alt engine ignores them (the loop
 /// flushes them before entering alt-screen).
 #[derive(Debug)]
-enum ModeEngine {
+struct ModeEngine {
+    kind: ModeEngineKind,
+    /// The app's mouse-capture override (`None` = default by mode). Carried
+    /// across mode switches so a runtime `set_mode` keeps the app's choice.
+    mouse_override: Option<bool>,
+}
+
+/// The active render engine, dispatched by [`Mode`].
+#[derive(Debug)]
+enum ModeEngineKind {
     /// The alternate-screen engine and its declared mode.
     Alt(AltEngine),
     /// The inline engine and its `max_height`.
@@ -1080,60 +1168,79 @@ enum ModeEngine {
 }
 
 impl ModeEngine {
-    /// Builds the engine for `mode`.
-    fn new(mode: Mode) -> Self {
-        match mode {
-            Mode::AltScreen => Self::Alt(AltEngine::new()),
+    /// Builds the engine for `mode`, carrying the app's mouse-capture override.
+    fn new(mode: Mode, mouse_override: Option<bool>) -> Self {
+        let kind = match mode {
+            Mode::AltScreen => ModeEngineKind::Alt(AltEngine::new()),
             Mode::Inline { max_height } => {
-                Self::Inline { engine: InlineEngine::new(), max_height }
+                ModeEngineKind::Inline { engine: InlineEngine::new(), max_height }
             }
-        }
+        };
+        Self { kind, mouse_override }
+    }
+
+    /// Whether this engine captures the mouse: the app override, or the by-mode
+    /// default (on in alt-screen, off in inline — the slice-7 design note).
+    fn mouse_capture(&self) -> bool {
+        self.mouse_override.unwrap_or_else(|| !self.is_inline())
     }
 
     /// The mode this engine renders.
     fn mode(&self) -> Mode {
-        match self {
-            Self::Alt(_) => Mode::AltScreen,
-            Self::Inline { max_height, .. } => Mode::Inline { max_height: *max_height },
+        match &self.kind {
+            ModeEngineKind::Alt(_) => Mode::AltScreen,
+            ModeEngineKind::Inline { max_height, .. } => {
+                Mode::Inline { max_height: *max_height }
+            }
         }
     }
 
     /// Whether this is the inline engine.
     fn is_inline(&self) -> bool {
-        matches!(self, Self::Inline { .. })
+        matches!(self.kind, ModeEngineKind::Inline { .. })
     }
 
     /// The frame-buffer size for this mode at `viewport`: the full viewport in
     /// alt-screen, or the bounded live-tail height (`min(max_height, viewport
     /// height)`) at full width in inline.
     fn buffer_size(&self, viewport: Size) -> Size {
-        match self {
-            Self::Alt(_) => viewport,
-            Self::Inline { max_height, .. } => {
+        match &self.kind {
+            ModeEngineKind::Alt(_) => viewport,
+            ModeEngineKind::Inline { max_height, .. } => {
                 Size::new(viewport.width, (*max_height).min(viewport.height))
             }
         }
     }
 
-    /// The mode-entry bytes.
+    /// The mode-entry bytes, prefixed with mouse-enable when capture is on.
     fn enter(&mut self) -> Vec<u8> {
-        match self {
-            Self::Alt(engine) => engine.enter(),
-            Self::Inline { engine, .. } => engine.enter(),
+        let mouse = self.mouse_capture();
+        let mut bytes = match &mut self.kind {
+            ModeEngineKind::Alt(engine) => engine.enter(),
+            ModeEngineKind::Inline { engine, .. } => engine.enter(),
+        };
+        if mouse {
+            bytes.extend_from_slice(crate::encode::ENABLE_MOUSE);
         }
+        bytes
     }
 
-    /// The mode-teardown bytes.
+    /// The mode-teardown bytes, suffixed with mouse-disable when capture was on.
     fn leave(&mut self) -> Vec<u8> {
-        match self {
-            Self::Alt(engine) => engine.leave(),
-            Self::Inline { engine, .. } => engine.leave(),
+        let mouse = self.mouse_capture();
+        let mut bytes = match &mut self.kind {
+            ModeEngineKind::Alt(engine) => engine.leave(),
+            ModeEngineKind::Inline { engine, .. } => engine.leave(),
+        };
+        if mouse {
+            bytes.extend_from_slice(crate::encode::DISABLE_MOUSE);
         }
+        bytes
     }
 
     /// Forces the next render to fully repaint (resize / desync recovery).
     fn force_repaint(&mut self) {
-        if let Self::Inline { engine, .. } = self {
+        if let ModeEngineKind::Inline { engine, .. } = &mut self.kind {
             engine.force_repaint();
         }
     }
@@ -1141,9 +1248,9 @@ impl ModeEngine {
     /// One frame's bytes: the alt engine diffs `current` against `previous`; the
     /// inline engine flushes `commits` then paints `current` as the live tail.
     fn render(&mut self, current: &Buffer, previous: &Buffer, commits: &[CommitLine]) -> Vec<u8> {
-        match self {
-            Self::Alt(engine) => engine.render(current, previous),
-            Self::Inline { engine, .. } => engine.render(current, commits),
+        match &mut self.kind {
+            ModeEngineKind::Alt(engine) => engine.render(current, previous),
+            ModeEngineKind::Inline { engine, .. } => engine.render(current, commits),
         }
     }
 }
@@ -1249,6 +1356,7 @@ mod tests {
     use super::*;
     use rabbitui_core::id::key;
     use rabbitui_core::input::Key;
+    use rabbitui_core::style::Style;
 
     #[test]
     fn resize_event_carries_the_new_size() {
@@ -1295,16 +1403,85 @@ mod tests {
 
     #[test]
     fn alt_engine_buffer_is_full_viewport() {
-        let engine = ModeEngine::new(Mode::AltScreen);
+        let engine = ModeEngine::new(Mode::AltScreen, None);
         assert_eq!(engine.buffer_size(Size::new(80, 24)), Size::new(80, 24));
     }
 
     #[test]
     fn inline_engine_buffer_is_bounded_tail() {
-        let engine = ModeEngine::new(Mode::inline(3));
+        let engine = ModeEngine::new(Mode::inline(3), None);
         // Capped by max_height when the viewport is taller…
         assert_eq!(engine.buffer_size(Size::new(80, 24)), Size::new(80, 3));
         // …and by the viewport when it is shorter.
         assert_eq!(engine.buffer_size(Size::new(80, 2)), Size::new(80, 2));
+    }
+
+    #[test]
+    fn mouse_default_is_on_in_alt_and_off_in_inline() {
+        // No override: alt-screen captures, inline does not (the scrollback
+        // tradeoff applied to ourselves).
+        assert!(ModeEngine::new(Mode::AltScreen, None).mouse_capture());
+        assert!(!ModeEngine::new(Mode::inline(3), None).mouse_capture());
+        // An explicit override wins either way.
+        assert!(!ModeEngine::new(Mode::AltScreen, Some(false)).mouse_capture());
+        assert!(ModeEngine::new(Mode::inline(3), Some(true)).mouse_capture());
+    }
+
+    #[test]
+    fn alt_enter_leave_toggle_mouse_by_default() {
+        let mut engine = ModeEngine::new(Mode::AltScreen, None);
+        let enter = engine.enter();
+        // Alt captures by default: entry ends with the mouse-enable bytes.
+        assert!(enter.windows(crate::encode::ENABLE_MOUSE.len())
+            .any(|w| w == crate::encode::ENABLE_MOUSE));
+        let leave = engine.leave();
+        assert!(leave.windows(crate::encode::DISABLE_MOUSE.len())
+            .any(|w| w == crate::encode::DISABLE_MOUSE));
+    }
+
+    #[test]
+    fn inline_enter_omits_mouse_by_default() {
+        let mut engine = ModeEngine::new(Mode::inline(3), None);
+        let enter = engine.enter();
+        // Inline does not capture by default, so no mouse-enable is emitted.
+        assert!(!enter.windows(crate::encode::ENABLE_MOUSE.len())
+            .any(|w| w == crate::encode::ENABLE_MOUSE));
+    }
+
+    /// A vt100 model processes the full alt-screen mouse-capture transition —
+    /// entry (with mouse enable), a frame, and leave (with mouse disable) — into a
+    /// clean screen, proving the mouse control sequences are well-formed and do
+    /// not corrupt output at the escape level (ADR 0009 layer 3).
+    #[test]
+    fn vt_processes_mouse_enable_frame_and_disable_at_transitions() {
+        use rabbitui_testing::vt::VtScreen;
+
+        let mut engine = ModeEngine::new(Mode::AltScreen, None);
+        let mut screen = VtScreen::new(10, 3);
+
+        // Entry carries the mouse-enable sequence at its tail.
+        let enter = engine.enter();
+        assert!(
+            enter.windows(crate::encode::ENABLE_MOUSE.len())
+                .any(|w| w == crate::encode::ENABLE_MOUSE),
+            "alt-screen entry enables mouse (modes 1000+1006)"
+        );
+        screen.feed(&enter);
+
+        // A frame renders normally alongside the enabled mouse mode.
+        let previous = Buffer::new(Size::new(10, 3));
+        let mut current = previous.clone();
+        current.set_string(rabbitui_core::geometry::Position::ORIGIN, "hi", Style::new());
+        screen.feed(&engine.render(&current, &previous, &[]));
+        screen.assert_row(0, "hi");
+
+        // Leave carries the mouse-disable sequence, and vt100 processes it cleanly.
+        let leave = engine.leave();
+        assert!(
+            leave.windows(crate::encode::DISABLE_MOUSE.len())
+                .any(|w| w == crate::encode::DISABLE_MOUSE),
+            "alt-screen leave disables mouse in reverse order"
+        );
+        screen.feed(&leave);
     }
 }
