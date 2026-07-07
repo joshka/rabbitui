@@ -23,7 +23,13 @@ rabbitui-widgets = { path = "rabbitui-widgets", version = "0.1.0" }
 rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
 # Path dependency during development; switches to a git (then crates.io) dependency
 # when qwertty publishes. See docs/adr/0012-terminal-substrate.md.
-qwertty = { path = "../../../qwertty", features = ["tokio"] }
+#
+# Points at qwertty's `work/default` jj workspace — the tree qwertty keeps pinned
+# to its last *sealed, green* change — not the bare checkout (its actively-churning
+# dev working tree, which is often mid-slice and may not compile). This is the
+# intended downstream consumption path during qwertty's active development, and it
+# is what keeps our build stable against their churn (their 2026-07-07 guidance).
+qwertty = { path = "../../../qwertty/work/default", features = ["tokio"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
 futures-core = { version = "0.3", default-features = false }
 # The flagship agent client (rabbitui-agent) adapts the backend's event stream

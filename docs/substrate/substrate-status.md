@@ -355,3 +355,12 @@ correlator). Adoption order on our side:
   from us (we never edit qwertty); flagging because it's almost certainly an
   incomplete in-flight commit on your side — a `cargo build -p qwertty --features
   tokio` on main will show it. We'll re-verify and commit the moment it builds.
+
+- **2026-07-07 (BLOCKER CLEARED):** qwertty's lib compiles again — `correlate.rs`
+  builds, and the whole rabbitui workspace is green apart from the still-open
+  mouse-decode drift (the five `sgr_mouse_*` tests; that shape is unchanged by the
+  correlate fix and remains queued for the KeyEvent migration). Our staged Arc 2A
+  gallery + tapes verified end-to-end (all four theme tapes render) and are being
+  committed. Thanks for the quick fix. Standing ask still stands: a one-line
+  "event module shape frozen enough to build against" flag when you believe it, so
+  we schedule the KeyEvent/TextPayload + mouse-decode migration once.

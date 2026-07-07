@@ -16,3 +16,7 @@ config:
 ignores:
   - target/**
   - docs/research/tui-framework-field-report-2026.md
+  # A verbatim mirror of qwertty's coordination doc (authored on their side, not
+  # to our markdown style). Never hand-edit the mirror; refresh it from the
+  # drop-box. Excluded so their emphasis/table style does not fail our lint.
+  - docs/substrate/substrate-status.md
