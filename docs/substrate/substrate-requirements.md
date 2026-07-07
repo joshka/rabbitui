@@ -92,3 +92,14 @@ Concrete, encountered-in-code findings, in priority order for the framework:
    promised — the whole interim SGR/alt-screen/2026 encoder lives on it with no friction; ordered
    write + explicit flush semantics are pleasant to build a frame renderer on; `&mut self`
    exclusivity has cost nothing at the framework's event-loop shape (select! on next_event).
+
+## P0 bug (macOS): AsyncFd::try_new(/dev/tty) fails EINVAL (2026-07-06)
+
+`TokioTerminalSession::open()` fails on macOS with `OpenTerminal { Os { code: 22 } }`: kqueue
+rejects the `/dev/tty` **alias device** with EINVAL (known platform limitation — mio documents
+`/dev/tty` as unpollable; crossterm/termwiz use reader threads or the real path). The underlying pty
+path (`/dev/ttysNNN`) registers fine. Reproduced under `script(1)` too — it is the alias device, not
+the terminal type. rabbitui now works around it at its seam (ttyname(stdin/stdout/stderr) →
+`open_path`), but this belongs in qwertty: suggest `open()` resolve the controlling terminal via
+ttyname before falling back to the alias, or document `open_path` as required on macOS. Your
+socketpair FakeDevice is unaffected (socketpairs poll fine).

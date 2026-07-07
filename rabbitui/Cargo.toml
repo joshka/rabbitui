@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 rabbitui-core.workspace = true
 qwertty.workspace = true
+rustix.workspace = true
 tokio.workspace = true
 futures-core.workspace = true
 toml = { workspace = true, optional = true }

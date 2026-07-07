@@ -18,6 +18,7 @@ rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
 qwertty = { path = "../../../qwertty", features = ["tokio"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
 futures-core = { version = "0.3", default-features = false }
+rustix = { version = "1", default-features = false, features = ["std", "termios"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
