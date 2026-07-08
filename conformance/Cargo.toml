@@ -1,0 +1,30 @@
+# Public terminal-conformance harness — headless core (Arc 5 item 1, layer 1).
+#
+# STANDALONE crate on purpose: it is not (yet) a member of the root workspace, so
+# it builds and tests on its own with `cd conformance && cargo test` without the
+# coordinator having to touch the root manifest while other workstreams churn it.
+# See README.md ("Wiring into the workspace") for how to fold it in later.
+[package]
+name = "conformance"
+description = "Public terminal-conformance harness for the two-region inline-mode discipline (headless vt100 layer)."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone: an empty [workspace] table detaches this crate from the root
+# workspace at `../Cargo.toml`, so it builds and tests on its own without the
+# coordinator editing the root manifest while other workstreams churn it. To fold
+# it into the root workspace later, delete this table and add "conformance" to the
+# root's `workspace.members` (see README.md → "Wiring into the workspace").
+[workspace]
+
+[dependencies]
+# The same terminal-emulator model the escape-level harness already uses
+# (rabbitui-testing, ADR 0009 layer 3). Pinned to the workspace's 0.16 so the
+# headless column here means exactly what the in-crate vt100 tests mean.
+vt100 = "0.16"
+
+[lints.rust]
+missing_docs = "warn"
