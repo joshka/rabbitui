@@ -62,8 +62,28 @@ as a tokio task, keep the `FakeTerminal`. Provide:
    cell settles to `✓` in vt scrollback (the freeze bug), and that the modal renders.
 3. **Mode toggle** inline↔alt with no duplicated tail (the earlier bug).
 
-## Status
+## Status — IMPLEMENTED (2026-07-08)
 
-Seam confirmed, blast radius scoped, approach spec'd. The `run_loop` extraction + the
-deterministic async settle are the two spots that want fresh, unhurried focus — do them
-as their own green steps, not in a marathon tail.
+Both phases landed, each as its own green step:
+
+- **Phase 1 (behavior-preserving refactor).** `Terminal` is now
+  `Terminal<D: qwertty::TerminalDevice = qwertty::Terminal>`; every existing caller is
+  unchanged via the default type param. `Terminal::from_device` is added, and the whole
+  run loop is extracted into a free `run_loop<S, U, V, M, D>` that `App::run` calls with a
+  real `Terminal::open()`. The two loop helpers (`leave`, `apply_mode_switch`) gained `<D>`.
+  Full workspace suite + clippy green; examples and the flagship still build.
+- **Phase 2 (harness + tests).** `App::run_over_device(device)` (factored with `run`
+  through a shared `run_on`) runs the loop over any device. The harness lives in
+  `rabbitui/tests/e2e_headless.rs` (not `rabbitui-testing` — the loop future is `!Send`
+  because `StateStore` holds `Box<dyn Any>` across awaits, so it is **pumped** on a
+  current-thread runtime, not `tokio::spawn`ed). `settle` is solved by
+  **waiting for a rendered marker** (`wait_for(needle)` with a poll cap), not a fixed
+  sleep — deterministic and stable across repeated runs. Two tests landed: `Event::Started`
+  fires exactly once before input, and the quit chord tears the loop down cleanly.
+
+### Remaining (belongs in `rabbitui-agent`, not the facade)
+
+The three flagship-specific first tests (help-overlay open+close, inline tool-cell settle,
+mode-toggle tail) need the flagship's `update`/`view`, so they belong in
+`rabbitui-agent/tests/` using the same `run_over_device` seam — the pump harness pattern
+copies directly. Filed as flagship test coverage, not framework work.
