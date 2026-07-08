@@ -23,6 +23,7 @@ pub mod frame;
 pub mod geometry;
 pub mod id;
 pub mod input;
+pub mod keymap;
 pub mod layout;
 pub mod log;
 pub mod mode;

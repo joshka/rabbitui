@@ -32,6 +32,11 @@
 //!   `tracing` feature (matching the facade), but it depends only on the *core*
 //!   handle — no `tracing` in this crate (the logging seam,
 //!   `docs/design/arc2b-measurement-scroll.md`).
+//! - [`HelpOverlay`] — a display-only reference card generated from a
+//!   [`Keymap`](rabbitui_core::keymap::Keymap): two aligned columns (chord,
+//!   action label) in a titled [`Panel`], meant for a
+//!   [`Frame::layer`](rabbitui_core::frame::Frame::layer). Takes no focus — the
+//!   app routes the close keys itself (Arc 4 §3, the keybinding layer).
 //! - [`Panel`] — a container-look *backdrop*: a role-filled surface with an
 //!   optional light-box border, a title in the top border, and inner padding.
 //!   Because widgets cannot nest yet, it paints behind content declared into its
@@ -66,6 +71,7 @@ pub mod collapsible;
 pub mod error_banner;
 #[cfg(feature = "devtools")]
 pub mod facts_inspector;
+pub mod help_overlay;
 #[cfg(feature = "tracing")]
 pub mod log_overlay;
 pub mod panel;
@@ -78,6 +84,7 @@ pub use collapsible::Collapsible;
 pub use error_banner::ErrorBanner;
 #[cfg(feature = "devtools")]
 pub use facts_inspector::FactsInspector;
+pub use help_overlay::HelpOverlay;
 #[cfg(feature = "tracing")]
 pub use log_overlay::LogOverlay;
 pub use panel::Panel;
