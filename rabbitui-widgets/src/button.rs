@@ -4,7 +4,7 @@ use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::style::Style;
+use rabbitui_core::style::{Color, Style};
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
 
@@ -57,6 +57,9 @@ pub struct Button<'a> {
     label: &'a str,
     /// A literal override for the unfocused style; `None` resolves [`Role::Text`].
     style: Option<Style>,
+    /// Whether to paint as a solid, filled chip (a tonal fill with a same-hue
+    /// label) rather than plain role-colored text. See [`filled`](Self::filled).
+    filled: bool,
 }
 
 impl<'a> Button<'a> {
@@ -73,7 +76,40 @@ impl<'a> Button<'a> {
     /// ```
     #[must_use]
     pub const fn new(label: &'a str) -> Self {
-        Self { label, style: None }
+        Self {
+            label,
+            style: None,
+            filled: false,
+        }
+    }
+
+    /// Paints the button as a solid, filled chip instead of plain colored text.
+    ///
+    /// The whole button area fills with a darker tone of its role color and the
+    /// label sits centered on it in the full role color — the same hue at two
+    /// lightnesses, which reads as a tactile solid button (the technique statusbar
+    /// segments use). Focus brightens the fill (via [`Role::Highlight`]) and bolds
+    /// the label. On a palette (`Ansi`) theme with no same-hue shade, it falls back
+    /// to the role color filled with a dark label, still solid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::Button;
+    ///
+    /// let allow = Button::new("Allow").filled(true);
+    /// assert!(allow.is_filled());
+    /// ```
+    #[must_use]
+    pub const fn filled(mut self, filled: bool) -> Self {
+        self.filled = filled;
+        self
+    }
+
+    /// Whether the button paints as a solid filled chip (see [`filled`](Self::filled)).
+    #[must_use]
+    pub const fn is_filled(&self) -> bool {
+        self.filled
     }
 
     /// Overrides the button's *unfocused* style with a literal [`Style`].
@@ -110,6 +146,48 @@ impl<'a> Button<'a> {
     pub const fn get_style(&self) -> Option<Style> {
         self.style
     }
+
+    /// Paints the solid-chip form: a tonal fill across the whole area with the
+    /// label centered on it in the same hue (see [`filled`](Self::filled)).
+    fn render_filled(&self, ctx: &mut RenderCtx<'_>) {
+        let role = if ctx.is_focused() {
+            Role::Highlight
+        } else {
+            Role::Accent
+        };
+        let base = ctx.style(role).fg.unwrap_or(Color::WHITE);
+        let (fill, ink) = tonal_pair(base);
+
+        let size = ctx.area().size;
+        // Fill every cell of the button with the darker tone.
+        let blank = " ".repeat(size.width as usize);
+        let fill_style = Style::new().bg(fill);
+        for y in 0..size.height {
+            ctx.set_string(Position::new(0, y), &blank, fill_style);
+        }
+        // Center the label; a transparent bg lets it compose over the fill.
+        let label_width = self.label.chars().count() as u16;
+        let x = size.width.saturating_sub(label_width) / 2;
+        let y = size.height / 2;
+        let mut ink_style = Style::new().fg(ink);
+        if ctx.is_focused() {
+            ink_style = ink_style.bold();
+        }
+        ctx.set_string(Position::new(x, y), self.label, ink_style);
+    }
+}
+
+/// Splits a role color into a `(fill, ink)` tonal pair: a darker fill with the
+/// original color as the label ink, both the same hue. A palette (`Ansi`) color
+/// has no same-hue shade, so it fills with the color itself and inks in black —
+/// still a solid chip, just not tonal.
+fn tonal_pair(base: Color) -> (Color, Color) {
+    let fill = base.darken(0.55);
+    if fill == base {
+        (base, Color::BLACK)
+    } else {
+        (fill, base)
+    }
 }
 
 impl Widget for Button<'_> {
@@ -120,6 +198,10 @@ impl Widget for Button<'_> {
         // A11y groundwork (ADR arc4 §5): a button, labelled by its caption.
         ctx.semantic_role(SemanticRole::Button);
         ctx.label(self.label);
+        if self.filled {
+            self.render_filled(ctx);
+            return;
+        }
         let style = if ctx.is_focused() {
             ctx.style(Role::Highlight)
         } else {
@@ -174,6 +256,31 @@ mod tests {
         let button = Button::new("Go").style(style);
         assert_eq!(button.label(), "Go");
         assert_eq!(button.get_style(), Some(style));
+    }
+
+    #[test]
+    fn filled_button_paints_a_solid_tonal_fill() {
+        let theme = Theme::catppuccin_mocha();
+        let mut buffer = Buffer::new(Size::new(11, 1));
+        let mut ctx =
+            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(11, 1)), false, &theme);
+        Button::new("OK").filled(true).render(&mut (), &mut ctx);
+
+        // Every cell carries the darker fill — a solid chip, not bare text; the
+        // label cells keep it too (transparent-paint composition).
+        let accent = theme.style(Role::Accent).fg.expect("accent has a color");
+        let fill = accent.darken(0.55);
+        for x in 0..11 {
+            assert_eq!(
+                cell_style(&buffer, x).bg,
+                Some(fill),
+                "cell {x} should carry the tonal fill"
+            );
+        }
+        // The label is centered ("OK" width 2 in width 11 → starts at col 4) and
+        // inked in the base hue.
+        assert_eq!(buffer.get(Position::new(4, 0)).unwrap().symbol, "O");
+        assert_eq!(cell_style(&buffer, 4).fg, Some(accent));
     }
 
     #[test]

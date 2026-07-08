@@ -46,6 +46,67 @@ impl Color {
     pub const CYAN: Self = Self::Ansi(6);
     /// ANSI white (index 7).
     pub const WHITE: Self = Self::Ansi(7);
+
+    /// Returns this color blended toward black by `amount` (`0.0` = unchanged,
+    /// `1.0` = black), preserving hue — a darker tone of the same color.
+    ///
+    /// Defined for [`Rgb`](Color::Rgb) only; a palette [`Ansi`](Color::Ansi) index
+    /// has no reliable same-hue shade, so it is returned unchanged (callers that
+    /// need contrast should detect the no-op and pair with a fixed color).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::style::Color;
+    ///
+    /// assert_eq!(Color::Rgb(200, 100, 50).darken(0.5), Color::Rgb(100, 50, 25));
+    /// assert_eq!(Color::CYAN.darken(0.5), Color::CYAN); // Ansi: unchanged
+    /// ```
+    #[must_use]
+    pub fn darken(self, amount: f32) -> Self {
+        match self {
+            Color::Rgb(r, g, b) => {
+                let factor = 1.0 - amount.clamp(0.0, 1.0);
+                Color::Rgb(scale_channel(r, factor), scale_channel(g, factor), scale_channel(b, factor))
+            }
+            other => other,
+        }
+    }
+
+    /// Returns this color blended toward white by `amount` (`0.0` = unchanged,
+    /// `1.0` = white), preserving hue — a lighter tone of the same color.
+    ///
+    /// [`Rgb`](Color::Rgb) only; an [`Ansi`](Color::Ansi) index is returned
+    /// unchanged (see [`darken`](Color::darken)).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::style::Color;
+    ///
+    /// assert_eq!(Color::Rgb(100, 100, 100).lighten(0.5), Color::Rgb(178, 178, 178));
+    /// ```
+    #[must_use]
+    pub fn lighten(self, amount: f32) -> Self {
+        match self {
+            Color::Rgb(r, g, b) => {
+                let a = amount.clamp(0.0, 1.0);
+                Color::Rgb(lift_channel(r, a), lift_channel(g, a), lift_channel(b, a))
+            }
+            other => other,
+        }
+    }
+}
+
+/// Scales one channel toward `0` by `factor` (`factor` in `0.0..=1.0`).
+fn scale_channel(channel: u8, factor: f32) -> u8 {
+    (f32::from(channel) * factor).round().clamp(0.0, 255.0) as u8
+}
+
+/// Lifts one channel toward `255` by `amount` (`amount` in `0.0..=1.0`).
+fn lift_channel(channel: u8, amount: f32) -> u8 {
+    let channel = f32::from(channel);
+    (channel + (255.0 - channel) * amount).round().clamp(0.0, 255.0) as u8
 }
 
 /// A set of text attributes (bold, italic, …), stored as a bitset.
