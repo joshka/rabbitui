@@ -14,8 +14,8 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 | 4   | declare-then-command panic    | done   | `Update::try_focus` / `try_command` + `apply_guarded`  |
 | 5   | lazy `ListSource` over `T`    | done   | `rows_with` / `from_fn` / `FromFn`                     |
 | 6   | empty↔populated focus drop    | done   | `SelectionList::empty_text`                            |
-| 7   | global chords at every return | open   | —                                                      |
-| 8   | `frame.split` naming sugar    | open   | —                                                      |
+| 7   | global chords at every return | done   | pattern: check globals at top of `update` (adopted)    |
+| 8   | `frame.split` naming sugar    | done   | `Frame::split_rows` / `Frame::split_columns`           |
 
 ## Findings (ranked — 1–4 are the substantive framework fixes; 5–8 are papercuts)
 
@@ -66,6 +66,15 @@ gave, from an independent app. Ranked; the top three bite any second real app im
    unreachable — it had to be re-checked inside the modal branch. (The flagship has the
    same shape.) **Want:** an always-checked "global chords" hook, or route quit before the
    overlay branches.
+
+   **Resolved by pattern, not new API (2026-07-08).** The framework already delivers
+   every event to `update` and exposes `update.action(&keymap)` / `update.event()`; the
+   fix is discipline, not surface — check global chords at the **top** of `update`, before
+   any early-return branch. The log-follower now hoists its Ctrl-C quit into one top-level
+   block and drops the two duplicated copies. A dedicated `App::on_global(hook)` would add
+   a boxed always-runs closure (and questions: does it see consumed events? effect
+   messages?) — deferred until the pattern proves insufficient, since a heavyweight hook is
+   not worth a papercut a three-line hoist removes.
 
 8. **`rows()`/`columns()` split the whole frame only; sub-areas use
    `split_rows`/`split_columns(area, …)`.** Minor naming friction (rows = horizontal

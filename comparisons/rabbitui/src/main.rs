@@ -205,6 +205,19 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
         update.spawn(Cmd::stream(LogSource::new()).group("source"));
     }
 
+    // Global chords, checked FIRST so an early `return` in a later branch (the
+    // modal captures input and returns) can never strand them — dogfood finding
+    // #7. Ctrl-C quits from anywhere; text inputs pass it through, so it works
+    // while the filter is focused. Checking here once replaces the copy that
+    // previously had to live in both the modal branch and the base bindings.
+    if let Event::Input(input) = update.event() {
+        if let Some(k) = input.as_key() {
+            if k.key == Key::Char('c') && k.modifiers.ctrl {
+                return ControlFlow::Break(());
+            }
+        }
+    }
+
     // Mirror the framework's focus verdict into app state so the view can
     // highlight the focused region (the view itself cannot read focus).
     if update.is_focused(&[key("filter")]) {
@@ -243,13 +256,11 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
     }
 
     if app.detail.is_some() {
-        // Modal is open: Esc or Ctrl-D closes it; Ctrl-C still quits. Everything
-        // beneath is inert because the layer captures input (ADR 0003).
+        // Modal is open: Esc or Ctrl-D closes it (Ctrl-C already handled globally
+        // above). Everything beneath is inert because the layer captures input
+        // (ADR 0003).
         if let Event::Input(input) = update.event() {
             if let Some(k) = input.as_key() {
-                if k.key == Key::Char('c') && k.modifiers.ctrl {
-                    return ControlFlow::Break(());
-                }
                 let close = k.key == Key::Escape || (k.key == Key::Char('d') && k.modifiers.ctrl);
                 if close {
                     app.detail = None;
@@ -285,13 +296,9 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
 
     // App-level key bindings, on keys no focused widget consumed. The filter
     // input eats printables while focused, so app printable bindings are
-    // `consumed()`-guarded and quit is also offered as Ctrl-C (which text inputs
-    // pass through).
+    // `consumed()`-guarded. (Ctrl-C quit is handled once, globally, at the top.)
     if let Event::Input(input) = update.event() {
         if let Some(k) = input.as_key() {
-            if k.key == Key::Char('c') && k.modifiers.ctrl {
-                return ControlFlow::Break(());
-            }
             // Ctrl-P toggles the source pause (works while the filter is focused).
             if k.key == Key::Char('p') && k.modifiers.ctrl {
                 app.paused = !app.paused;
