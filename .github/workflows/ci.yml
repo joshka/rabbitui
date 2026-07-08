@@ -28,6 +28,60 @@ jobs:
       - name: Test
         run: cargo test --workspace
         working-directory: ${{ env.WORKSPACE }}
+      - name: Test conformance (standalone crate)
+        # conformance/ has an empty [workspace] table (see conformance/Cargo.toml
+        # + README.md → "Wiring into the workspace"), so it is NOT a member of the
+        # root workspace and `cargo test --workspace` above does not reach it. It is
+        # self-contained (only vt100, no qwertty path dep), so it runs on its own.
+        run: cargo test
+        working-directory: ${{ env.WORKSPACE }}/conformance
+
+  msrv:
+    # MSRV = stable-minus-one per docs/plans/arc5-field.md item 7(a) and the brief.
+    # Pinned here in ONE place. AUTHOR: confirm this concrete version each toolchain
+    # bump — see the header note below. If you also want it enforced by cargo at the
+    # manifest level, add `rust-version = "1.89"` under [workspace.package] in the
+    # root Cargo.toml (it currently reads 1.85, the edition-2024 floor, NOT the MSRV
+    # policy version); this workflow does not touch Cargo.toml to avoid colliding
+    # with the code workstreams.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Check on MSRV
+        run: cargo check --workspace --all-targets
+        working-directory: ${{ env.WORKSPACE }}
+
+  semver-checks:
+    # ADVISORY until the crates reach 0.1 on crates.io (docs/plans/arc5-field.md
+    # item 7(b)). Low signal today: cargo-semver-checks compares against the last
+    # PUBLISHED version, and these crates are unpublished (0.1.0 path deps only), so
+    # it has no baseline to diff and mostly no-ops. Kept wired so the gate exists and
+    # starts producing signal the moment a version lands on the registry.
+    #
+    # FLIP TO BLOCKING at 0.1: delete the `continue-on-error: true` line below.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+      - name: Check semver
+        run: cargo semver-checks --workspace
+        working-directory: ${{ env.WORKSPACE }}
 
   lint:
     runs-on: ubuntu-latest

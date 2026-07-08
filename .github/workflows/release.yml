@@ -1,0 +1,115 @@
+# Release automation — tag-driven (docs/plans/arc5-field.md item 7(c)).
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ BLOCKED / GUARDED: this workflow is DRY-RUN ONLY and cannot publish yet.  │
+# │                                                                          │
+# │ The facade crate `rabbitui` depends on `qwertty` as a PATH dependency    │
+# │ (see the root Cargo.toml [workspace.dependencies] and                    │
+# │ docs/adr/0012-terminal-substrate.md). `cargo publish` REJECTS a crate    │
+# │ whose dependency is only a path dep with no registry version, so a real  │
+# │ publish of `rabbitui` (and transitively anything that must resolve it)   │
+# │ is impossible until qwertty ships to crates.io and the manifest switches │
+# │ qwertty to a versioned dependency.                                       │
+# │                                                                          │
+# │ Until then every step here runs `cargo publish --dry-run` and the        │
+# │ `publish` guard below hard-fails if someone flips DRY_RUN off. Do NOT    │
+# │ remove the guard until qwertty is a published version dep. See           │
+# │ RELEASE-CHECKLIST.md.                                                     │
+# └─────────────────────────────────────────────────────────────────────────┘
+#
+# Trigger: pushing a version tag (e.g. `v0.1.0`). The full CI gate (fmt, clippy,
+# test, doc, msrv) still runs on the pushed commit via ci.yml; this workflow
+# re-runs the gate for tag isolation and then dry-run-publishes each crate in
+# dependency order.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  WORKSPACE: work/default
+  # GUARD: keep this "true". A real publish is blocked on qwertty (see header).
+  DRY_RUN: "true"
+
+jobs:
+  # Re-run the full gate on the exact tagged commit before any (dry-run) publish,
+  # so a release can never ship from a red tree.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Format
+        run: cargo fmt --check
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Test
+        run: cargo test --workspace
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Doc
+        run: cargo doc --workspace --no-deps
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  publish:
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+
+      - name: GUARD — refuse a real publish while blocked on qwertty
+        # Hard-stop if someone flips DRY_RUN off before qwertty is a published
+        # version dep. Delete this step (and set DRY_RUN=false) only when the root
+        # Cargo.toml's qwertty dependency carries a crates.io version.
+        run: |
+          if [ "${DRY_RUN}" != "true" ]; then
+            echo "::error::Real publish is blocked: rabbitui still depends on qwertty as a path dependency."
+            echo "::error::Switch qwertty to a versioned crates.io dependency in Cargo.toml first. See RELEASE-CHECKLIST.md."
+            exit 1
+          fi
+
+      # Publish in dependency order (core → testing → widgets → bridge → agent →
+      # facade). Each is `--dry-run` so the "already-published upstream member"
+      # problem does not arise (dry-run does not require the previous crate to be
+      # on the registry). When this goes live, add `--token ${{ secrets.CARGO_REGISTRY_TOKEN }}`
+      # and remove --dry-run, and publish crate-by-crate waiting for the index.
+      - name: Dry-run publish rabbitui-core
+        run: cargo publish --dry-run -p rabbitui-core
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Dry-run publish rabbitui-testing
+        run: cargo publish --dry-run -p rabbitui-testing --allow-dirty
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Dry-run publish rabbitui-widgets
+        run: cargo publish --dry-run -p rabbitui-widgets --allow-dirty
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Dry-run publish rabbitui-ratatui (bridge)
+        run: cargo publish --dry-run -p rabbitui-ratatui --allow-dirty
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Dry-run publish rabbitui-agent
+        run: cargo publish --dry-run -p rabbitui-agent --allow-dirty
+        working-directory: ${{ env.WORKSPACE }}
+      - name: Dry-run publish rabbitui (facade) — BLOCKED on qwertty
+        # This one CANNOT publish for real until qwertty is a versioned dep: the
+        # facade's qwertty path dependency has no registry version. Dry-run only;
+        # expected to stay dry-run the longest. Left non-fatal-note in the log.
+        run: cargo publish --dry-run -p rabbitui --allow-dirty
+        working-directory: ${{ env.WORKSPACE }}

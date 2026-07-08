@@ -1,0 +1,50 @@
+# Tape / betamax conformance job — STUB, INTENTIONALLY DISABLED
+# (docs/plans/arc5-field.md item 7(d), and item 1 layer 2).
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ BLOCKED on qwertty publishing. This job would drive the example tapes in  │
+# │ `tapes/` through betamax (see the `tapes` recipe in the root justfile) to │
+# │ exercise the visual/real-terminal conformance channel. It is NOT hermetic │
+# │ yet for two reasons:                                                      │
+# │   1. betamax rendering is not pixel-stable across hosts (the justfile      │
+# │      `screenshots` recipe explicitly avoids CI pixel-diffing for this      │
+# │      reason), so it needs betamax's tape-replay/assert mode, which lands   │
+# │      with a published qwertty.                                            │
+# │   2. betamax is not yet installable from the registry in this project's    │
+# │      pinned form; it arrives with the qwertty publish.                    │
+# │                                                                          │
+# │ Kept as a committed stub so the wiring is visible and reviewable. It runs  │
+# │ NOTHING: the `workflow_dispatch`-only trigger means it never fires on push │
+# │ or PR, and the single job is guarded to no-op. When qwertty publishes:     │
+# │   - restore the on: push/pull_request triggers,                          │
+# │   - install betamax (taiki-e/install-action or `cargo install betamax`),  │
+# │   - run `just tapes-check` then a hermetic `betamax`-replay assertion.     │
+# └─────────────────────────────────────────────────────────────────────────┘
+name: tapes (stub — blocked on qwertty publish)
+
+# workflow_dispatch only: this never runs automatically. Do NOT add push/PR
+# triggers until the job below actually asserts something hermetic.
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  WORKSPACE: work/default
+
+jobs:
+  tapes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Blocked notice
+        run: |
+          echo "The betamax/tape job is blocked on qwertty publishing — see this"
+          echo "file's header and docs/plans/arc5-field.md item 7(d). No-op stub."
+      # When unblocked, replace the notice above with, roughly:
+      #   - uses: dtolnay/rust-toolchain@stable
+      #   - uses: taiki-e/install-action@v2
+      #     with: { tool: betamax }
+      #   - run: just tapes-check
+      #     working-directory: ${{ env.WORKSPACE }}
+      #   - run: just tapes   # once betamax replay is hermetic on CI hosts
+      #     working-directory: ${{ env.WORKSPACE }}
