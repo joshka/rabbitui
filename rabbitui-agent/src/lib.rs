@@ -14,6 +14,7 @@
 pub mod app;
 pub mod backend;
 pub mod demo;
+pub mod keymap;
 pub mod markdown;
 pub mod session;
 pub mod tools;

@@ -1,0 +1,31 @@
+# An example rabbit theme, exercising the facade's TOML theme path end to end.
+#
+#     rabbit --theme rabbitui-agent/themes/example.toml
+#
+# Each value under [roles] is `FG [on BG] [, ATTR...]`, where FG/BG are #rrggbb
+# hex colors and ATTR is a space-separated list of bold / dim / italic /
+# underline / reversed / strikethrough. Roles you omit keep the base theme's
+# style (partial override), so this file only names what it changes.
+#
+# This palette is a cool "moonlight" variant: a soft lavender accent, a teal
+# success, an amber warning, and a warm-red danger — legible on a dark terminal.
+
+[roles]
+# The base surface and separators.
+surface   = "#c8d3f5 on #1e2030"
+border    = "#444a73"
+
+# Base text and secondary text.
+text      = "#c8d3f5"
+muted     = "#7a88cf, dim"
+
+# The actionable / user-marker color — a soft lavender.
+accent    = "#c099ff, bold"
+
+# The focused-selection color: text on the accent, so a highlighted row pops.
+highlight = "#1e2030 on #c099ff, bold"
+
+# Status roles.
+success   = "#c3e88d"
+warning   = "#ffc777, bold"
+danger    = "#ff757f, bold"

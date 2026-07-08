@@ -25,16 +25,17 @@ use rabbitui::effect::Cmd;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::Rect;
 use rabbitui_core::id::key;
-use rabbitui_core::input::Key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::theme::Role;
+use rabbitui_core::spacing;
+use rabbitui_core::theme::{Role, Theme};
 use rabbitui_widgets::{Button, Collapsible, Panel, Text, TextInput};
 
 use crate::backend::{
     Backend, ChatMessage, ChatRequest, ContentBlock, Role as ApiRole, StopReason, StreamEvent,
 };
+use crate::keymap::{Action, Keymap};
 use crate::session::Session;
 use crate::transcript::{
     PendingToolUse, Streaming, ToolStatus, TranscriptCell, commit_lines_for,
@@ -50,8 +51,6 @@ const AGENT_GROUP: &str = "agent";
 const SPINNER_GROUP: &str = "spinner";
 /// The spinner frames cycled while streaming.
 const SPINNER: [&str; 4] = ["⠋", "⠙", "⠹", "⠸"];
-/// The one-line help under the composer.
-const HINT: &str = "Enter: send  Ctrl-X: cancel  Ctrl-T: mode  Ctrl-C: quit";
 /// The cap on tool-continuation round-trips per user turn, so a model that
 /// keeps calling tools cannot loop forever.
 const MAX_CONTINUATIONS: usize = 5;
@@ -103,6 +102,12 @@ pub struct Agent {
     /// opens, cleared once honored — the declare-then-focus handshake, per
     /// `examples/form.rs`).
     pub focus_modal: bool,
+    /// Whether the generated help overlay is up. Toggled by [`Action::Help`],
+    /// dismissed by Esc (or the same chord again).
+    pub showing_help: bool,
+    /// Whether a focus request into the help overlay is still owed (the same
+    /// declare-then-focus handshake the modal uses).
+    pub focus_help: bool,
 }
 
 impl Agent {
@@ -124,6 +129,8 @@ impl Agent {
             session: None,
             awaiting: None,
             focus_modal: false,
+            showing_help: false,
+            focus_help: false,
         }
     }
 
@@ -541,6 +548,28 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
         }
     }
 
+    // Help overlay routing (topmost when up): Esc or the Help chord closes it;
+    // Ctrl-C still quits. Everything else is swallowed so the overlay is modal.
+    if app.showing_help {
+        if let Event::Input(input) = update.event()
+            && let Some(press) = input.as_key()
+        {
+            match KEYMAP.action_for(press) {
+                Some(Action::Quit) => return ControlFlow::Break(()),
+                Some(Action::Help | Action::Dismiss) => app.showing_help = false,
+                _ => {}
+            }
+        }
+        // Honor the one-shot focus request into the help overlay.
+        if app.focus_help {
+            update.focus(&[key("help"), key("panel")]);
+            app.focus_help = false;
+        }
+        flush_commits(app, &update);
+        persist_history(app);
+        return ControlFlow::Continue(());
+    }
+
     // Confirmation modal routing (when up): Allow/Deny buttons, plus y/n and Esc.
     if app.is_confirming() {
         handle_modal(app, &update);
@@ -550,11 +579,11 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
             app.focus_modal = false;
         }
         // While the modal is up, keys belong to it — skip base app bindings,
-        // except the always-available quit chords below.
+        // except the always-available Quit chord below.
         if let Event::Input(input) = update.event()
+            && !update.consumed()
             && let Some(press) = input.as_key()
-            && ((press.key == Key::Char('c') && press.modifiers.ctrl)
-                || (press.key == Key::Char('q') && !update.consumed()))
+            && KEYMAP.action_for(press) == Some(Action::Quit)
         {
             return ControlFlow::Break(());
         }
@@ -563,26 +592,25 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
         return ControlFlow::Continue(());
     }
 
-    // App-level key bindings on keys no focused widget consumed.
+    // App-level key bindings, dispatched through the ONE keymap on keys no focused
+    // widget consumed. `Send` is owned by the composer's `Submitted` outcome (see
+    // the top of `update`), so it is not dispatched here.
     if let Event::Input(input) = update.event()
         && !update.consumed()
         && let Some(press) = input.as_key()
     {
-        match press.key {
-            Key::Char('t') if press.modifiers.ctrl => toggle_mode(app, &update),
-            Key::Char('m') if !press.modifiers.ctrl => toggle_mode(app, &update),
-            Key::Char('x') if press.modifiers.ctrl => {
+        match KEYMAP.action_for(press) {
+            Some(Action::ToggleMode) => toggle_mode(app, &update),
+            Some(Action::Cancel) => {
                 if app.is_streaming() {
                     cancel(app, &update);
                 }
             }
-            Key::Escape => {
-                if app.is_streaming() {
-                    cancel(app, &update);
-                }
+            Some(Action::Help) => {
+                app.showing_help = true;
+                app.focus_help = true;
             }
-            Key::Char('q') if !press.modifiers.ctrl => return ControlFlow::Break(()),
-            Key::Char('c') if press.modifiers.ctrl => return ControlFlow::Break(()),
+            Some(Action::Quit) => return ControlFlow::Break(()),
             _ => {}
         }
     }
@@ -592,14 +620,24 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
     ControlFlow::Continue(())
 }
 
-/// Toggles inline ↔ alt-screen and switches the runtime mode.
+/// The app's single keymap, read by both dispatch (here) and the help overlay
+/// (`view_help`).
+const KEYMAP: Keymap = Keymap::app();
+
+/// Toggles inline ↔ alt-screen browse and switches the runtime mode.
+///
+/// Entering browse mode moves focus into the transcript scroll so Up/Down/
+/// PageUp/PageDown/Home/End (and the wheel) drive it immediately; returning to
+/// inline puts focus back on the composer so typing resumes without a Tab.
 fn toggle_mode(app: &mut Agent, update: &Update<'_, Msg>) {
     app.inline = !app.inline;
-    update.set_mode(if app.inline {
-        Mode::inline(TAIL_HEIGHT)
+    if app.inline {
+        update.set_mode(Mode::inline(TAIL_HEIGHT));
+        update.focus(&[key("composer")]);
     } else {
-        Mode::AltScreen
-    });
+        update.set_mode(Mode::AltScreen);
+        update.focus(&[key("transcript")]);
+    }
 }
 
 /// Sends the composer draft and spawns the response stream and spinner.
@@ -625,15 +663,17 @@ fn handle_modal(app: &mut Agent, update: &Update<'_, Msg>) {
     let deny_button =
         update.outcome_for(&[key("modal"), key("deny")]) == Some(&Outcome::Activated);
 
-    // Key affordances on keys the buttons didn't consume: y allows, n / Esc deny.
+    // Key affordances on keys the buttons didn't consume, sourced from the same
+    // keymap: y allows; n / Esc deny. These are printable/Esc chords, so they are
+    // `consumed()`-guarded — a key a focused widget took is never re-interpreted.
     let (mut key_allow, mut key_deny) = (false, false);
     if let Event::Input(input) = update.event()
+        && !update.consumed()
         && let Some(press) = input.as_key()
     {
-        match press.key {
-            Key::Char('y') if !press.modifiers.ctrl => key_allow = true,
-            Key::Char('n') if !press.modifiers.ctrl => key_deny = true,
-            Key::Escape => key_deny = true,
+        match KEYMAP.action_for(press) {
+            Some(Action::Allow) => key_allow = true,
+            Some(Action::Deny | Action::Dismiss) => key_deny = true,
             _ => {}
         }
     }
@@ -759,7 +799,94 @@ pub fn view(app: &Agent, frame: &mut Frame<'_>) {
     if app.is_confirming() {
         view_modal(app, frame);
     }
+    // The help overlay sits above everything, including the confirm modal, so a
+    // user can always summon the reference card.
+    if app.showing_help {
+        view_help(frame);
+    }
 }
+
+/// The generated help overlay, on a z-layer over the transcript (the same
+/// `Frame::layer` pattern the confirm modal uses). Rows are GENERATED from the
+/// one [`Keymap`] table — no hand-maintained list — as two aligned columns
+/// (chord, action). Esc (or the Help chord) closes it.
+///
+/// Responsive like the modal: everything derives from `frame.area()`, so a
+/// resize just recomputes. In inline mode the frame is only the bounded tail
+/// ([`TAIL_HEIGHT`] rows); the row list truncates with an "…and N more" line
+/// rather than clipping the panel chrome or the footer hint.
+fn view_help(frame: &mut Frame<'_>) {
+    use rabbitui_core::geometry::{Position, Size};
+    use rabbitui_core::layout::center;
+
+    let rows = KEYMAP.help_rows();
+
+    // Width fits the widest "chord   action" row, clamped to sit inside the frame
+    // with the standard overlay margin on each side.
+    let widest_chord = rows.iter().map(|(chord, _)| chord.len()).max().unwrap_or(0);
+    let content_width = rows
+        .iter()
+        .map(|(_chord, label)| widest_chord + COLUMN_GAP + label.len())
+        .max()
+        .unwrap_or(0);
+    let avail = frame.area();
+    let margin = spacing::OVERLAY_MARGIN * 2;
+    let max_width = avail.size.width.saturating_sub(margin);
+    // Panel chrome (border + padding) eats 2 cols each side.
+    let width = (content_width as u16 + 4).clamp(20, max_width.max(20));
+
+    // Panel chrome eats 4 rows (border + padding top/bottom); the title row is
+    // free. Reserve one row for a "…and N more" line if the list must truncate.
+    let chrome = 4u16;
+    let capacity = avail.size.height.saturating_sub(chrome).max(1);
+    let visible = (rows.len() as u16).min(capacity);
+    let truncated = rows.len() as u16 > visible;
+    let listed = if truncated {
+        visible.saturating_sub(1) as usize
+    } else {
+        visible as usize
+    };
+    let height = (chrome + visible).min(avail.size.height);
+    let area = center(avail, width, height);
+
+    frame.layer(key("help"), |help| {
+        let panel = Panel::new()
+            .title("keys — Esc to close")
+            .padding(spacing::PANEL_PADDING)
+            .focused(true);
+        help.widget(key("panel"), area, &panel);
+        let inner = Panel::inner(area, &panel);
+
+        let row_rect = |offset: u16| {
+            Rect::new(
+                Position::new(inner.origin.x, inner.origin.y + offset),
+                Size::new(inner.size.width, 1),
+            )
+        };
+        for (offset, (chord, label)) in rows.iter().take(listed).enumerate() {
+            let line = format!("{chord:<widest_chord$}{gap}{label}", gap = " ".repeat(COLUMN_GAP));
+            // Two columns in one line so the chord and action stay aligned; the
+            // whole row is Accent so the chord reads as the actionable part.
+            help.widget(
+                key("row").index(offset),
+                row_rect(offset as u16),
+                &Text::new(line).role(Role::Accent),
+            );
+        }
+        if truncated {
+            let more = rows.len() - listed;
+            // The last visible inner row is the summary (the modal's pattern).
+            help.widget(
+                key("more"),
+                row_rect(listed as u16),
+                &Text::new(format!("…and {more} more")).role(Role::Muted),
+            );
+        }
+    });
+}
+
+/// The gap between the chord column and the action column in the help overlay.
+const COLUMN_GAP: usize = 2;
 
 /// The confirmation modal, on a z-layer over the transcript (the `form.rs`
 /// pattern): a centered focused panel listing the pending tool call(s) with
@@ -781,7 +908,11 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
     // many calls (or a short terminal) never clip the y/n away; the call list
     // truncates with an "…and N more" line instead.
     let avail = frame.area();
-    let width = avail.size.width.saturating_sub(4).clamp(24, 60);
+    let width = avail
+        .size
+        .width
+        .saturating_sub(spacing::OVERLAY_MARGIN * 2)
+        .clamp(24, 60);
     // Panel chrome (border + padding) eats 4 rows; prompt + buttons eat 2.
     // Whatever remains is the call list, at least one row.
     let chrome = 4u16;
@@ -801,7 +932,7 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
     frame.layer(key("modal"), |modal| {
         let panel = Panel::new()
             .title("confirm tool use")
-            .padding(1)
+            .padding(spacing::PANEL_PADDING)
             .focused(true);
         modal.widget(key("bg"), area, &panel);
         let inner = Panel::inner(area, &panel);
@@ -880,7 +1011,10 @@ fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
         Constraint::Length(1),
         Constraint::Length(1),
     ]);
-    let panel = Panel::new().title("transcript").padding(1).focused(true);
+    let panel = Panel::new()
+        .title("transcript")
+        .padding(spacing::PANEL_PADDING)
+        .focused(true);
     frame.widget(key("panel"), transcript_area, &panel);
     let inner = Panel::inner(transcript_area, &panel);
     frame.scroll(key("transcript"), inner, |scroll| {
@@ -961,13 +1095,40 @@ fn render_footer(
         composer_row,
         &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
     );
-    frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
+    frame.widget(key("hint"), hint_row, &Text::new(hint_line()).role(Role::Muted));
+}
+
+/// The one-line footer hint, generated from the keymap so it never drifts from
+/// the real bindings. Shows the send chord, the mode toggle, and how to reach
+/// the full help card.
+fn hint_line() -> String {
+    let chord = |action: Action| {
+        KEYMAP
+            .chords_for(action)
+            .first()
+            .map_or_else(String::new, |chord| chord.display())
+    };
+    // The help hint shows the works-today alias (last chord), not the decided
+    // Ctrl-/ (first chord) that the current substrate cannot decode — the overlay
+    // itself lists both. See `keymap`'s substrate note.
+    let help_chord = KEYMAP
+        .chords_for(Action::Help)
+        .last()
+        .map_or_else(String::new, |chord| chord.display());
+    format!(
+        "{}: send  {}: mode  {help_chord}: help  {}: quit",
+        chord(Action::Send),
+        chord(Action::ToggleMode),
+        chord(Action::Quit),
+    )
 }
 
 /// The status line: mode, agent state, and a spinner while streaming.
 fn status_line(app: &Agent) -> String {
-    let mode = if app.inline { "inline" } else { "alt-screen" };
-    if app.is_confirming() {
+    let mode = if app.inline { "inline" } else { "alt-screen browse" };
+    if app.showing_help {
+        format!("[{mode}]  help · Esc to close")
+    } else if app.is_confirming() {
         format!("[{mode}]  awaiting tool confirmation · y/n")
     } else if app.is_streaming() {
         let spinner = SPINNER[app.spinner];
@@ -1000,10 +1161,39 @@ fn status_role(app: &Agent) -> Role {
 ///
 /// Propagates any terminal error from the run loop.
 pub async fn run(app: Agent) -> rabbitui::app::Result<()> {
-    App::new(app, update, view)
-        .mode(Mode::inline(TAIL_HEIGHT))
-        .run()
-        .await
+    run_themed(app, ThemeConfig::default()).await
+}
+
+/// How to theme the app: an optional base preset plus an optional TOML override
+/// file (the facade's `theme_file` path). Either or both may be set; a file
+/// layers its roles over the base ([`Theme::default`] when no base is given).
+#[derive(Debug, Clone, Default)]
+pub struct ThemeConfig {
+    /// The base theme (a built-in preset). `None` means [`Theme::default`].
+    pub base: Option<Theme>,
+    /// A TOML theme file whose `[roles]` layer over `base`. Loaded once at
+    /// startup and (in debug builds) hot-reloaded on change by the facade.
+    pub file: Option<std::path::PathBuf>,
+}
+
+/// Builds and runs the app under a theme configuration.
+///
+/// Wires the facade's theme path end to end: `--theme <file>` becomes
+/// [`ThemeConfig::file`], loaded via [`App::theme_file`] (the facade parses the
+/// TOML into a [`Theme`] over the base, and hot-reloads it in debug builds).
+///
+/// # Errors
+///
+/// Propagates terminal errors, and any theme-file load/parse error at startup.
+pub async fn run_themed(app: Agent, theme: ThemeConfig) -> rabbitui::app::Result<()> {
+    let mut builder = App::new(app, update, view).mode(Mode::inline(TAIL_HEIGHT));
+    if let Some(base) = theme.base {
+        builder = builder.theme(base);
+    }
+    if let Some(file) = theme.file {
+        builder = builder.theme_file(file);
+    }
+    builder.run().await
 }
 
 // ---------------------------------------------------------------------------

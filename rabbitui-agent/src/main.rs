@@ -29,11 +29,15 @@ credentials it falls back to an offline demo. ANTHROPIC_BASE_URL is honored.
 
 OPTIONS:
     --model <ID>      Model id to request (default: claude-opus-4-8)
+    --theme <FILE>    Load a TOML theme file (see themes/example.toml)
     --continue        Resume the most recent session
     --resume <FILE>   Resume a specific session file
     --replay <FILE>   Play a JSONL replay fixture instead of calling the API
     --demo            Use the built-in offline demo backend
     -h, --help        Print this help
+
+A theme file may also be set via the RABBIT_THEME environment variable; the
+--theme flag wins when both are present.
 ";
 
 #[tokio::main(flavor = "current_thread")]
@@ -74,8 +78,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let app = build_app(&args, backend)?;
-    app::run(app).await?;
+    app::run_themed(app, theme_config(&args)).await?;
     Ok(())
+}
+
+/// Resolves the theme configuration from the flags and the environment: the
+/// `--theme` flag wins, then `RABBIT_THEME`, else the built-in default theme.
+fn theme_config(args: &Args) -> app::ThemeConfig {
+    let file = args
+        .theme
+        .clone()
+        .or_else(|| std::env::var_os("RABBIT_THEME").map(PathBuf::from));
+    app::ThemeConfig { base: None, file }
 }
 
 /// Assembles the [`Agent`], resuming or creating a session as the flags direct.
@@ -114,6 +128,8 @@ struct Args {
     replay: Option<PathBuf>,
     /// Whether to force the offline demo backend.
     demo: bool,
+    /// A TOML theme file to load (overrides `RABBIT_THEME`).
+    theme: Option<PathBuf>,
 }
 
 impl Args {
@@ -124,10 +140,12 @@ impl Args {
         let mut continue_latest = false;
         let mut replay = None;
         let mut demo = false;
+        let mut theme = None;
         let mut args = args;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--model" => model = value(&mut args, "--model")?,
+                "--theme" => theme = Some(value(&mut args, "--theme")?.into()),
                 "--resume" => resume = Some(value(&mut args, "--resume")?.into()),
                 "--continue" => continue_latest = true,
                 "--replay" => replay = Some(value(&mut args, "--replay")?.into()),
@@ -142,6 +160,7 @@ impl Args {
             continue_latest,
             replay,
             demo,
+            theme,
         }))
     }
 }
