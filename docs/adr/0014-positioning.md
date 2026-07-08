@@ -1,6 +1,6 @@
 # ADR 0014: Build standalone; defer the ratatui-* shipping decision to ~0.1
 
-- Status: accepted (2026-07-06) — decision deferred by design
+- Status: accepted (2026-07-06), deferred by design; amended 2026-07-08 (substrate axis)
 - Deciders: joshka + research synthesis
 
 ## Context — the forces, with evidence
@@ -133,6 +133,34 @@ gravity, and a rename at ~0.1 (pre-1.0, small user base) is cheap.
 5. **The final call is the author's, at ~0.1.** Because the names are the author's own and the org
    path is pre-cleared, this is a branding/positioning choice to be made — not a race to be run or
    an approval to be sought.
+
+## Amendment (2026-07-08): brand independence from the _substrate_
+
+A second naming axis surfaced, orthogonal to the ratatui-org question above: whether to tie the
+framework's name to its **terminal substrate, qwertty** — e.g. `qwertty-tui` — rather than carry an
+independent name. Decided: **no. The framework brand stays independent of the substrate**, whatever
+the eventual name is.
+
+Rationale:
+
+- **It would contradict the architecture.** `rabbitui-core` is deliberately substrate-free
+  (single-file seam, ADR 0006 §9): the substrate crosses one bridge and nothing in the core API
+  depends on it. Branding a substrate-_agnostic_ core after one specific substrate is a name that
+  fights its own design — and a liability the day the core runs on a different substrate, or the
+  substrate is swapped.
+- **It couples the two projects' fates.** A `qwertty-tui` name makes qwertty's reputation and
+  momentum the framework's, in both directions. The two move in lockstep today, but the architecture
+  is built so they _need not_; the name should not throw that away.
+- **It matches the field.** The leading TUI frameworks are independently named and backend-abstracted
+  (ratatui does not call itself `crossterm-tui`; Textual is not `rich-tui`), because the framework is
+  what app authors reason about — the byte-level substrate is an implementation detail the name
+  should not foreground.
+
+This is consistent with, and narrower than, the main decision: whatever the final name becomes
+(`rabbitui`, a reserved `ratatui-*` org name, or another independent name chosen at ~0.1), **it must
+not encode the substrate.** The working name `rabbitui` already satisfies this; the specific final
+name stays deferred to ~0.1. The naming-agnostic invariant in Decision §3 is hereby read to include
+substrate-agnostic: no public API or crate name may encode the qwertty substrate either.
 
 ## Consequences
 
