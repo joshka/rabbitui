@@ -290,6 +290,103 @@ impl Pending {
         }
         remainder
     }
+
+    /// Applies every buffered widget command, then the focus request — the
+    /// **guarded** counterpart to [`apply`](Self::apply): a command to an
+    /// undeclared/foreign-typed widget and an unhonorable focus request are each
+    /// a **soft skip** (no panic, no `debug_assert`) reported in the returned
+    /// [`ApplyReport`], rather than a fail-loud contract violation.
+    ///
+    /// This is the additive primitive behind the dogfood-findings #4 fix (a
+    /// conditional UI whose commanded/focused widget is legitimately absent this
+    /// frame — a list sometimes replaced by an empty-state placeholder). It does
+    /// **not** replace [`apply`](Self::apply): the strict path stays the
+    /// reveal-or-fail default (ADR 0006) for "I know this is declared"; a caller
+    /// that knows a target is conditional opts into this guarded path instead.
+    ///
+    /// Guarding is **all-or-nothing per apply**, not per command: the whole
+    /// pending set is treated as best-effort. An app that needs some commands
+    /// strict and others best-effort in the same update issues them through the
+    /// two different apply calls (the facade layers `command`→[`apply`](Self::apply)
+    /// and `try_command`→`apply_guarded` on top of this). This keeps the buffered
+    /// [`WidgetCommand`] a plain closure with no extra per-entry flag to thread,
+    /// and lets one [`ApplyReport`] name every skip in one pass.
+    ///
+    /// Unlike [`apply_deferred`](Self::apply_deferred) there is no carry-forward
+    /// retry: a guarded apply is the terminal, tolerant apply, so an unhonorable
+    /// focus request is reported as skipped here rather than deferred. A runtime
+    /// that wants declare-then-focus retry *and* guarded tolerance runs the
+    /// deferred apply first and only falls back to guarded on the final frame.
+    ///
+    /// Core is deliberately `tracing`-free (see [`log`](crate::log)), so soft
+    /// skips are surfaced in the returned report rather than warned inline; the
+    /// facade (which owns `tracing`) is expected to `warn!` off a non-empty
+    /// report so a skip is visible, not silent. Call
+    /// [`ApplyReport::is_clean`](ApplyReport::is_clean) to branch on it.
+    ///
+    /// This consumes the pending set (the commands are `FnOnce`).
+    #[must_use]
+    pub fn apply_guarded(
+        self,
+        store: &mut StateStore,
+        facts: &FrameFacts,
+        focus: &mut Focus,
+    ) -> ApplyReport {
+        let mut report = ApplyReport::default();
+        for (id, command) in self.commands {
+            match store.get_dyn_mut(id) {
+                // The command's own downcast guard turns a foreign-typed row into
+                // a no-op (in release) — a type mismatch is still a soft skip, but
+                // it is not observable here without running the closure, so we
+                // only report the unambiguous missing-row case. See the note on
+                // `ApplyReport::skipped_commands`.
+                Some(state) => command(state),
+                None => report.skipped_commands.push(id),
+            }
+        }
+
+        if let Some(id) = self.focus {
+            if facts.get(id).is_some_and(|entry| entry.focusable) {
+                focus.set(Some(id));
+            } else {
+                report.skipped_focus = Some(id);
+            }
+        }
+        report
+    }
+}
+
+/// What a [`guarded apply`](Pending::apply_guarded) chose to skip rather than
+/// panic on: the ids whose commands were dropped and the focus id that could not
+/// be honored this frame.
+///
+/// Empty when everything applied cleanly ([`is_clean`](Self::is_clean)). The
+/// facade is expected to `tracing::warn!` off a non-empty report (core stays
+/// `tracing`-free), so a soft skip is visible rather than silent.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ApplyReport {
+    /// Ids of widget commands dropped because no retained state row exists at the
+    /// id (the widget was not declared this frame). Reported in command order.
+    ///
+    /// A *foreign-typed* row (the id was declared with a different widget) is
+    /// also a soft skip, but it is caught by the command closure's own downcast
+    /// guard after this table is consulted, so it does not appear here — the
+    /// closure no-ops in release and `debug_assert`s in debug, exactly as on the
+    /// strict path. Only the missing-row case is observable at this layer.
+    pub skipped_commands: Vec<WidgetId>,
+    /// The focus id dropped because the target was not present-and-focusable in
+    /// the frame's facts, if any. Guarded apply does not carry focus forward, so
+    /// this is a terminal drop, not a deferral.
+    pub skipped_focus: Option<WidgetId>,
+}
+
+impl ApplyReport {
+    /// True when nothing was skipped — every command applied and any focus
+    /// request was honored.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.skipped_commands.is_empty() && self.skipped_focus.is_none()
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +549,78 @@ mod tests {
             Some(input_id()),
             "the retry frame honored the focus"
         );
+    }
+
+    #[test]
+    fn guarded_apply_drops_undeclared_command_without_panicking_and_reports_it() {
+        let (facts, mut store) = declared();
+        let ghost = WidgetId::ROOT.child(key("ghost"));
+        let mut pending = Pending::new();
+        // A valid command interleaved with a command to an undeclared id: the
+        // valid one still applies, the ghost one is a soft skip in the report.
+        pending.command::<Input>(input_id(), |state| state.value = "kept".into());
+        pending.command::<Input>(ghost, |s| s.value = "x".into());
+        let mut focus = Focus::new();
+        let report = pending.apply_guarded(&mut store, &facts, &mut focus);
+
+        assert_eq!(value(&mut store), "kept", "the declared command still ran");
+        assert_eq!(report.skipped_commands, vec![ghost]);
+        assert!(report.skipped_focus.is_none());
+        assert!(!report.is_clean());
+    }
+
+    #[test]
+    fn guarded_apply_drops_unhonorable_focus_without_panicking_and_reports_it() {
+        // A frame where the target is present but not focusable — the same input
+        // that makes strict `apply` panic (see `focusing_non_focusable_panics`).
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut store = StateStore::new();
+        store.begin_frame();
+        let mut frame = Frame::new(&mut buffer, &mut store);
+        frame.widget(key("label"), frame.area(), &Label);
+        let facts = frame.finish();
+        store.end_frame();
+        let label = WidgetId::ROOT.child(key("label"));
+
+        let mut pending = Pending::new();
+        pending.request_focus(label);
+        let mut focus = Focus::new();
+        let report = pending.apply_guarded(&mut store, &facts, &mut focus);
+
+        assert!(focus.current().is_none(), "focus was not moved");
+        assert_eq!(report.skipped_focus, Some(label));
+        assert!(report.skipped_commands.is_empty());
+        assert!(!report.is_clean());
+    }
+
+    #[test]
+    fn guarded_apply_honors_valid_focus_and_commands_with_clean_report() {
+        let (facts, mut store) = declared();
+        value_mut(&mut store).clear();
+        value_mut(&mut store).push_str("old");
+
+        let mut pending = Pending::new();
+        pending.command::<Input>(input_id(), |state| state.value = "new".into());
+        pending.request_focus(input_id());
+        let mut focus = Focus::new();
+        let report = pending.apply_guarded(&mut store, &facts, &mut focus);
+
+        assert_eq!(value(&mut store), "new");
+        assert_eq!(focus.current(), Some(input_id()));
+        assert!(report.is_clean(), "nothing skipped: {report:?}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "no retained state")]
+    fn strict_apply_still_panics_on_undeclared_command_in_debug() {
+        // The guarded path is purely additive: the same input that a guarded apply
+        // tolerates must still fail loudly on the strict path (ADR 0006).
+        let (facts, mut store) = declared();
+        let mut pending = Pending::new();
+        pending.command::<Input>(WidgetId::ROOT.child(key("ghost")), |s| s.value = "x".into());
+        let mut focus = Focus::new();
+        pending.apply(&mut store, &facts, &mut focus);
     }
 
     #[cfg(debug_assertions)]
