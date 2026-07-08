@@ -157,17 +157,9 @@ struct App_ {
     /// Whether the source is paused (Ctrl-P). A paused follower stops appending
     /// so you can read without the list moving under you.
     paused: bool,
-    /// Whether the log-source stream has been spawned. There is no init hook, so
-    /// the stream is started lazily on the first `update` (see friction note).
-    started: bool,
     /// The last-known focused region, mirrored from `update.is_focused` so the
     /// view can highlight the focused panel.
     focus: Focus,
-    /// The selected row's *visible* index, mirrored from the list's
-    /// `Outcome::Selected`. The app must track this itself because there is no
-    /// way to *read* a widget's state (friction note); it needs the index to open
-    /// the correct entry's detail.
-    selected: usize,
 }
 
 impl Default for App_ {
@@ -178,9 +170,7 @@ impl Default for App_ {
             detail: None,
             focus_modal: false,
             paused: false,
-            started: false,
             focus: Focus::Filter,
-            selected: 0,
         }
     }
 }
@@ -209,11 +199,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Folds one update into the app.
 fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
-    // Lazily start the log source on the first update. There is no init hook, so
-    // the stream cannot start until the first event arrives (friction note); this
-    // spawns it exactly once, on whatever the first event is.
-    if !app.started {
-        app.started = true;
+    // Start the log source at launch via the one-shot `Event::Started` hook
+    // (dogfood finding #1) — no lazy `started` flag, no "press a key to begin".
+    if matches!(update.event(), Event::Started) {
         update.spawn(Cmd::stream(LogSource::new()).group("source"));
     }
 
@@ -243,21 +231,14 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
         }
     }
 
-    // Track the list's selection from its Selected outcome (the only way to know
-    // the selected index — state is not readable).
-    if let Some(Outcome::Selected(index)) = update.outcome_for(&[key("list")]) {
-        app.selected = *index;
-    }
-
     // Track the filter draft on every edit.
     if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("filter")]) {
         app.filter = value.clone();
-        // A narrower filter can strand the selection past the new end; reset both
-        // the widget's state and our mirror to the top so the highlight is always
-        // on a visible row. The list now renders its own empty state and stays
+        // A narrower filter can strand the selection past the new end; reset the
+        // widget's own selection to the top so the highlight is always on a
+        // visible row. The list now renders its own empty state and stays
         // declared under `key("list")` even with zero matches, so this command
         // always lands — no is-empty guard needed (the finding-#4 footgun is gone).
-        app.selected = 0;
         update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
     }
 
@@ -289,10 +270,14 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
     }
 
     // Base view: Enter (or a click) on the list activates the selected row and
-    // opens its detail modal. The selected index is our mirror of the list's
-    // last Selected outcome, resolved against the current filtered view.
+    // opens its detail modal. The selected index is read straight from the list's
+    // own state (dogfood finding #2 — no app-side mirror), resolved against the
+    // current filtered view.
     if update.outcome_for(&[key("list")]) == Some(&Outcome::Activated) {
-        if let Some(entry) = app.visible().into_iter().nth(app.selected) {
+        let selected = update
+            .widget_state::<SelectionList<Vec<String>>>(&[key("list")])
+            .map_or(0, |state| state.selected());
+        if let Some(entry) = app.visible().into_iter().nth(selected) {
             app.detail = Some(entry.seq);
             app.focus_modal = true;
         }

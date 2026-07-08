@@ -56,9 +56,9 @@ Controls:
 | `q` (list focused) | quit                                          |
 | `Ctrl-C`           | quit (works while the filter is focused)      |
 
-> Note: the log source starts on the **first key press**, not at launch — the
-> framework has no init-command hook (see friction #1). Press Tab (or any key) and
-> lines begin to flow.
+> Note: the log source starts **at launch**, via the one-shot `Event::Started`
+> hook the framework grew after this app first reported the gap (dogfood finding
+> #1). Lines flow immediately — no key press needed.
 
 Verification is green with:
 
