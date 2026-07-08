@@ -116,11 +116,11 @@ fn in_effect_poll() -> bool {
 /// guarantee every framework in the research survey eventually learned to make
 /// first.
 #[derive(Debug)]
-pub struct Terminal {
-    session: Option<TokioTerminalSession>,
+pub struct Terminal<D: qwertty::TerminalDevice = qwertty::Terminal> {
+    session: Option<TokioTerminalSession<D>>,
 }
 
-impl Terminal {
+impl Terminal<qwertty::Terminal> {
     /// Opens the interactive terminal in raw mode.
     ///
     /// Screen setup (alternate screen, cursor visibility, clearing, or the inline
@@ -156,6 +156,32 @@ impl Terminal {
         // workaround here (qwertty substrate-status; requirements doc "Resolution
         // — qwertty sync" #3), so the seam no longer resolves the device itself.
         let session = TokioTerminalSession::open()?;
+        Ok(Self {
+            session: Some(session),
+        })
+    }
+}
+
+impl<D: qwertty::TerminalDevice> Terminal<D> {
+    /// Builds a terminal over an arbitrary [`TerminalDevice`](qwertty::TerminalDevice),
+    /// bypassing controlling-terminal acquisition.
+    ///
+    /// The headless-testing seam (`docs/design/fakedevice-e2e-harness.md`): a
+    /// [`qwertty::FakeDevice`] socketpair drives the *real* [`run`](crate::app::run)
+    /// loop with no pty, so bug classes that only surface over a live device
+    /// (declare-then-focus panics, inline-commit timing) become CI-catchable.
+    /// [`open`](Terminal::open) remains the production entry; this shares every
+    /// method below it.
+    ///
+    /// Unlike `open`, this installs **no** panic-restore hook — a fake device has
+    /// no terminal to strand, and a headless test wants panics to surface, not be
+    /// swallowed by a `/dev/tty` restore.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the session cannot be constructed over the device.
+    pub fn from_device(device: D) -> Result<Self> {
+        let session = TokioTerminalSession::from_device(device)?;
         Ok(Self {
             session: Some(session),
         })
@@ -268,16 +294,16 @@ impl Terminal {
         Ok(())
     }
 
-    fn session(&self) -> &TokioTerminalSession {
+    fn session(&self) -> &TokioTerminalSession<D> {
         self.session.as_ref().expect("session present until close")
     }
 
-    fn session_mut(&mut self) -> &mut TokioTerminalSession {
+    fn session_mut(&mut self) -> &mut TokioTerminalSession<D> {
         self.session.as_mut().expect("session present until close")
     }
 }
 
-impl Drop for Terminal {
+impl<D: qwertty::TerminalDevice> Drop for Terminal<D> {
     fn drop(&mut self) {
         // `close` already ran the orderly path. Otherwise (early return,
         // panic unwind) fall back to the direct restore; the session's own

@@ -1013,8 +1013,8 @@ where
         let flush_handle = install_tracing(self.tracing, self.log_handle.clone());
 
         let App {
-            mut state,
-            mut update,
+            state,
+            update,
             view,
             theme: base_theme,
             theme_file,
@@ -1025,120 +1025,195 @@ where
 
         // Load the initial theme from the file (if any), layered over the base.
         // A startup error is fatal; a mid-run reload error is not (see below).
-        let mut watcher = ThemeWatcher::new(theme_file, base_theme)?;
-        let mut theme = watcher.theme();
+        let watcher = ThemeWatcher::new(theme_file, base_theme)?;
 
-        let mut terminal = Terminal::open().await?;
-        let mut viewport = terminal.size()?;
+        let terminal = Terminal::open().await?;
+        run_loop(
+            terminal,
+            state,
+            update,
+            view,
+            watcher,
+            mode,
+            mouse,
+            #[cfg(feature = "tracing")]
+            flush_handle,
+        )
+        .await
+    }
+}
 
-        // The render engine for the active mode; `enter` produces the mode-entry
-        // bytes (alt-screen switch, or inline cursor-hide). The state store,
-        // focus, and theme persist across iterations.
-        let mut engine = ModeEngine::new(mode, mouse);
-        let mut store = StateStore::new();
-        let mut focus = Focus::new();
+/// The headless-testable core of [`run`]: drives the real event loop over any
+/// [`TerminalDevice`](qwertty::TerminalDevice).
+///
+/// Production [`App::run`] passes a real terminal ([`Terminal::open`]); the
+/// FakeDevice harness passes [`Terminal::from_device`] over a socketpair, so the
+/// *same* loop — the real `update` closure, routing, effects, mode switches, and
+/// paint scheduling — runs headlessly in CI. That is the whole point: the bug
+/// classes that only surfaced on real hardware (a declare-then-focus panic in
+/// `update`, inline-commit timing) become CI-catchable
+/// (`docs/design/fakedevice-e2e-harness.md`).
+#[allow(clippy::too_many_arguments)]
+async fn run_loop<S, U, V, M, D>(
+    mut terminal: Terminal<D>,
+    mut state: S,
+    mut update: U,
+    view: V,
+    mut watcher: ThemeWatcher,
+    mode: Mode,
+    mouse: Option<bool>,
+    #[cfg(feature = "tracing")] flush_handle: Option<rabbitui_core::log::LogHandle>,
+) -> Result<()>
+where
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
+    V: Fn(&S, &mut Frame<'_>),
+    M: Send + 'static,
+    D: qwertty::TerminalDevice,
+{
+    let mut theme = watcher.theme();
+    let mut viewport = terminal.size()?;
 
-        // The effect runtime (ADR 0005): spawn tables, group abort, and the
-        // mailbox. It touches no terminal, so it is one `select!` arm below and is
-        // unit-tested headless in `crate::effect`.
-        let mut effects: Effects<M> = Effects::new();
+    // The render engine for the active mode; `enter` produces the mode-entry
+    // bytes (alt-screen switch, or inline cursor-hide). The state store,
+    // focus, and theme persist across iterations.
+    let mut engine = ModeEngine::new(mode, mouse);
+    let mut store = StateStore::new();
+    let mut focus = Focus::new();
 
-        // Buffers are sized for the mode: the full viewport in alt-screen, or the
-        // bounded live-tail height in inline. `front` is what the terminal shows,
-        // `back` the frame being built. `apply_mode_switch` and the resize branch
-        // re-size both when the mode or viewport changes.
-        let initial_size = engine.buffer_size(viewport);
-        let mut front = Buffer::new(initial_size);
-        let mut back = Buffer::new(initial_size);
+    // The effect runtime (ADR 0005): spawn tables, group abort, and the
+    // mailbox. It touches no terminal, so it is one `select!` arm below and is
+    // unit-tested headless in `crate::effect`.
+    let mut effects: Effects<M> = Effects::new();
 
-        // Enter the mode, then render the first frame.
-        terminal.write_bytes(&engine.enter()).await?;
-        let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
-        focus.reconcile(&facts);
-        terminal
-            .write_bytes(&engine.render(&back, &front, &[]))
-            .await?;
-        std::mem::swap(&mut front, &mut back);
+    // Buffers are sized for the mode: the full viewport in alt-screen, or the
+    // bounded live-tail height in inline. `front` is what the terminal shows,
+    // `back` the frame being built. `apply_mode_switch` and the resize branch
+    // re-size both when the mode or viewport changes.
+    let initial_size = engine.buffer_size(viewport);
+    let mut front = Buffer::new(initial_size);
+    let mut back = Buffer::new(initial_size);
 
-        // The frame budget (~60fps): the earliest instant a redraw may paint. A
-        // burst of stream messages is absorbed into one frame — after handling an
-        // event the loop drains everything already queued before painting, and if
-        // the budget has not elapsed it arms a trailing deadline so the last state
-        // always paints (ADR 0005 / tui2's coalescing requester).
-        let frame_budget = Duration::from_micros(16_667);
-        // When `Some`, a paint is pending and must land at this instant at the
-        // latest; the `select!` arms a sleep to it.
-        let mut next_paint: Option<tokio::time::Instant> = None;
-        // Whether state changed since the last paint (a redraw is owed).
-        let mut dirty = false;
-        let mut last_paint = tokio::time::Instant::now();
+    // Enter the mode, then render the first frame.
+    terminal.write_bytes(&engine.enter()).await?;
+    let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
+    focus.reconcile(&facts);
+    terminal
+        .write_bytes(&engine.render(&back, &front, &[]))
+        .await?;
+    std::mem::swap(&mut front, &mut back);
 
-        // Commits and a requested mode switch accumulate across every `update`
-        // handled since the last paint (an input, plus a coalesced burst of effect
-        // messages), then flush together when the frame lands.
-        let mut commits_buf: Vec<CommitLine> = Vec::new();
-        let mut set_mode_buf: Option<Mode> = None;
-        let mut set_theme_buf: Option<Theme> = None;
+    // The frame budget (~60fps): the earliest instant a redraw may paint. A
+    // burst of stream messages is absorbed into one frame — after handling an
+    // event the loop drains everything already queued before painting, and if
+    // the budget has not elapsed it arms a trailing deadline so the last state
+    // always paints (ADR 0005 / tui2's coalescing requester).
+    let frame_budget = Duration::from_micros(16_667);
+    // When `Some`, a paint is pending and must land at this instant at the
+    // latest; the `select!` arms a sleep to it.
+    let mut next_paint: Option<tokio::time::Instant> = None;
+    // Whether state changed since the last paint (a redraw is owed).
+    let mut dirty = false;
+    let mut last_paint = tokio::time::Instant::now();
 
-        // The unapplied remainder of the *previous* update's pending set — a focus
-        // request that could not be honored against the frame it was made on (the
-        // declare-then-focus case). It is carried across exactly one frame: after
-        // the next redraw, the remainder retries against the fresh facts, and only
-        // then does it fail loudly if still unhonored (slice-7 carry-forward).
-        let mut widget_remainder = WidgetPending::new();
+    // Commits and a requested mode switch accumulate across every `update`
+    // handled since the last paint (an input, plus a coalesced burst of effect
+    // messages), then flush together when the frame lands.
+    let mut commits_buf: Vec<CommitLine> = Vec::new();
+    let mut set_mode_buf: Option<Mode> = None;
+    let mut set_theme_buf: Option<Theme> = None;
 
-        // The one-shot startup tick has not been delivered yet; the first loop
-        // iteration synthesizes a `Wake::Started` instead of blocking on input.
-        let mut started = false;
+    // The unapplied remainder of the *previous* update's pending set — a focus
+    // request that could not be honored against the frame it was made on (the
+    // declare-then-focus case). It is carried across exactly one frame: after
+    // the next redraw, the remainder retries against the fresh facts, and only
+    // then does it fail loudly if still unhonored (slice-7 carry-forward).
+    let mut widget_remainder = WidgetPending::new();
 
-        loop {
-            // Debug-build hot reload: one stat per iteration. On a changed mtime,
-            // re-read and re-parse; keep the old theme on any reload error.
-            if watcher.poll_changed() {
-                theme = watcher.theme();
+    // The one-shot startup tick has not been delivered yet; the first loop
+    // iteration synthesizes a `Wake::Started` instead of blocking on input.
+    let mut started = false;
+
+    loop {
+        // Debug-build hot reload: one stat per iteration. On a changed mtime,
+        // re-read and re-parse; keep the old theme on any reload error.
+        if watcher.poll_changed() {
+            theme = watcher.theme();
+            dirty = true;
+        }
+
+        // Wait for the next wake: an input event, an effect result, or the
+        // trailing paint deadline. Biased so input and effects are preferred
+        // over the timer, and effects are drained ahead of blocking on input.
+        let wake = if !started {
+            // First iteration: deliver the startup tick before waiting on
+            // any real wake source, so init runs before the first keypress.
+            started = true;
+            Wake::Started
+        } else {
+            let deadline = next_paint;
+            tokio::select! {
+                biased;
+                // An effect produced a message or failed.
+                item = effects.recv() => match item {
+                    Some(outbox) => Wake::Effect(outbox),
+                    // The mailbox can only close if every sender is gone, which
+                    // cannot happen while `effects` holds its own `tx`; treat a
+                    // close defensively as "nothing to do, keep waiting on input".
+                    None => Wake::Idle,
+                },
+                // A decoded input event (or a resize the size-poll synthesizes).
+                input = terminal.next_event() => Wake::Input(Box::new(input?)),
+                // The trailing frame deadline elapsed; time to paint.
+                () = sleep_until(deadline), if deadline.is_some() => Wake::Paint,
+            }
+        };
+
+        // Fold this wake into state through `update`. Each event source builds
+        // one `Update`; the pending sink buffers commits, mode switches,
+        // effects, and between-frames widget commands / focus.
+        let mut broke = false;
+        match wake {
+            Wake::Started => {
+                // Deliver the one-shot startup event against the frame
+                // already on screen, then let the pending set (spawned
+                // effects, widget commands, a mode switch) drain like any
+                // other update. `dirty` forces a repaint if init changed
+                // state without spawning an effect to wake the loop.
+                let pending = RefCell::new(Pending::default());
+                let ctx = Update::new(Event::Started, &[], &pending).with_store(&store);
+                broke = update(&mut state, ctx).is_break();
+                drain_pending(
+                    pending.into_inner(),
+                    &mut effects,
+                    &mut store,
+                    &facts,
+                    &mut focus,
+                    &mut widget_remainder,
+                    &mut commits_buf,
+                    &mut set_mode_buf,
+                    &mut set_theme_buf,
+                );
                 dirty = true;
             }
-
-            // Wait for the next wake: an input event, an effect result, or the
-            // trailing paint deadline. Biased so input and effects are preferred
-            // over the timer, and effects are drained ahead of blocking on input.
-            let wake = if !started {
-                // First iteration: deliver the startup tick before waiting on
-                // any real wake source, so init runs before the first keypress.
-                started = true;
-                Wake::Started
-            } else {
-                let deadline = next_paint;
-                tokio::select! {
-                    biased;
-                    // An effect produced a message or failed.
-                    item = effects.recv() => match item {
-                        Some(outbox) => Wake::Effect(outbox),
-                        // The mailbox can only close if every sender is gone, which
-                        // cannot happen while `effects` holds its own `tx`; treat a
-                        // close defensively as "nothing to do, keep waiting on input".
-                        None => Wake::Idle,
-                    },
-                    // A decoded input event (or a resize the size-poll synthesizes).
-                    input = terminal.next_event() => Wake::Input(Box::new(input?)),
-                    // The trailing frame deadline elapsed; time to paint.
-                    () = sleep_until(deadline), if deadline.is_some() => Wake::Paint,
-                }
-            };
-
-            // Fold this wake into state through `update`. Each event source builds
-            // one `Update`; the pending sink buffers commits, mode switches,
-            // effects, and between-frames widget commands / focus.
-            let mut broke = false;
-            match wake {
-                Wake::Started => {
-                    // Deliver the one-shot startup event against the frame
-                    // already on screen, then let the pending set (spawned
-                    // effects, widget commands, a mode switch) drain like any
-                    // other update. `dirty` forces a repaint if init changed
-                    // state without spawning an effect to wake the loop.
+            Wake::Idle => {}
+            Wake::Paint => {
+                // The deadline fired; fall through to the paint below.
+                next_paint = None;
+            }
+            Wake::Input(input) => {
+                // Poll for a resize (substrate has no resize event; see
+                // `Event`). On a change, re-lay-out for the new viewport and
+                // deliver the resize before the input.
+                let new_viewport = terminal.size()?;
+                if new_viewport != viewport {
+                    viewport = new_viewport;
+                    let size = engine.buffer_size(viewport);
+                    front.resize(size);
+                    back.resize(size);
+                    engine.force_repaint();
                     let pending = RefCell::new(Pending::default());
-                    let ctx = Update::new(Event::Started, &[], &pending).with_store(&store);
+                    let ctx =
+                        Update::new(Event::Resize(viewport), &[], &pending).with_store(&store);
                     broke = update(&mut state, ctx).is_break();
                     drain_pending(
                         pending.into_inner(),
@@ -1153,66 +1228,54 @@ where
                     );
                     dirty = true;
                 }
-                Wake::Idle => {}
-                Wake::Paint => {
-                    // The deadline fired; fall through to the paint below.
-                    next_paint = None;
-                }
-                Wake::Input(input) => {
-                    // Poll for a resize (substrate has no resize event; see
-                    // `Event`). On a change, re-lay-out for the new viewport and
-                    // deliver the resize before the input.
-                    let new_viewport = terminal.size()?;
-                    if new_viewport != viewport {
-                        viewport = new_viewport;
-                        let size = engine.buffer_size(viewport);
-                        front.resize(size);
-                        back.resize(size);
-                        engine.force_repaint();
-                        let pending = RefCell::new(Pending::default());
-                        let ctx =
-                            Update::new(Event::Resize(viewport), &[], &pending).with_store(&store);
-                        broke = update(&mut state, ctx).is_break();
-                        drain_pending(
-                            pending.into_inner(),
-                            &mut effects,
-                            &mut store,
-                            &facts,
-                            &mut focus,
-                            &mut widget_remainder,
-                            &mut commits_buf,
-                            &mut set_mode_buf,
-                            &mut set_theme_buf,
-                        );
-                        dirty = true;
-                    }
 
-                    if !broke
-                        && let Some(event) = crate::input::from_qwertty(&input) {
-                            let result = route(&facts, &handlers, &mut focus, &mut store, &event);
-                            let pending = RefCell::new(Pending::default());
-                            let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
-                                .with_consumed(result.consumed)
-                                .with_focus(focus.current())
-                                .with_store(&store);
-                            broke = update(&mut state, ctx).is_break();
-                            drain_pending(
-                                pending.into_inner(),
-                                &mut effects,
-                                &mut store,
-                                &facts,
-                                &mut focus,
-                                &mut widget_remainder,
-                                &mut commits_buf,
-                                &mut set_mode_buf,
-                                &mut set_theme_buf,
-                            );
-                            dirty = true;
-                        }
+                if !broke && let Some(event) = crate::input::from_qwertty(&input) {
+                    let result = route(&facts, &handlers, &mut focus, &mut store, &event);
+                    let pending = RefCell::new(Pending::default());
+                    let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
+                        .with_consumed(result.consumed)
+                        .with_focus(focus.current())
+                        .with_store(&store);
+                    broke = update(&mut state, ctx).is_break();
+                    drain_pending(
+                        pending.into_inner(),
+                        &mut effects,
+                        &mut store,
+                        &facts,
+                        &mut focus,
+                        &mut widget_remainder,
+                        &mut commits_buf,
+                        &mut set_mode_buf,
+                        &mut set_theme_buf,
+                    );
+                    dirty = true;
                 }
-                Wake::Effect(outbox) => {
+            }
+            Wake::Effect(outbox) => {
+                broke = deliver_effect(
+                    outbox,
+                    &mut state,
+                    &mut update,
+                    &mut effects,
+                    &mut store,
+                    &facts,
+                    &mut focus,
+                    &mut widget_remainder,
+                    &mut commits_buf,
+                    &mut set_mode_buf,
+                    &mut set_theme_buf,
+                );
+                dirty = true;
+
+                // Coalescing drain: absorb every already-queued effect result
+                // into this one frame with a biased `try_recv` loop, so a flood
+                // of stream messages is one render, not one render per message.
+                while !broke {
+                    let Some(next) = effects.try_recv() else {
+                        break;
+                    };
                     broke = deliver_effect(
-                        outbox,
+                        next,
                         &mut state,
                         &mut update,
                         &mut effects,
@@ -1224,87 +1287,16 @@ where
                         &mut set_mode_buf,
                         &mut set_theme_buf,
                     );
-                    dirty = true;
-
-                    // Coalescing drain: absorb every already-queued effect result
-                    // into this one frame with a biased `try_recv` loop, so a flood
-                    // of stream messages is one render, not one render per message.
-                    while !broke {
-                        let Some(next) = effects.try_recv() else {
-                            break;
-                        };
-                        broke = deliver_effect(
-                            next,
-                            &mut state,
-                            &mut update,
-                            &mut effects,
-                            &mut store,
-                            &facts,
-                            &mut focus,
-                            &mut widget_remainder,
-                            &mut commits_buf,
-                            &mut set_mode_buf,
-                            &mut set_theme_buf,
-                        );
-                    }
                 }
             }
+        }
 
-            if broke {
-                // Flush any commits made in this final update into scrollback
-                // before leaving (they belong in history), then tear down.
-                let commits = std::mem::take(&mut commits_buf);
-                let set_mode = set_mode_buf.take();
-                let remaining = apply_mode_switch(
-                    &mut terminal,
-                    &mut engine,
-                    set_mode,
-                    commits,
-                    viewport,
-                    &mut front,
-                    &mut back,
-                )
-                .await?;
-                if !remaining.is_empty() {
-                    let empty = Buffer::new(Size::new(viewport.width, 0));
-                    terminal
-                        .write_bytes(&engine.render(&empty, &front, &remaining))
-                        .await?;
-                }
-                let result = leave(terminal, &mut engine).await;
-                // Now that the terminal is restored, flush buffered WARN+ to
-                // stderr so errors and warnings survive the alternate screen.
-                #[cfg(feature = "tracing")]
-                if let Some(handle) = &flush_handle {
-                    crate::log::flush_warnings(handle);
-                }
-                return result;
-            }
-
-            if !dirty {
-                continue;
-            }
-
-            // Respect the frame budget: if the last paint was recent, arm a
-            // trailing deadline instead of painting now, so a burst coalesces into
-            // one frame at the budget boundary. When the deadline (or the next
-            // event) arrives, `dirty` is still set and we paint.
-            let now = tokio::time::Instant::now();
-            if now.duration_since(last_paint) < frame_budget {
-                next_paint = Some(last_paint + frame_budget);
-                continue;
-            }
-
-            // Apply any buffered mode switch, flushing pending commits into
-            // scrollback *before* an alt-screen entry. Returns the commits the
-            // frame render should still flush (inline target; empty otherwise).
+        if broke {
+            // Flush any commits made in this final update into scrollback
+            // before leaving (they belong in history), then tear down.
             let commits = std::mem::take(&mut commits_buf);
             let set_mode = set_mode_buf.take();
-            // Apply a buffered runtime theme switch before this frame's draw.
-            if let Some(new_theme) = set_theme_buf.take() {
-                theme = new_theme;
-            }
-            let frame_commits = apply_mode_switch(
+            let remaining = apply_mode_switch(
                 &mut terminal,
                 &mut engine,
                 set_mode,
@@ -1314,31 +1306,79 @@ where
                 &mut back,
             )
             .await?;
-
-            // Draw the next frame, apply between-frames widget commands and the
-            // focus request against its facts (the shared `core::pending` path,
-            // identical to `TestApp`), then paint.
-            back.reset();
-            let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
-            facts = drawn.0;
-            handlers = drawn.1;
-            // Retry the carried-forward remainder (a declare-then-focus request
-            // that missed its own frame) against this fresh frame's facts. This is
-            // the second and final attempt: `apply` fails loudly if the target is
-            // still not present-and-focusable.
-            if !widget_remainder.is_empty() {
-                std::mem::take(&mut widget_remainder).apply(&mut store, &facts, &mut focus);
+            if !remaining.is_empty() {
+                let empty = Buffer::new(Size::new(viewport.width, 0));
+                terminal
+                    .write_bytes(&engine.render(&empty, &front, &remaining))
+                    .await?;
             }
-            focus.reconcile(&facts);
-            terminal
-                .write_bytes(&engine.render(&back, &front, &frame_commits))
-                .await?;
-            std::mem::swap(&mut front, &mut back);
-
-            dirty = false;
-            next_paint = None;
-            last_paint = tokio::time::Instant::now();
+            let result = leave(terminal, &mut engine).await;
+            // Now that the terminal is restored, flush buffered WARN+ to
+            // stderr so errors and warnings survive the alternate screen.
+            #[cfg(feature = "tracing")]
+            if let Some(handle) = &flush_handle {
+                crate::log::flush_warnings(handle);
+            }
+            return result;
         }
+
+        if !dirty {
+            continue;
+        }
+
+        // Respect the frame budget: if the last paint was recent, arm a
+        // trailing deadline instead of painting now, so a burst coalesces into
+        // one frame at the budget boundary. When the deadline (or the next
+        // event) arrives, `dirty` is still set and we paint.
+        let now = tokio::time::Instant::now();
+        if now.duration_since(last_paint) < frame_budget {
+            next_paint = Some(last_paint + frame_budget);
+            continue;
+        }
+
+        // Apply any buffered mode switch, flushing pending commits into
+        // scrollback *before* an alt-screen entry. Returns the commits the
+        // frame render should still flush (inline target; empty otherwise).
+        let commits = std::mem::take(&mut commits_buf);
+        let set_mode = set_mode_buf.take();
+        // Apply a buffered runtime theme switch before this frame's draw.
+        if let Some(new_theme) = set_theme_buf.take() {
+            theme = new_theme;
+        }
+        let frame_commits = apply_mode_switch(
+            &mut terminal,
+            &mut engine,
+            set_mode,
+            commits,
+            viewport,
+            &mut front,
+            &mut back,
+        )
+        .await?;
+
+        // Draw the next frame, apply between-frames widget commands and the
+        // focus request against its facts (the shared `core::pending` path,
+        // identical to `TestApp`), then paint.
+        back.reset();
+        let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
+        facts = drawn.0;
+        handlers = drawn.1;
+        // Retry the carried-forward remainder (a declare-then-focus request
+        // that missed its own frame) against this fresh frame's facts. This is
+        // the second and final attempt: `apply` fails loudly if the target is
+        // still not present-and-focusable.
+        if !widget_remainder.is_empty() {
+            std::mem::take(&mut widget_remainder).apply(&mut store, &facts, &mut focus);
+        }
+        focus.reconcile(&facts);
+        terminal
+            .write_bytes(&engine.render(&back, &front, &frame_commits))
+            .await?;
+        std::mem::swap(&mut front, &mut back);
+
+        dirty = false;
+        next_paint = None;
+        last_paint = tokio::time::Instant::now();
     }
 }
 
@@ -1518,7 +1558,10 @@ where
 /// The engine's `leave` frame does the mode-specific restore (leave alt screen,
 /// or drop below the inline tail); [`Terminal::close`] then leaves raw mode with
 /// the unconditional alt-screen-leave backstop.
-async fn leave(mut terminal: Terminal, engine: &mut ModeEngine) -> Result<()> {
+async fn leave<D: qwertty::TerminalDevice>(
+    mut terminal: Terminal<D>,
+    engine: &mut ModeEngine,
+) -> Result<()> {
     terminal.write_bytes(&engine.leave()).await?;
     terminal.close().await
 }
@@ -1533,8 +1576,8 @@ async fn leave(mut terminal: Terminal, engine: &mut ModeEngine) -> Result<()> {
 /// returned so the caller's frame render lands them above the fresh live tail.
 /// Alt-screen has no scrollback, so with no switch to inline the commits are
 /// simply dropped.
-async fn apply_mode_switch(
-    terminal: &mut Terminal,
+async fn apply_mode_switch<D: qwertty::TerminalDevice>(
+    terminal: &mut Terminal<D>,
     engine: &mut ModeEngine,
     set_mode: Option<Mode>,
     commits: Vec<CommitLine>,
