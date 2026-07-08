@@ -149,6 +149,12 @@ pub struct Pending<M = ()> {
     /// Between-frames widget commands and a deferred focus request, applied by the
     /// shared [`core::pending`](rabbitui_core::pending) function.
     widget: WidgetPending,
+    /// Whether this update's widget/focus requests were made via the *guarded*
+    /// API ([`try_command`](Update::try_command) / [`try_focus`](Update::try_focus)):
+    /// applied best-effort — a missing target is a soft skip, not a `debug_assert`.
+    /// Guarding is all-or-nothing per update (see
+    /// [`core::pending::Pending::apply_guarded`](rabbitui_core::pending::Pending::apply_guarded)).
+    guarded: bool,
 }
 
 impl<M> Default for Pending<M> {
@@ -159,6 +165,7 @@ impl<M> Default for Pending<M> {
             set_theme: None,
             effects: Vec::new(),
             widget: WidgetPending::new(),
+            guarded: false,
         }
     }
 }
@@ -437,6 +444,39 @@ impl<'a, M> Update<'a, M> {
     pub fn focus(&self, path: &[Key]) {
         let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
         self.pending.borrow_mut().widget.request_focus(id);
+    }
+
+    /// Like [`focus`](Self::focus) but **best-effort**: if the target is not
+    /// present-and-focusable in the frame this update triggers, the request is a
+    /// soft skip (no `debug_assert`) rather than a contract violation.
+    ///
+    /// Use it when the target is *conditionally* declared — e.g. a list that is
+    /// sometimes replaced by an empty-state placeholder — where [`focus`](Self::focus)
+    /// would panic (the declare-then-focus footgun, dogfood finding #4). Marks the
+    /// whole update's pending set guarded (all-or-nothing; a soft skip is logged
+    /// via `tracing` when that feature is on, never silently in a way you can't see).
+    pub fn try_focus(&self, path: &[Key]) {
+        let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
+        let mut pending = self.pending.borrow_mut();
+        pending.widget.request_focus(id);
+        pending.guarded = true;
+    }
+
+    /// Like [`widget`](Self::widget) but **best-effort**: commanding a widget not
+    /// declared this frame is a soft skip instead of a `debug_assert`.
+    ///
+    /// Use it for a conditionally-declared widget (the declare-then-command sibling
+    /// of the focus footgun, dogfood finding #4) — e.g. resetting a list's
+    /// selection when the same update may replace the list with an empty state.
+    /// Marks the update's pending set guarded (all-or-nothing).
+    pub fn try_command<W>(&self, path: &[Key], f: impl FnOnce(&mut W::State) + 'static)
+    where
+        W: Widget,
+    {
+        let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
+        let mut pending = self.pending.borrow_mut();
+        pending.widget.command::<W>(id, f);
+        pending.guarded = true;
     }
 
     /// The event this update is delivering.
@@ -1300,12 +1340,28 @@ fn drain_pending<M: Send + 'static>(
         set_theme,
         effects: cmds,
         widget,
+        guarded,
     } = pending;
     for cmd in cmds {
         effects.spawn(cmd);
     }
-    let unapplied = widget.apply_deferred(store, facts, focus);
-    remainder.extend(unapplied);
+    if guarded {
+        // Best-effort apply (try_focus/try_command): a request for an absent widget
+        // is a soft skip, not a panic. No carry-forward retry — a guarded request
+        // is terminal. Core is tracing-free, so warn here off a non-clean report.
+        let _report = widget.apply_guarded(store, facts, focus);
+        #[cfg(feature = "tracing")]
+        if !_report.is_clean() {
+            tracing::warn!(
+                skipped_commands = _report.skipped_commands.len(),
+                skipped_focus = ?_report.skipped_focus,
+                "guarded update: dropped requests for widgets not declared this frame"
+            );
+        }
+    } else {
+        let unapplied = widget.apply_deferred(store, facts, focus);
+        remainder.extend(unapplied);
+    }
     commits_buf.extend(commits);
     if set_mode.is_some() {
         *set_mode_buf = set_mode;
