@@ -103,11 +103,9 @@ pub struct Agent {
     /// `examples/form.rs`).
     pub focus_modal: bool,
     /// Whether the generated help overlay is up. Toggled by [`Action::Help`],
-    /// dismissed by Esc (or the same chord again).
+    /// dismissed by Esc (or the same chord again). Display-only, so it holds no
+    /// focus — the composer keeps it while help is shown.
     pub showing_help: bool,
-    /// Whether a focus request into the help overlay is still owed (the same
-    /// declare-then-focus handshake the modal uses).
-    pub focus_help: bool,
 }
 
 impl Agent {
@@ -130,7 +128,6 @@ impl Agent {
             awaiting: None,
             focus_modal: false,
             showing_help: false,
-            focus_help: false,
         }
     }
 
@@ -560,11 +557,11 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
                 _ => {}
             }
         }
-        // Honor the one-shot focus request into the help overlay.
-        if app.focus_help {
-            update.focus(&[key("help"), key("panel")]);
-            app.focus_help = false;
-        }
+        // The help overlay is display-only: it holds no focusable widget, so it
+        // takes no focus (focusing its Panel would fail the declare-then-focus
+        // contract and panic). Its keys — Esc / the Help chord / Ctrl-C — are
+        // routed here at the app level regardless of what is focused; the composer
+        // keeps focus underneath.
         flush_commits(app, &update);
         persist_history(app);
         return ControlFlow::Continue(());
@@ -606,10 +603,7 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
                     cancel(app, &update);
                 }
             }
-            Some(Action::Help) => {
-                app.showing_help = true;
-                app.focus_help = true;
-            }
+            Some(Action::Help) => app.showing_help = true,
             Some(Action::Quit) => return ControlFlow::Break(()),
             _ => {}
         }
