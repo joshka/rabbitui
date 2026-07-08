@@ -8,7 +8,7 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 
 | #   | Finding                       | Status | Landed as                                              |
 | --- | ----------------------------- | ------ | ------------------------------------------------------ |
-| 1   | startup/init `Cmd` hook       | open   | —                                                      |
+| 1   | startup/init `Cmd` hook       | done   | `Event::Started` (one-shot, pre-first-input)           |
 | 2   | widget-state reader           | done   | `Update::widget_state::<W>(path)`                      |
 | 3   | `view` can't read focus       | done   | `Frame::is_focused` / `Frame::focused`                 |
 | 4   | declare-then-command panic    | done   | `Update::try_focus` / `try_command` + `apply_guarded`  |
