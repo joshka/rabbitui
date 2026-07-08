@@ -106,6 +106,13 @@ pub use crate::terminal::{Error, Result};
 /// ```
 #[derive(Debug, Clone)]
 pub enum Event<M = ()> {
+    /// Delivered exactly once, before the first input or effect, after the
+    /// initial frame has drawn. Lets a self-starting app spawn its opening
+    /// `Cmd` (e.g. begin a stream) or seed state at launch instead of waiting
+    /// for the first keypress (dogfood finding #1). The store, focus, and facts
+    /// reflect the frame already on screen; `update.spawn(cmd)` and
+    /// `update.widget(...)` work as in any other update.
+    Started,
     /// A decoded, unconsumed input event (a key). Consumed events (a button
     /// press, a Tab that moved focus) never reach the app as `Input`; their
     /// effect arrives as an [`Outcome`] instead.
@@ -1080,6 +1087,10 @@ where
         // then does it fail loudly if still unhonored (slice-7 carry-forward).
         let mut widget_remainder = WidgetPending::new();
 
+        // The one-shot startup tick has not been delivered yet; the first loop
+        // iteration synthesizes a `Wake::Started` instead of blocking on input.
+        let mut started = false;
+
         loop {
             // Debug-build hot reload: one stat per iteration. On a changed mtime,
             // re-read and re-parse; keep the old theme on any reload error.
@@ -1091,7 +1102,12 @@ where
             // Wait for the next wake: an input event, an effect result, or the
             // trailing paint deadline. Biased so input and effects are preferred
             // over the timer, and effects are drained ahead of blocking on input.
-            let wake = {
+            let wake = if !started {
+                // First iteration: deliver the startup tick before waiting on
+                // any real wake source, so init runs before the first keypress.
+                started = true;
+                Wake::Started
+            } else {
                 let deadline = next_paint;
                 tokio::select! {
                     biased;
@@ -1115,6 +1131,28 @@ where
             // effects, and between-frames widget commands / focus.
             let mut broke = false;
             match wake {
+                Wake::Started => {
+                    // Deliver the one-shot startup event against the frame
+                    // already on screen, then let the pending set (spawned
+                    // effects, widget commands, a mode switch) drain like any
+                    // other update. `dirty` forces a repaint if init changed
+                    // state without spawning an effect to wake the loop.
+                    let pending = RefCell::new(Pending::default());
+                    let ctx = Update::new(Event::Started, &[], &pending).with_store(&store);
+                    broke = update(&mut state, ctx).is_break();
+                    drain_pending(
+                        pending.into_inner(),
+                        &mut effects,
+                        &mut store,
+                        &facts,
+                        &mut focus,
+                        &mut widget_remainder,
+                        &mut commits_buf,
+                        &mut set_mode_buf,
+                        &mut set_theme_buf,
+                    );
+                    dirty = true;
+                }
                 Wake::Idle => {}
                 Wake::Paint => {
                     // The deadline fired; fall through to the paint below.
@@ -1339,6 +1377,9 @@ fn install_tracing(
 /// What woke the loop's `select!`: an input, an effect result, the paint
 /// deadline, or a spurious idle (a defensively-handled closed mailbox).
 enum Wake<M> {
+    /// The one-shot startup tick: deliver [`Event::Started`] before the first
+    /// real wake so a self-starting app can spawn its initial `Cmd`.
+    Started,
     /// A raw substrate input event from the terminal (boxed: qwertty's event is
     /// larger than the other small variants, so this keeps `Wake` compact).
     Input(Box<qwertty::Event>),
