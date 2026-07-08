@@ -263,6 +263,28 @@ impl InlineEngine {
         self.last_tail = None;
         out
     }
+
+    /// Tears the tail down for a **mode switch** (not program exit): reclaims the
+    /// tail region by moving to its top and erasing downward.
+    ///
+    /// The tail (status, composer, hint) is transient UI, not history. On program
+    /// exit [`leave`](Self::leave) leaves it on screen as the final frame; but a
+    /// switch to alt-screen and back would then paint a fresh tail *below* the
+    /// stale one, stacking a duplicate on every toggle. Erasing the region here
+    /// makes the switch clean.
+    pub fn leave_for_switch(&mut self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if self.height > 1 {
+            out.extend_from_slice(&encode::cursor_up(self.height - 1));
+        }
+        out.extend_from_slice(encode::CARRIAGE_RETURN);
+        out.extend_from_slice(encode::SGR_RESET);
+        out.extend_from_slice(encode::ERASE_BELOW);
+        out.extend_from_slice(encode::SHOW_CURSOR);
+        self.height = 0;
+        self.last_tail = None;
+        out
+    }
 }
 
 /// Emits the accumulated `pending` runs for one row: carriage-return to column 1,

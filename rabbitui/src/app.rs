@@ -1398,11 +1398,11 @@ async fn apply_mode_switch(
                     .write_bytes(&engine.render(&empty, front, &commits))
                     .await?;
             }
-            terminal.write_bytes(&engine.leave()).await?;
+            terminal.write_bytes(&engine.leave_for_switch()).await?;
         }
         // Any other switch tears the current mode down first.
         _ => {
-            terminal.write_bytes(&engine.leave()).await?;
+            terminal.write_bytes(&engine.leave_for_switch()).await?;
         }
     }
 
@@ -1518,6 +1518,22 @@ impl ModeEngine {
         let mut bytes = match &mut self.kind {
             ModeEngineKind::Alt(engine) => engine.leave(),
             ModeEngineKind::Inline { engine, .. } => engine.leave(),
+        };
+        if mouse {
+            bytes.extend_from_slice(crate::encode::DISABLE_MOUSE);
+        }
+        bytes
+    }
+
+    /// Tears the current mode down for a **switch** to another mode (not program
+    /// exit): an inline engine reclaims its tail region instead of leaving it as
+    /// scrollback (which would duplicate the tail on switch-back); an alt engine's
+    /// teardown is the same as [`leave`](Self::leave).
+    fn leave_for_switch(&mut self) -> Vec<u8> {
+        let mouse = self.mouse_capture();
+        let mut bytes = match &mut self.kind {
+            ModeEngineKind::Alt(engine) => engine.leave(),
+            ModeEngineKind::Inline { engine, .. } => engine.leave_for_switch(),
         };
         if mouse {
             bytes.extend_from_slice(crate::encode::DISABLE_MOUSE);
