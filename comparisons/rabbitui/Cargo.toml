@@ -1,0 +1,35 @@
+# The rabbitui column of the four-framework comparison (docs/plans/arc5-field.md
+# item 3): a streaming log-follower with a filter input and a detail modal. Built
+# to DOGFOOD the framework — the second real rabbitui app beside the flagship — so
+# building it surfaces API rough edges (see README.md → "Dogfooding friction").
+[package]
+name = "rabbitui-log-follower"
+description = "Comparison exhibit: a streaming log-follower (filter + focus + detail modal) built on rabbitui."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone: an empty [workspace] table detaches this crate from the root
+# workspace at `../../Cargo.toml`, so it builds and tests on its own with
+# `cd comparisons/rabbitui && cargo run` without the coordinator touching the root
+# manifest while other workstreams churn it. This mirrors `conformance/`. To fold
+# it into the root workspace later, delete this table and add
+# "comparisons/rabbitui" to the root's `workspace.members` (see README.md →
+# "Wiring into the workspace").
+[workspace]
+
+[dependencies]
+# The framework, via path deps into the same jj workspace (the flagship's
+# consumption path). The runtime needs an async executor: rabbitui drives effects
+# on tokio, so a `current_thread` runtime in main is the minimum.
+rabbitui = { path = "../../rabbitui" }
+rabbitui-core = { path = "../../rabbitui-core" }
+rabbitui-widgets = { path = "../../rabbitui-widgets" }
+futures-core = { version = "0.3", default-features = false }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
