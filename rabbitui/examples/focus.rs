@@ -49,9 +49,10 @@ fn update(app: &mut App, update: Update<'_>) -> ControlFlow<()> {
         && matches!(
             input.as_key().map(|k| k.key),
             Some(Key::Char('q') | Key::Escape)
-        ) {
-            return ControlFlow::Break(());
-        }
+        )
+    {
+        return ControlFlow::Break(());
+    }
     ControlFlow::Continue(())
 }
 
@@ -84,7 +85,11 @@ fn view(app: &App, frame: &mut Frame<'_>) {
         Some(name) => format!("last activated: {name}"),
         None => "last activated: (none)".to_string(),
     };
-    frame.widget(key("status"), status_row, &Text::new(&status).role(Role::Text));
+    frame.widget(
+        key("status"),
+        status_row,
+        &Text::new(&status).role(Role::Text),
+    );
     frame.widget(
         key("hint"),
         hint_row,

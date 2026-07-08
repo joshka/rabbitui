@@ -32,7 +32,12 @@ use rabbitui_core::theme::{Role, Theme};
 use rabbitui_widgets::{Button, Collapsible, Panel, SelectionList, Text, TextInput};
 
 /// The list shown in the `SelectionList` showcase.
-const OPTIONS: [&str; 4] = ["First option", "Second option", "Third option", "Fourth option"];
+const OPTIONS: [&str; 4] = [
+    "First option",
+    "Second option",
+    "Third option",
+    "Fourth option",
+];
 
 /// A paragraph long enough to demonstrate soft wrap.
 const PARAGRAPH: &str = "This paragraph is wrapped to the panel width with grapheme-correct soft \
@@ -114,9 +119,18 @@ fn view(app: &Gallery, frame: &mut Frame<'_>) {
 /// Declares every showcase item into the scroll column.
 fn showcase(scroll: &mut ScrollScope<'_, '_>) {
     section(scroll, "text", "Text");
-    scroll.item(key("t-body"), &Text::new("Primary body text (Role::Text).").role(Role::Text));
-    scroll.item(key("t-muted"), &Text::new("Muted secondary text.").role(Role::Muted));
-    scroll.item(key("t-accent"), &Text::new("Accented text.").role(Role::Accent));
+    scroll.item(
+        key("t-body"),
+        &Text::new("Primary body text (Role::Text).").role(Role::Text),
+    );
+    scroll.item(
+        key("t-muted"),
+        &Text::new("Muted secondary text.").role(Role::Muted),
+    );
+    scroll.item(
+        key("t-accent"),
+        &Text::new("Accented text.").role(Role::Accent),
+    );
     scroll.item(
         key("t-spans"),
         &Text::new(vec![
@@ -129,14 +143,20 @@ fn showcase(scroll: &mut ScrollScope<'_, '_>) {
             Span::raw("."),
         ]),
     );
-    scroll.item(key("t-wrap"), &Text::new(PARAGRAPH).wrap(true).role(Role::Text));
+    scroll.item(
+        key("t-wrap"),
+        &Text::new(PARAGRAPH).wrap(true).role(Role::Text),
+    );
 
     section(scroll, "buttons", "Button");
     scroll.item(key("b-primary"), &Button::new("Primary action"));
     scroll.item(key("b-secondary"), &Button::new("Secondary action"));
 
     section(scroll, "input", "TextInput");
-    scroll.item(key("input"), &TextInput::new().placeholder("Type here, then Tab away…"));
+    scroll.item(
+        key("input"),
+        &TextInput::new().placeholder("Type here, then Tab away…"),
+    );
 
     section(scroll, "list", "SelectionList");
     scroll.item(key("list"), &SelectionList::new(&OPTIONS[..]));
@@ -144,13 +164,19 @@ fn showcase(scroll: &mut ScrollScope<'_, '_>) {
     section(scroll, "collapsible", "Collapsible");
     scroll.item(
         key("c-open"),
-        &Collapsible::new("Expanded section", "Its body is visible until you collapse it.")
-            .default_collapsed(false),
+        &Collapsible::new(
+            "Expanded section",
+            "Its body is visible until you collapse it.",
+        )
+        .default_collapsed(false),
     );
     scroll.item(
         key("c-closed"),
-        &Collapsible::new("Collapsed section", "Hidden until you expand it with Enter or a click.")
-            .default_collapsed(true),
+        &Collapsible::new(
+            "Collapsed section",
+            "Hidden until you expand it with Enter or a click.",
+        )
+        .default_collapsed(true),
     );
 
     section(scroll, "roles", "Roles");

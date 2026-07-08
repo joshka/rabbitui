@@ -423,10 +423,7 @@ impl<A: Copy> Keymap<'_, A> {
     /// assert_eq!(rows, vec![("Ctrl-C".to_string(), "quit")]);
     /// ```
     #[must_use]
-    pub fn help_rows(
-        &self,
-        label: impl Fn(A) -> &'static str,
-    ) -> Vec<(String, &'static str)> {
+    pub fn help_rows(&self, label: impl Fn(A) -> &'static str) -> Vec<(String, &'static str)> {
         self.bindings
             .iter()
             .map(|binding| {

@@ -109,9 +109,10 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
         }
         // Esc dismisses the modal (an unconsumed key at the base falls through).
         if let Event::Input(input) = update.event()
-            && input.as_key().map(|k| k.key) == Some(Key::Escape) {
-                close_modal(form, &update);
-            }
+            && input.as_key().map(|k| k.key) == Some(Key::Escape)
+        {
+            close_modal(form, &update);
+        }
         // The focus request into the modal is owed exactly once, when it opens.
         if form.focus_modal {
             update.focus(&[key("modal"), key("ok")]);
@@ -132,7 +133,11 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
                 form.focus_modal = true;
                 form.submitted = None;
             } else if field_enter {
-                let invalid = if form.name.trim().is_empty() { "name" } else { "email" };
+                let invalid = if form.name.trim().is_empty() {
+                    "name"
+                } else {
+                    "email"
+                };
                 update.focus(&[key(invalid)]);
             }
         }
@@ -152,7 +157,9 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
                 Key::Down => Some(1),
                 _ => None,
             };
-            let at = order.iter().position(|name| update.is_focused(&[key(name)]));
+            let at = order
+                .iter()
+                .position(|name| update.is_focused(&[key(name)]));
             if let (Some(step), Some(at)) = (step, at) {
                 let next = (at as i32 + step).rem_euclid(order.len() as i32) as usize;
                 update.focus(&[key(order[next])]);
@@ -164,12 +171,12 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
     // Ctrl chords for the app, so Ctrl-C quits even while a field is focused.
     if let Event::Input(input) = update.event()
         && let Some(k) = input.as_key()
-            && ((k.key == Key::Char('c') && k.modifiers.ctrl)
-                || ((k.key == Key::Char('q') && !update.consumed() || k.key == Key::Escape)
-                    && !form.confirming))
-            {
-                return ControlFlow::Break(());
-            }
+        && ((k.key == Key::Char('c') && k.modifiers.ctrl)
+            || ((k.key == Key::Char('q') && !update.consumed() || k.key == Key::Escape)
+                && !form.confirming))
+    {
+        return ControlFlow::Break(());
+    }
 
     ControlFlow::Continue(())
 }
@@ -186,7 +193,10 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     // a wide terminal. Its border highlights while a field (not the modal) holds
     // focus; while the modal is up, the base reads as inert (unfocused border).
     let area = center(frame.area(), 60, 16);
-    let panel = Panel::new().title("form").padding(1).focused(!form.confirming);
+    let panel = Panel::new()
+        .title("form")
+        .padding(1)
+        .focused(!form.confirming);
     frame.widget(key("panel"), area, &panel);
     let inner = Panel::inner(area, &panel);
 
@@ -272,9 +282,7 @@ fn view(form: &Form, frame: &mut Frame<'_>) {
     // A result / hint line.
     let result = match &form.submitted {
         Some(message) => Text::new(message).role(Role::Success),
-        None => {
-            Text::new("Tab/↑↓: move  Enter: submit  Ctrl-C: quit").role(Role::Muted)
-        }
+        None => Text::new("Tab/↑↓: move  Enter: submit  Ctrl-C: quit").role(Role::Muted),
     };
     frame.widget(key("result"), result_row, &result);
 

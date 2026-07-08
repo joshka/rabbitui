@@ -146,47 +146,46 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
     // App-level key bindings on keys no focused widget consumed. `Ctrl-L` clears
     // the field even while it is focused (TextInput ignores ctrl chords).
     if let Event::Input(input) = update.event()
-        && let Some(k) = input.as_key() {
-            if k.key == Key::Char('l') && k.modifiers.ctrl {
-                update.widget::<TextInput>(&[key("input")], |state| state.clear());
-                app.draft.clear();
-                app.results.clear();
-            }
-            // Ctrl-E simulates an operation that fails in an expected way: it sets a
-            // domain error, surfaced in a dismissible ErrorBanner (the recommended
-            // failure UX). Expected failures are error *values*, not panics — see
-            // the `EffectFailed` handler above for the panic safety net.
-            if k.key == Key::Char('e') && k.modifiers.ctrl {
-                app.last_error = Some("could not reach the search backend (simulated)".to_string());
-            }
-            match k.key {
-                // Toggle the clock ticker stream on/off. Guarded: the search
-                // input consumes printables while focused (Update::consumed).
-                Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
-                    app.ticking = !app.ticking;
-                    tracing::info!(ticking = app.ticking, "clock toggled");
-                    if app.ticking {
-                        // Start the ticker under the "clock" group so it can be
-                        // aborted on demand.
-                        update.spawn(
-                            Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"),
-                        );
-                    } else {
-                        // Stop it for good: cancel_group aborts the stream task
-                        // without replacing it (the stream-stop primitive).
-                        update.spawn(Cmd::cancel_group("clock"));
-                    }
-                }
-                // Toggle the debug log overlay. Guarded on `!consumed()` so it does
-                // not fire while `~` is typed into the focused search field.
-                Key::Char('~') if !update.consumed() => {
-                    app.show_logs = !app.show_logs;
-                }
-                Key::Char('q') if !update.consumed() => return ControlFlow::Break(()),
-                Key::Escape => return ControlFlow::Break(()),
-                _ => {}
-            }
+        && let Some(k) = input.as_key()
+    {
+        if k.key == Key::Char('l') && k.modifiers.ctrl {
+            update.widget::<TextInput>(&[key("input")], |state| state.clear());
+            app.draft.clear();
+            app.results.clear();
         }
+        // Ctrl-E simulates an operation that fails in an expected way: it sets a
+        // domain error, surfaced in a dismissible ErrorBanner (the recommended
+        // failure UX). Expected failures are error *values*, not panics — see
+        // the `EffectFailed` handler above for the panic safety net.
+        if k.key == Key::Char('e') && k.modifiers.ctrl {
+            app.last_error = Some("could not reach the search backend (simulated)".to_string());
+        }
+        match k.key {
+            // Toggle the clock ticker stream on/off. Guarded: the search
+            // input consumes printables while focused (Update::consumed).
+            Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
+                app.ticking = !app.ticking;
+                tracing::info!(ticking = app.ticking, "clock toggled");
+                if app.ticking {
+                    // Start the ticker under the "clock" group so it can be
+                    // aborted on demand.
+                    update.spawn(Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"));
+                } else {
+                    // Stop it for good: cancel_group aborts the stream task
+                    // without replacing it (the stream-stop primitive).
+                    update.spawn(Cmd::cancel_group("clock"));
+                }
+            }
+            // Toggle the debug log overlay. Guarded on `!consumed()` so it does
+            // not fire while `~` is typed into the focused search field.
+            Key::Char('~') if !update.consumed() => {
+                app.show_logs = !app.show_logs;
+            }
+            Key::Char('q') if !update.consumed() => return ControlFlow::Break(()),
+            Key::Escape => return ControlFlow::Break(()),
+            _ => {}
+        }
+    }
 
     ControlFlow::Continue(())
 }
@@ -229,7 +228,11 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
     } else {
         "clock: off (press t)".to_string()
     };
-    frame.widget(key("clock"), clock_row, &Text::new(&clock).role(Role::Accent));
+    frame.widget(
+        key("clock"),
+        clock_row,
+        &Text::new(&clock).role(Role::Accent),
+    );
 
     // Failures surface in the ErrorBanner overlay below, so the status line always
     // reports the completed-fetch count (the cancel-previous proof).

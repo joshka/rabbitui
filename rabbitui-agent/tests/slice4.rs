@@ -89,9 +89,13 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
     assert!(app.state().is_confirming(), "tool_use stop opens the modal");
     let cells = &app.state().cells;
     assert!(
-        cells
-            .iter()
-            .any(|cell| matches!(cell, TranscriptCell::Tool { status: ToolStatus::Pending, .. })),
+        cells.iter().any(|cell| matches!(
+            cell,
+            TranscriptCell::Tool {
+                status: ToolStatus::Pending,
+                ..
+            }
+        )),
         "a Pending Tool cell was added"
     );
     // The assistant tool_use turn was pushed to history with a thinking block
@@ -111,16 +115,21 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
         "the thinking signature is preserved for replay"
     );
     assert!(
-        assistant
-            .content
-            .iter()
-            .any(|block| matches!(block, ContentBlock::ToolUse { name, .. } if name == "read_file")),
+        assistant.content.iter().any(
+            |block| matches!(block, ContentBlock::ToolUse { name, .. } if name == "read_file")
+        ),
         "the tool_use block is in the assistant message"
     );
     // The modal renders its buttons.
     let modal_text = app.buffer_text();
-    assert!(modal_text.contains("Allow"), "modal shows Allow:\n{modal_text}");
-    assert!(modal_text.contains("Deny"), "modal shows Deny:\n{modal_text}");
+    assert!(
+        modal_text.contains("Allow"),
+        "modal shows Allow:\n{modal_text}"
+    );
+    assert!(
+        modal_text.contains("Deny"),
+        "modal shows Deny:\n{modal_text}"
+    );
 
     // Allow: run the tools against the temp root, then continue.
     let request = {
@@ -141,7 +150,10 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
         })
         .expect("a tool cell");
     assert_eq!(tool_cell.0, ToolStatus::Ok, "the tool succeeded");
-    assert_eq!(tool_cell.1, "hi there", "the tool cell holds the file contents");
+    assert_eq!(
+        tool_cell.1, "hi there",
+        "the tool cell holds the file contents"
+    );
 
     // The continuation request carries exactly one user message of tool_result
     // blocks (parallel-safe: all results in one message).
@@ -197,9 +209,13 @@ fn deny_sends_an_is_error_result() {
 
     let cells = &app.state().cells;
     assert!(
-        cells
-            .iter()
-            .any(|cell| matches!(cell, TranscriptCell::Tool { status: ToolStatus::Failed, .. })),
+        cells.iter().any(|cell| matches!(
+            cell,
+            TranscriptCell::Tool {
+                status: ToolStatus::Failed,
+                ..
+            }
+        )),
         "the denied tool cell is Failed"
     );
     let last = request.messages.last().expect("a last message");

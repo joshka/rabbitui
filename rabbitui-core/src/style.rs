@@ -67,7 +67,11 @@ impl Color {
         match self {
             Color::Rgb(r, g, b) => {
                 let factor = 1.0 - amount.clamp(0.0, 1.0);
-                Color::Rgb(scale_channel(r, factor), scale_channel(g, factor), scale_channel(b, factor))
+                Color::Rgb(
+                    scale_channel(r, factor),
+                    scale_channel(g, factor),
+                    scale_channel(b, factor),
+                )
             }
             other => other,
         }
@@ -106,7 +110,9 @@ fn scale_channel(channel: u8, factor: f32) -> u8 {
 /// Lifts one channel toward `255` by `amount` (`amount` in `0.0..=1.0`).
 fn lift_channel(channel: u8, amount: f32) -> u8 {
     let channel = f32::from(channel);
-    (channel + (255.0 - channel) * amount).round().clamp(0.0, 255.0) as u8
+    (channel + (255.0 - channel) * amount)
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 /// A set of text attributes (bold, italic, …), stored as a bitset.

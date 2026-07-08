@@ -51,7 +51,10 @@ fn a_conversation_renders_prompt_thinking_and_reply() {
         },
         app::view,
     );
-    assert!(app.state().is_streaming(), "submitting opens a streaming turn");
+    assert!(
+        app.state().is_streaming(),
+        "submitting opens a streaming turn"
+    );
     assert!(
         app.buffer_text().contains("hi there"),
         "the prompt shows in the transcript:\n{}",
@@ -150,7 +153,9 @@ fn mouse_wheel_scrolls_the_transcript_in_browse_mode() {
     // A transcript taller than the viewport, so scrolling has somewhere to go.
     let mut agent = alt_screen_app();
     for n in 0..40 {
-        agent.cells.push(TranscriptCell::User(format!("line {n:02}")));
+        agent
+            .cells
+            .push(TranscriptCell::User(format!("line {n:02}")));
     }
     let mut app = TestApp::new(Size::new(48, 24), agent);
     app.render(app::view);
@@ -181,7 +186,10 @@ fn mouse_wheel_scrolls_the_transcript_in_browse_mode() {
 fn empty_submit_is_a_no_op() {
     let mut app = alt_screen_app();
     app.draft = "   ".to_string();
-    assert!(app::on_submit(&mut app).is_none(), "blank prompt sends nothing");
+    assert!(
+        app::on_submit(&mut app).is_none(),
+        "blank prompt sends nothing"
+    );
     assert!(app.cells.is_empty());
     assert!(!app.is_streaming());
 }

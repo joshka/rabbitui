@@ -205,7 +205,11 @@ impl<'a> HelpOverlay<'a> {
 
     /// The width, in cells, of the widest chord column across all rows.
     fn widest_chord(&self) -> usize {
-        self.rows.iter().map(|(chord, _)| chord.len()).max().unwrap_or(0)
+        self.rows
+            .iter()
+            .map(|(chord, _)| chord.len())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -393,10 +397,12 @@ mod tests {
         // The overlay must declare no focusable — the app owns the close keys.
         let overlay = HelpOverlay::from_keymap(&keymap(), label);
         let mut buffer = Buffer::new(Size::new(40, 5));
-        let mut ctx =
-            RenderCtx::new(&mut buffer, Rect::from_size(Size::new(40, 5)), false);
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(40, 5)), false);
         overlay.render(&mut (), &mut ctx);
-        assert!(!ctx.is_focusable(), "the help overlay must not be focusable");
+        assert!(
+            !ctx.is_focusable(),
+            "the help overlay must not be focusable"
+        );
     }
 
     #[test]
@@ -415,7 +421,11 @@ mod tests {
         assert!(overlay.is_empty());
         // Wide enough for the framed title to fit.
         let buffer = render(&overlay, Size::new(28, 3), &Theme::default());
-        assert!(row(&buffer, 0).starts_with("┌ keys"), "title: {:?}", row(&buffer, 0));
+        assert!(
+            row(&buffer, 0).starts_with("┌ keys"),
+            "title: {:?}",
+            row(&buffer, 0)
+        );
         assert_eq!(row(&buffer, 2), "└──────────────────────────┘");
     }
 

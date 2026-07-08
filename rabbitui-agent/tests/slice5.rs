@@ -11,10 +11,10 @@
 use rabbitui_agent::app::{self, Agent};
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::keymap::{Action, KEYMAP, base_help_rows};
-use rabbitui_core::keymap::Chord;
 use rabbitui_core::geometry::Size;
 use rabbitui_core::id::{WidgetId, key};
 use rabbitui_core::input::Key;
+use rabbitui_core::keymap::Chord;
 use rabbitui_testing::TestApp;
 
 /// A fresh alt-screen app over an empty replay backend (the test buffer models

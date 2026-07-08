@@ -413,7 +413,8 @@ impl<'f> Frame<'f> {
         // Consume any scroll-into-view request a child recorded this frame (a
         // request whose id is within this scope): stash the target content row so
         // next frame's offset reveals it.
-        if let Some(row) = self.find_child_reveal(scope_id, viewport_full, offset, visibility_before)
+        if let Some(row) =
+            self.find_child_reveal(scope_id, viewport_full, offset, visibility_before)
         {
             state.pending_reveal = Some(row);
         }
@@ -525,7 +526,6 @@ impl<'f> Frame<'f> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,9 +568,27 @@ mod tests {
         store.begin_frame();
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("list"), frame.area(), |scroll| {
-            scroll.item(key("a"), &Probe { height: 2, label: "a" });
-            scroll.item(key("b"), &Probe { height: 2, label: "b" });
-            scroll.item(key("c"), &Probe { height: 2, label: "c" });
+            scroll.item(
+                key("a"),
+                &Probe {
+                    height: 2,
+                    label: "a",
+                },
+            );
+            scroll.item(
+                key("b"),
+                &Probe {
+                    height: 2,
+                    label: "b",
+                },
+            );
+            scroll.item(
+                key("c"),
+                &Probe {
+                    height: 2,
+                    label: "c",
+                },
+            );
         });
         let _ = frame.finish();
         store.end_frame();
@@ -588,7 +606,13 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("list"), frame.area(), |scroll| {
             for i in 0..1000 {
-                scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                scroll.item(
+                    key("row").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "x",
+                    },
+                );
             }
         });
         let _ = frame.finish();
@@ -618,7 +642,13 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, store);
         frame.scroll(key("list"), frame.area(), |scroll| {
             for i in 0..count {
-                scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                scroll.item(
+                    key("row").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "x",
+                    },
+                );
             }
         });
         let _ = frame.finish();
@@ -646,7 +676,10 @@ mod tests {
             content_height: 20,
             ..Default::default()
         };
-        assert_eq!(dispatch(&mut state, InputEvent::key(InputKey::Down)), Handled::Yes);
+        assert_eq!(
+            dispatch(&mut state, InputEvent::key(InputKey::Down)),
+            Handled::Yes
+        );
         assert_eq!(state.offset(), 1);
         dispatch(&mut state, InputEvent::key(InputKey::PageDown));
         assert_eq!(state.offset(), 1 + 4); // page = viewport - 1 = 4
@@ -750,7 +783,13 @@ mod tests {
             let mut frame = Frame::new(&mut buffer, store);
             frame.scroll(key("list"), frame.area(), |scroll| {
                 for i in 0..3 {
-                    scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                    scroll.item(
+                        key("row").index(i),
+                        &Probe {
+                            height: 1,
+                            label: "x",
+                        },
+                    );
                 }
                 scroll.item(key("tall"), &Reveal { height: 3 });
             });
@@ -775,7 +814,13 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("list"), frame.area(), |scroll| {
             for i in 0..20 {
-                scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                scroll.item(
+                    key("row").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "x",
+                    },
+                );
             }
         });
         let _ = frame.finish();
@@ -801,7 +846,13 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("list"), frame.area(), |scroll| {
             for i in 0..3 {
-                scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                scroll.item(
+                    key("row").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "x",
+                    },
+                );
             }
         });
         let _ = frame.finish();
@@ -824,17 +875,35 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("outer"), frame.area(), |outer| {
             // A tall inner scroll as the first item, then filler rows.
-            outer.item(key("filler0"), &Probe { height: 1, label: "a" });
+            outer.item(
+                key("filler0"),
+                &Probe {
+                    height: 1,
+                    label: "a",
+                },
+            );
             // The inner scroll is declared as a nested scope. Because `item`
             // measures then declares, we express the inner scroll as a widget-like
             // item is not possible; instead nest via the child frame directly.
             outer.nest(key("inner"), 4, |inner| {
                 for i in 0..20 {
-                    inner.item(key("in").index(i), &Probe { height: 1, label: "b" });
+                    inner.item(
+                        key("in").index(i),
+                        &Probe {
+                            height: 1,
+                            label: "b",
+                        },
+                    );
                 }
             });
             for i in 0..20 {
-                outer.item(key("out").index(i), &Probe { height: 1, label: "c" });
+                outer.item(
+                    key("out").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "c",
+                    },
+                );
             }
         });
         let (facts, handlers) = frame.into_parts();
@@ -880,7 +949,13 @@ mod tests {
         let mut frame = Frame::new(&mut buffer, &mut store);
         frame.scroll(key("list"), frame.area(), |scroll| {
             for i in 0..10 {
-                scroll.item(key("row").index(i), &Probe { height: 1, label: "x" });
+                scroll.item(
+                    key("row").index(i),
+                    &Probe {
+                        height: 1,
+                        label: "x",
+                    },
+                );
             }
         });
         let _ = frame.finish();

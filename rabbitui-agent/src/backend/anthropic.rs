@@ -46,13 +46,15 @@ impl Auth {
     /// Resolves credentials, preferring an explicit API key over an OAuth token.
     fn from_env() -> Option<Self> {
         if let Ok(key) = std::env::var("ANTHROPIC_API_KEY")
-            && !key.is_empty() {
-                return Some(Auth::ApiKey(key));
-            }
+            && !key.is_empty()
+        {
+            return Some(Auth::ApiKey(key));
+        }
         if let Ok(token) = std::env::var("ANTHROPIC_AUTH_TOKEN")
-            && !token.is_empty() {
-                return Some(Auth::Bearer(token));
-            }
+            && !token.is_empty()
+        {
+            return Some(Auth::Bearer(token));
+        }
         None
     }
 

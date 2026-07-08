@@ -187,8 +187,7 @@ mod tests {
     fn temp_root() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("rabbitui-tools-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rabbitui-tools-{}-{n}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::write(dir.join("hello.txt"), "hi there\n").unwrap();
         std::fs::write(dir.join("sub/nested.txt"), "nested\n").unwrap();
@@ -241,7 +240,10 @@ mod tests {
     fn absolute_path_outside_root_is_refused() {
         let root = temp_root();
         let err = execute_in(&root, "read_file", &json!({"path": "/etc/hosts"})).unwrap_err();
-        assert!(err.contains("escapes"), "absolute escape must be refused: {err}");
+        assert!(
+            err.contains("escapes"),
+            "absolute escape must be refused: {err}"
+        );
     }
 
     #[cfg(unix)]

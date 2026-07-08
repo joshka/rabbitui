@@ -266,7 +266,11 @@ mod tests {
         subscriber::with_default(subscriber, || {
             tracing::debug!("debug visible under trace filter");
         });
-        assert_eq!(handle.len(), 1, "RABBITUI_LOG=trace should admit a debug event");
+        assert_eq!(
+            handle.len(),
+            1,
+            "RABBITUI_LOG=trace should admit a debug event"
+        );
     }
 
     #[test]

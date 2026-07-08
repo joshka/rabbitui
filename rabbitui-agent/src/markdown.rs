@@ -100,8 +100,10 @@ impl MarkdownRender {
                 if let Some(url) = self.link_url.take()
                     && !url.is_empty()
                 {
-                    self.current
-                        .push(Span::styled(format!(" ({url})"), Style::new().fg(Color::Ansi(8))));
+                    self.current.push(Span::styled(
+                        format!(" ({url})"),
+                        Style::new().fg(Color::Ansi(8)),
+                    ));
                 }
             }
             TagEnd::CodeBlock => {
@@ -129,19 +131,23 @@ impl MarkdownRender {
                 }
                 first = false;
                 if !line.is_empty() {
-                    self.current.push(Span::styled(line.to_string(), self.style()));
+                    self.current
+                        .push(Span::styled(line.to_string(), self.style()));
                 }
             }
         } else {
-            self.current.push(Span::styled(text.to_string(), self.style()));
+            self.current
+                .push(Span::styled(text.to_string(), self.style()));
         }
     }
 
     /// Appends an inline `code` span in a dim code style.
     fn inline_code(&mut self, code: &str) {
         self.emit_bullet();
-        self.current
-            .push(Span::styled(code.to_string(), Style::new().fg(Color::Ansi(8))));
+        self.current.push(Span::styled(
+            code.to_string(),
+            Style::new().fg(Color::Ansi(8)),
+        ));
     }
 
     /// The marker for the next item of the innermost open list: an indented
@@ -222,7 +228,10 @@ mod tests {
 
     #[test]
     fn ordered_lists_number_their_items() {
-        assert_eq!(rendered("1. one\n2. two\n3. three"), "1. one\n2. two\n3. three");
+        assert_eq!(
+            rendered("1. one\n2. two\n3. three"),
+            "1. one\n2. two\n3. three"
+        );
     }
 
     #[test]
@@ -244,12 +253,19 @@ mod tests {
 
     #[test]
     fn strikethrough_sets_the_attribute() {
-        assert!(style_of("~~gone~~", "gone").attrs.contains(Attrs::STRIKETHROUGH));
+        assert!(
+            style_of("~~gone~~", "gone")
+                .attrs
+                .contains(Attrs::STRIKETHROUGH)
+        );
     }
 
     #[test]
     fn a_link_renders_its_url_as_trailing_text() {
-        assert_eq!(rendered("[docs](https://example.com)"), "docs (https://example.com)");
+        assert_eq!(
+            rendered("[docs](https://example.com)"),
+            "docs (https://example.com)"
+        );
     }
 
     #[test]

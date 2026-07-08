@@ -40,8 +40,12 @@ impl Backend for DemoBackend {
 /// The scripted event turn for `topic`: chunked markdown prose with a heading,
 /// bold, a bullet list, inline code, and a short thinking preamble.
 fn demo_turn(topic: &str) -> Vec<StreamEvent> {
-    let text = |s: &str| StreamEvent::TextDelta { text: s.to_string() };
-    let think = |s: &str| StreamEvent::ThinkingDelta { text: s.to_string() };
+    let text = |s: &str| StreamEvent::TextDelta {
+        text: s.to_string(),
+    };
+    let think = |s: &str| StreamEvent::ThinkingDelta {
+        text: s.to_string(),
+    };
     vec![
         think("Reading the request and sketching an approach before I answer."),
         text(&format!("## Working on: {topic}\n\n")),

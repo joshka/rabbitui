@@ -65,9 +65,10 @@ fn apply(app: &mut Todo, key_pressed: InputKey, result: &RouteResult) -> bool {
             }
         }
         if *id == WidgetId::ROOT.child(key("list"))
-            && let Outcome::Selected(index) = outcome {
-                app.selected = *index;
-            }
+            && let Outcome::Selected(index) = outcome
+        {
+            app.selected = *index;
+        }
     }
     // `d` deletes only when unconsumed (the input consumes chars while focused).
     if !result.consumed && key_pressed == InputKey::Char('d') && !app.todos.is_empty() {

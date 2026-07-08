@@ -238,10 +238,10 @@ mod tests {
         let (meta, messages) = Session::load(&path).unwrap();
         assert_eq!(meta.model, "test-model");
         assert_eq!(meta.title, "greeting");
-        assert_eq!(messages, vec![
-            ChatMessage::user("hi"),
-            ChatMessage::assistant("hello"),
-        ]);
+        assert_eq!(
+            messages,
+            vec![ChatMessage::user("hi"), ChatMessage::assistant("hello"),]
+        );
 
         std::fs::remove_file(&path).ok();
     }
@@ -259,11 +259,14 @@ mod tests {
 
         let (meta, messages) = Session::load(&path).unwrap();
         assert_eq!(meta.title, "greeting", "resume preserves the header");
-        assert_eq!(messages, vec![
-            ChatMessage::user("hi"),
-            ChatMessage::assistant("hello"),
-            ChatMessage::user("again"),
-        ]);
+        assert_eq!(
+            messages,
+            vec![
+                ChatMessage::user("hi"),
+                ChatMessage::assistant("hello"),
+                ChatMessage::user("again"),
+            ]
+        );
 
         std::fs::remove_file(&path).ok();
     }
@@ -272,7 +275,10 @@ mod tests {
     fn load_rejects_a_file_with_no_header() {
         let path = temp_path();
         std::fs::write(&path, "{\"role\":\"user\",\"content\":\"orphan\"}\n").unwrap();
-        assert!(Session::load(&path).is_err(), "a headerless file is invalid");
+        assert!(
+            Session::load(&path).is_err(),
+            "a headerless file is invalid"
+        );
         std::fs::remove_file(&path).ok();
     }
 }

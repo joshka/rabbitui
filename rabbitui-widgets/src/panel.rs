@@ -310,9 +310,7 @@ impl Widget for Panel<'_> {
 
 /// Paints the box-drawing frame around a `size`-cell area in `style`.
 fn draw_border(ctx: &mut RenderCtx<'_>, size: Size, style: Style) {
-    use box_chars::{
-        BOTTOM_LEFT, BOTTOM_RIGHT, HORIZONTAL, TOP_LEFT, TOP_RIGHT, VERTICAL,
-    };
+    use box_chars::{BOTTOM_LEFT, BOTTOM_RIGHT, HORIZONTAL, TOP_LEFT, TOP_RIGHT, VERTICAL};
     let last_x = size.width - 1;
     let last_y = size.height - 1;
 
@@ -400,8 +398,7 @@ mod tests {
     /// Renders a panel into a fresh `size` buffer against `theme`.
     fn render(panel: &Panel<'_>, size: Size, theme: &Theme) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
+        let mut ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
         panel.render(&mut (), &mut ctx);
         buffer
     }
@@ -464,7 +461,13 @@ mod tests {
         // Borderless, no padding: at least one row.
         assert_eq!(Panel::new().border(false).desired_height(&(), 20), 1);
         // Borderless + padding 2: four padding rows.
-        assert_eq!(Panel::new().border(false).padding(2).desired_height(&(), 20), 4);
+        assert_eq!(
+            Panel::new()
+                .border(false)
+                .padding(2)
+                .desired_height(&(), 20),
+            4
+        );
     }
 
     #[test]
@@ -484,7 +487,11 @@ mod tests {
 
     #[test]
     fn renders_a_title_in_the_top_border() {
-        let buffer = render(&Panel::new().title("Hi"), Size::new(10, 3), &Theme::default());
+        let buffer = render(
+            &Panel::new().title("Hi"),
+            Size::new(10, 3),
+            &Theme::default(),
+        );
         assert_eq!(row(&buffer, 0), "┌ Hi ────┐");
         assert_eq!(row(&buffer, 2), "└────────┘");
     }
@@ -505,7 +512,11 @@ mod tests {
 
     #[test]
     fn border_off_fills_but_draws_no_frame() {
-        let buffer = render(&Panel::new().border(false), Size::new(4, 2), &Theme::default());
+        let buffer = render(
+            &Panel::new().border(false),
+            Size::new(4, 2),
+            &Theme::default(),
+        );
         // No box-drawing glyphs anywhere.
         for y in 0..2 {
             let line = row(&buffer, y);

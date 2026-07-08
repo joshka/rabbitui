@@ -37,9 +37,7 @@ use crate::backend::{
 };
 use crate::keymap::{Action, KEYMAP, base_help_rows};
 use crate::session::Session;
-use crate::transcript::{
-    PendingToolUse, Streaming, ToolStatus, TranscriptCell, commit_lines_for,
-};
+use crate::transcript::{PendingToolUse, Streaming, ToolStatus, TranscriptCell, commit_lines_for};
 
 /// The bounded live-tail height in inline mode, in rows.
 pub const TAIL_HEIGHT: u16 = 8;
@@ -434,10 +432,7 @@ pub fn deny_pending(app: &mut Agent) -> Vec<ToolOutcome> {
 /// pushes one user message of all `tool_result` blocks to history, clears
 /// `awaiting`, opens a fresh streaming turn, and returns the request to re-send
 /// — or `None` once [`MAX_CONTINUATIONS`] is exhausted (the loop is capped).
-pub fn continue_with_results(
-    app: &mut Agent,
-    outcomes: Vec<ToolOutcome>,
-) -> Option<ChatRequest> {
+pub fn continue_with_results(app: &mut Agent, outcomes: Vec<ToolOutcome>) -> Option<ChatRequest> {
     let continuations = app
         .awaiting
         .as_ref()
@@ -479,12 +474,7 @@ pub fn continue_with_results(
 }
 
 /// Sets a Tool cell's status (and optionally its output), by cell index.
-fn set_tool_status(
-    app: &mut Agent,
-    index: usize,
-    status: ToolStatus,
-    output: Option<String>,
-) {
+fn set_tool_status(app: &mut Agent, index: usize, status: ToolStatus, output: Option<String>) {
     if let Some(TranscriptCell::Tool {
         status: cell_status,
         output: cell_output,
@@ -646,8 +636,7 @@ fn submit(app: &mut Agent, update: &Update<'_, Msg>) {
 fn handle_modal(app: &mut Agent, update: &Update<'_, Msg>) {
     let allow_button =
         update.outcome_for(&[key("modal"), key("allow")]) == Some(&Outcome::Activated);
-    let deny_button =
-        update.outcome_for(&[key("modal"), key("deny")]) == Some(&Outcome::Activated);
+    let deny_button = update.outcome_for(&[key("modal"), key("deny")]) == Some(&Outcome::Activated);
 
     // Key affordances on keys the buttons didn't consume, sourced from the same
     // keymap: y allows; n / Esc deny. These are printable/Esc chords, so they are
@@ -884,11 +873,14 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
         modal.widget(key("bg"), area, &panel);
         let inner = Panel::inner(area, &panel);
 
-        let [prompt_row, calls_block, button_row] = split_rows(inner, [
-            Constraint::Length(1),
-            Constraint::Length(call_rows),
-            Constraint::Length(1),
-        ]);
+        let [prompt_row, calls_block, button_row] = split_rows(
+            inner,
+            [
+                Constraint::Length(1),
+                Constraint::Length(call_rows),
+                Constraint::Length(1),
+            ],
+        );
 
         modal.widget(
             key("prompt"),
@@ -902,8 +894,7 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
             )
         };
         for (offset, call) in calls.iter().take(individual).enumerate() {
-            let input =
-                serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
+            let input = serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
             let summary = crate::tools::summarize(&call.name, &input);
             modal.widget(
                 key("call").index(offset),
@@ -921,7 +912,11 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
         }
         let [allow_col, deny_col] =
             split_columns(button_row, [Constraint::Fill(1), Constraint::Fill(1)]);
-        modal.widget(key("allow"), allow_col, &Button::new("Allow (y)").filled(true));
+        modal.widget(
+            key("allow"),
+            allow_col,
+            &Button::new("Allow (y)").filled(true),
+        );
         modal.widget(key("deny"), deny_col, &Button::new("Deny (n)").filled(true));
     });
 }
@@ -994,7 +989,10 @@ fn declare_cell(
     let cell_key = key("cell").index(index);
     match cell {
         TranscriptCell::User(prompt) => {
-            scroll.item(cell_key, &Text::new(format!("❯ {prompt}")).role(Role::Accent));
+            scroll.item(
+                cell_key,
+                &Text::new(format!("❯ {prompt}")).role(Role::Accent),
+            );
         }
         TranscriptCell::Assistant(source) => {
             scroll.item(cell_key, &Text::new(source).wrap(true).role(Role::Text));
@@ -1019,7 +1017,10 @@ fn declare_cell(
             );
         }
         TranscriptCell::Error(message) => {
-            scroll.item(cell_key, &Text::new(format!("⚠ {message}")).role(Role::Danger));
+            scroll.item(
+                cell_key,
+                &Text::new(format!("⚠ {message}")).role(Role::Danger),
+            );
         }
     }
 }
@@ -1042,7 +1043,11 @@ fn render_footer(
         composer_row,
         &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
     );
-    frame.widget(key("hint"), hint_row, &Text::new(hint_line()).role(Role::Muted));
+    frame.widget(
+        key("hint"),
+        hint_row,
+        &Text::new(hint_line()).role(Role::Muted),
+    );
 }
 
 /// The one-line footer hint, generated from the keymap so it never drifts from
@@ -1072,7 +1077,11 @@ fn hint_line() -> String {
 
 /// The status line: mode, agent state, and a spinner while streaming.
 fn status_line(app: &Agent) -> String {
-    let mode = if app.inline { "inline" } else { "alt-screen browse" };
+    let mode = if app.inline {
+        "inline"
+    } else {
+        "alt-screen browse"
+    };
     if app.showing_help {
         format!("[{mode}]  help · Esc to close")
     } else if app.is_confirming() {

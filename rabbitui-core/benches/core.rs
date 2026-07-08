@@ -31,9 +31,7 @@ fn fill_buffer(buffer: &mut Buffer) {
     for y in 0..buffer.size().height {
         // A row-varying string so the content is not one repeated cell (which the
         // diff would collapse trivially).
-        let text = format!(
-            "row {y:03} the quick brown fox jumps over the lazy dog 0123456789 ",
-        );
+        let text = format!("row {y:03} the quick brown fox jumps over the lazy dog 0123456789 ",);
         // Repeat to overflow the width; set_string clips at the right edge.
         let line = text.repeat(4);
         buffer.set_string(Position::new(0, y), &line, style);

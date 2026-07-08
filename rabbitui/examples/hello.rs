@@ -31,9 +31,10 @@ fn update((): &mut (), update: Update<'_>) -> ControlFlow<()> {
         && matches!(
             input.as_key().map(|k| k.key),
             Some(Key::Char('q') | Key::Escape)
-        ) {
-            return ControlFlow::Break(());
-        }
+        )
+    {
+        return ControlFlow::Break(());
+    }
     ControlFlow::Continue(())
 }
 

@@ -508,15 +508,26 @@ mod tests {
         let cell = buffer.get(Position::ORIGIN).unwrap();
         assert_eq!(cell.symbol, "h");
         assert_eq!(cell.style.fg, Some(Color::WHITE));
-        assert_eq!(cell.style.bg, Some(Color::BLUE), "backdrop shows through None bg");
+        assert_eq!(
+            cell.style.bg,
+            Some(Color::BLUE),
+            "backdrop shows through None bg"
+        );
     }
 
     #[test]
     fn an_explicit_background_overrides_the_backdrop() {
         let mut buffer = Buffer::new(Size::new(5, 1));
         buffer.set_string(Position::ORIGIN, "     ", Style::new().bg(Color::BLUE));
-        buffer.set_string(Position::ORIGIN, "x", Style::new().fg(Color::WHITE).bg(Color::RED));
-        assert_eq!(buffer.get(Position::ORIGIN).unwrap().style.bg, Some(Color::RED));
+        buffer.set_string(
+            Position::ORIGIN,
+            "x",
+            Style::new().fg(Color::WHITE).bg(Color::RED),
+        );
+        assert_eq!(
+            buffer.get(Position::ORIGIN).unwrap().style.bg,
+            Some(Color::RED)
+        );
     }
 
     #[test]
@@ -526,7 +537,10 @@ mod tests {
         // Plain text painted over a bold backdrop is not itself bold…
         buffer.set_string(Position::ORIGIN, "a", Style::new().fg(Color::WHITE));
         let cell = buffer.get(Position::ORIGIN).unwrap();
-        assert!(!cell.style.attrs.contains(Attrs::BOLD), "attrs do not union");
+        assert!(
+            !cell.style.attrs.contains(Attrs::BOLD),
+            "attrs do not union"
+        );
         // …but the backdrop background still shows through.
         assert_eq!(cell.style.bg, Some(Color::BLUE));
     }

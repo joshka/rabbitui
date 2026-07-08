@@ -38,7 +38,13 @@ fn declared_flat_frame_body_runs() {
         for i in 0..COUNT {
             let y = u16::try_from(i).unwrap_or(u16::MAX);
             let area = Rect::new(Position::new(0, y), Size::new(FRAME_SIZE.width, 1));
-            frame.widget(key("cell").index(i), area, &Cell { label: "synthetic row" });
+            frame.widget(
+                key("cell").index(i),
+                area,
+                &Cell {
+                    label: "synthetic row",
+                },
+            );
         }
         frame.into_parts()
     };
@@ -62,7 +68,12 @@ fn scroll_frame_body_runs() {
         let area = frame.area();
         frame.scroll(key("scroll"), area, |scroll| {
             for i in 0..COUNT {
-                scroll.item(key("item").index(i), &Cell { label: "synthetic row" });
+                scroll.item(
+                    key("item").index(i),
+                    &Cell {
+                        label: "synthetic row",
+                    },
+                );
             }
         });
         let _ = frame.into_parts();
@@ -71,9 +82,17 @@ fn scroll_frame_body_runs() {
     // The scroll scope retained state; only a screenful of items painted (far
     // fewer than COUNT), proving virtualization ran.
     let scope = WidgetId::ROOT.child(key("scroll"));
-    assert!(store.peek::<rabbitui::core::scroll::ScrollState>(scope).is_some());
+    assert!(
+        store
+            .peek::<rabbitui::core::scroll::ScrollState>(scope)
+            .is_some()
+    );
     let painted = (0..COUNT)
-        .filter(|i| store.peek::<()>(scope.child(key("item").index(*i))).is_some())
+        .filter(|i| {
+            store
+                .peek::<()>(scope.child(key("item").index(*i)))
+                .is_some()
+        })
         .count();
     assert!(painted <= usize::from(FRAME_SIZE.height));
     assert!(painted > 0);

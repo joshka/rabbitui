@@ -175,7 +175,10 @@ impl LogHandle {
     pub fn push(&self, mut record: LogRecord) {
         // A poisoned lock means a prior holder panicked mid-push; recover the
         // guard and keep logging rather than propagate the panic into the runtime.
-        let mut ring = self.inner.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut ring = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         record.seq = ring.next_seq;
         ring.next_seq = ring.next_seq.wrapping_add(1);
         if ring.records.len() == ring.capacity {
@@ -235,7 +238,9 @@ impl LogHandle {
 
     /// Locks the ring, recovering from poisoning (see [`push`](Self::push)).
     fn lock(&self) -> std::sync::MutexGuard<'_, Ring> {
-        self.inner.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 }
 

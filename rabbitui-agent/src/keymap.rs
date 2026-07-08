@@ -168,7 +168,10 @@ mod tests {
         assert!(!labels.contains(&Action::Allow.label()));
         assert!(!labels.contains(&Action::Deny.label()));
         // Send is first (table order preserved).
-        assert_eq!(rows.first().map(|(_, label)| *label), Some(Action::Send.label()));
+        assert_eq!(
+            rows.first().map(|(_, label)| *label),
+            Some(Action::Send.label())
+        );
     }
 
     #[test]
@@ -178,7 +181,15 @@ mod tests {
             .iter()
             .find(|(_, label)| *label == Action::Help.label())
             .expect("a help row");
-        assert!(help.0.contains("Ctrl-/"), "shows the decided chord: {}", help.0);
-        assert!(help.0.contains("Ctrl-G"), "shows the works-today alias: {}", help.0);
+        assert!(
+            help.0.contains("Ctrl-/"),
+            "shows the decided chord: {}",
+            help.0
+        );
+        assert!(
+            help.0.contains("Ctrl-G"),
+            "shows the works-today alias: {}",
+            help.0
+        );
     }
 }

@@ -163,7 +163,8 @@ fn view(app: &Stream, frame: &mut Frame<'_>) {
     frame.widget(
         key("hint"),
         hint_row,
-        &Text::new("type + Enter: commit   Ctrl-N: log line   Ctrl-T: mode   Ctrl-C: quit").role(Role::Muted),
+        &Text::new("type + Enter: commit   Ctrl-N: log line   Ctrl-T: mode   Ctrl-C: quit")
+            .role(Role::Muted),
     );
 }
 

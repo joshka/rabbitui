@@ -73,7 +73,8 @@ impl ReplayBackend {
     /// wrapping the JSONL parse failure.
     pub fn from_path(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let text = std::fs::read_to_string(path)?;
-        Self::from_jsonl(&text).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        Self::from_jsonl(&text)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
     }
 
     /// The events of the next turn: from the cursor up to and including the next

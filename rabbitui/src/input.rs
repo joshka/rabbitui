@@ -161,7 +161,11 @@ fn key_from_qwertty(event: &QKeyEvent) -> Option<KeyEvent> {
     // reported union with the synthesized Ctrl.
     if let QKey::Control(byte @ 0x01..=0x1A) = key {
         let letter = (b'a' + (byte - 1)) as char;
-        return Some(KeyEvent::new(Key::Char(letter)).with_modifiers(modifiers).ctrl());
+        return Some(
+            KeyEvent::new(Key::Char(letter))
+                .with_modifiers(modifiers)
+                .ctrl(),
+        );
     }
 
     // Shift-Tab: qwertty decodes `CSI Z` as Tab + SHIFT. Fold that specific chord
@@ -311,10 +315,22 @@ mod tests {
 
     #[test]
     fn arrows_map() {
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[A")), Some(InputEvent::key(Key::Up)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[B")), Some(InputEvent::key(Key::Down)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[D")), Some(InputEvent::key(Key::Left)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[C")), Some(InputEvent::key(Key::Right)));
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[A")),
+            Some(InputEvent::key(Key::Up))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[B")),
+            Some(InputEvent::key(Key::Down))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[D")),
+            Some(InputEvent::key(Key::Left))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[C")),
+            Some(InputEvent::key(Key::Right))
+        );
     }
 
     #[test]
@@ -322,16 +338,40 @@ mod tests {
         // qwertty decodes these legacy escape forms; the seam now maps them to the
         // core navigation/editing keys (previously dropped as preserved CSI).
         // Home/End via the SS3-in-CSI letter forms `CSI H` / `CSI F`.
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[H")), Some(InputEvent::key(Key::Home)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[F")), Some(InputEvent::key(Key::End)));
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[H")),
+            Some(InputEvent::key(Key::Home))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[F")),
+            Some(InputEvent::key(Key::End))
+        );
         // Home/End also have the alternate tilde forms `CSI 1 ~` / `CSI 4 ~`.
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[1~")), Some(InputEvent::key(Key::Home)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[4~")), Some(InputEvent::key(Key::End)));
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[1~")),
+            Some(InputEvent::key(Key::Home))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[4~")),
+            Some(InputEvent::key(Key::End))
+        );
         // The editing tilde block: Insert (2~), Delete (3~), PageUp (5~), PageDown (6~).
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[2~")), Some(InputEvent::key(Key::Insert)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[3~")), Some(InputEvent::key(Key::Delete)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[5~")), Some(InputEvent::key(Key::PageUp)));
-        assert_eq!(from_qwertty(&decode_one(b"\x1b[6~")), Some(InputEvent::key(Key::PageDown)));
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[2~")),
+            Some(InputEvent::key(Key::Insert))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[3~")),
+            Some(InputEvent::key(Key::Delete))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[5~")),
+            Some(InputEvent::key(Key::PageUp))
+        );
+        assert_eq!(
+            from_qwertty(&decode_one(b"\x1b[6~")),
+            Some(InputEvent::key(Key::PageDown))
+        );
     }
 
     #[test]
@@ -389,8 +429,8 @@ mod tests {
         // single-codepoint contract so a later payload-consuming change is a
         // deliberate, visible edit here.
         use qwertty::TextPayload;
-        let event = QKeyEvent::new(QKey::Char('e'))
-            .with_text_payload(TextPayload::from_text("e\u{0301}"));
+        let event =
+            QKeyEvent::new(QKey::Char('e')).with_text_payload(TextPayload::from_text("e\u{0301}"));
         assert_eq!(
             from_qwertty(&QwerttyEvent::Key(event)),
             Some(InputEvent::key(Key::Char('e'))),

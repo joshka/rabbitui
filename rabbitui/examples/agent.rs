@@ -51,8 +51,8 @@ use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::{Attrs, Color, Style};
-use rabbitui_core::theme::Role;
 use rabbitui_core::text::Span;
+use rabbitui_core::theme::Role;
 use rabbitui_widgets::{Collapsible, Panel, Text, TextInput};
 
 /// The bounded live-tail height in inline mode, in rows: the streaming preview
@@ -205,52 +205,53 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
     // (Update::consumed — the composer eats printables while focused).
     if let Event::Input(input) = update.event()
         && !update.consumed()
-        && let Some(k) = input.as_key() {
-            match k.key {
-                // Ctrl-T: mode toggle that works even while the composer is
-                // focused (printable 'm' below only fires when it is not).
-                Key::Char('t') if k.modifiers.ctrl => {
-                    app.inline = !app.inline;
-                    update.set_mode(if app.inline {
-                        Mode::inline(TAIL_HEIGHT)
-                    } else {
-                        Mode::AltScreen
-                    });
-                }
-                // Ctrl-X: cancel that works while the composer is focused
-                // (lone Esc is currently held by the substrate's parser —
-                // see the requirements handover).
-                Key::Char('x') if k.modifiers.ctrl => {
-                    if app.is_streaming() {
-                        cancel_agent(app, &update);
-                    }
-                }
-                // Toggle inline ↔ alt-screen live. The alt-screen transcript
-                // owns its own scroll via the frame.scroll scope.
-                Key::Char('m') if !k.modifiers.ctrl => {
-                    app.inline = !app.inline;
-                    update.set_mode(if app.inline {
-                        Mode::inline(TAIL_HEIGHT)
-                    } else {
-                        Mode::AltScreen
-                    });
-                }
-                // Esc cancels a streaming response (cancel-previous also covers
-                // re-prompting mid-stream); a no-op when idle.
-                Key::Escape => {
-                    if app.is_streaming() {
-                        cancel_agent(app, &update);
-                    }
-                }
-                // The alt-screen transcript now owns its own scroll: the
-                // `frame.scroll` scope consumes Up/Down/PageUp/PageDown/Home/End
-                // and the wheel while focused, so the app no longer tracks an
-                // offset or handles those keys here.
-                Key::Char('q') if !k.modifiers.ctrl => return ControlFlow::Break(()),
-                Key::Char('c') if k.modifiers.ctrl => return ControlFlow::Break(()),
-                _ => {}
+        && let Some(k) = input.as_key()
+    {
+        match k.key {
+            // Ctrl-T: mode toggle that works even while the composer is
+            // focused (printable 'm' below only fires when it is not).
+            Key::Char('t') if k.modifiers.ctrl => {
+                app.inline = !app.inline;
+                update.set_mode(if app.inline {
+                    Mode::inline(TAIL_HEIGHT)
+                } else {
+                    Mode::AltScreen
+                });
             }
+            // Ctrl-X: cancel that works while the composer is focused
+            // (lone Esc is currently held by the substrate's parser —
+            // see the requirements handover).
+            Key::Char('x') if k.modifiers.ctrl => {
+                if app.is_streaming() {
+                    cancel_agent(app, &update);
+                }
+            }
+            // Toggle inline ↔ alt-screen live. The alt-screen transcript
+            // owns its own scroll via the frame.scroll scope.
+            Key::Char('m') if !k.modifiers.ctrl => {
+                app.inline = !app.inline;
+                update.set_mode(if app.inline {
+                    Mode::inline(TAIL_HEIGHT)
+                } else {
+                    Mode::AltScreen
+                });
+            }
+            // Esc cancels a streaming response (cancel-previous also covers
+            // re-prompting mid-stream); a no-op when idle.
+            Key::Escape => {
+                if app.is_streaming() {
+                    cancel_agent(app, &update);
+                }
+            }
+            // The alt-screen transcript now owns its own scroll: the
+            // `frame.scroll` scope consumes Up/Down/PageUp/PageDown/Home/End
+            // and the wheel while focused, so the app no longer tracks an
+            // offset or handles those keys here.
+            Key::Char('q') if !k.modifiers.ctrl => return ControlFlow::Break(()),
+            Key::Char('c') if k.modifiers.ctrl => return ControlFlow::Break(()),
+            _ => {}
         }
+    }
 
     ControlFlow::Continue(())
 }

@@ -281,9 +281,10 @@ impl<M: Send + 'static> Effects<M> {
         // Removing the entry lets the group be re-armed later by a fresh spawn.
         if let Kind::Cancel = kind {
             if let Some(name) = group
-                && let Some(previous) = self.groups.remove(&name) {
-                    previous.abort();
-                }
+                && let Some(previous) = self.groups.remove(&name)
+            {
+                previous.abort();
+            }
             return;
         }
 
@@ -339,9 +340,10 @@ impl<M: Send + 'static> Effects<M> {
 
         // Cancel-previous: register (and abort the predecessor) for a group.
         if let Some(name) = group
-            && let Some(previous) = self.groups.insert(name, abort) {
-                previous.abort();
-            }
+            && let Some(previous) = self.groups.insert(name, abort)
+        {
+            previous.abort();
+        }
     }
 
     /// Spawns a watcher that turns a panicked join into an [`EffectError`] on the

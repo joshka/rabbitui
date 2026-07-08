@@ -262,8 +262,12 @@ mod tests {
     fn filled_button_paints_a_solid_tonal_fill() {
         let theme = Theme::catppuccin_mocha();
         let mut buffer = Buffer::new(Size::new(11, 1));
-        let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(11, 1)), false, &theme);
+        let mut ctx = RenderCtx::new_themed(
+            &mut buffer,
+            Rect::from_size(Size::new(11, 1)),
+            false,
+            &theme,
+        );
         Button::new("OK").filled(true).render(&mut (), &mut ctx);
 
         // Every cell carries the darker fill — a solid chip, not bare text; the

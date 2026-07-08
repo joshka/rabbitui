@@ -52,7 +52,13 @@ fn declare_flat(frame: &mut Frame<'_>, count: usize) {
     for i in 0..count {
         let y = u16::try_from(i).unwrap_or(u16::MAX);
         let area = Rect::new(Position::new(0, y), Size::new(FRAME_SIZE.width, 1));
-        frame.widget(key("cell").index(i), area, &Cell { label: "synthetic row" });
+        frame.widget(
+            key("cell").index(i),
+            area,
+            &Cell {
+                label: "synthetic row",
+            },
+        );
     }
 }
 
@@ -95,7 +101,12 @@ fn full_frame_scroll(store: &mut StateStore, buffer: &mut Buffer, count: usize) 
         let area = frame.area();
         frame.scroll(key("scroll"), area, |scroll| {
             for i in 0..count {
-                scroll.item(key("item").index(i), &Cell { label: "synthetic row" });
+                scroll.item(
+                    key("item").index(i),
+                    &Cell {
+                        label: "synthetic row",
+                    },
+                );
             }
         });
         frame.into_parts()

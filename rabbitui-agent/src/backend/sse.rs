@@ -84,7 +84,8 @@ impl SseDecoder {
             Some("content_block_start") => self.content_block_start(value, out),
             Some("content_block_delta") => self.content_block_delta(value, out),
             Some("content_block_stop") => {
-                if let Some(id) = index_of(value).and_then(|index| self.tool_blocks.remove(&index)) {
+                if let Some(id) = index_of(value).and_then(|index| self.tool_blocks.remove(&index))
+                {
                     out.push(Ok(StreamEvent::ToolUseStop { id }));
                 }
             }
@@ -256,21 +257,24 @@ data: {\"type\":\"message_stop\"}
     #[test]
     fn decodes_a_text_turn_with_usage_and_stop_reason() {
         let events = events(TEXT_TURN);
-        assert_eq!(events, vec![
-            StreamEvent::TextDelta {
-                text: "Hello".to_string()
-            },
-            StreamEvent::TextDelta {
-                text: ", world".to_string()
-            },
-            StreamEvent::MessageDone {
-                stop_reason: StopReason::EndTurn,
-                usage: Usage {
-                    input_tokens: 12,
-                    output_tokens: 5,
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::TextDelta {
+                    text: "Hello".to_string()
                 },
-            },
-        ]);
+                StreamEvent::TextDelta {
+                    text: ", world".to_string()
+                },
+                StreamEvent::MessageDone {
+                    stop_reason: StopReason::EndTurn,
+                    usage: Usage {
+                        input_tokens: 12,
+                        output_tokens: 5,
+                    },
+                },
+            ]
+        );
     }
 
     #[test]
@@ -279,15 +283,18 @@ data: {\"type\":\"message_stop\"}
 data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}}
 data: {\"type\":\"message_stop\"}
 ";
-        assert_eq!(events(transcript), vec![
-            StreamEvent::ThinkingDelta {
-                text: "hmm".to_string()
-            },
-            StreamEvent::MessageDone {
-                stop_reason: StopReason::EndTurn,
-                usage: Usage::default(),
-            },
-        ]);
+        assert_eq!(
+            events(transcript),
+            vec![
+                StreamEvent::ThinkingDelta {
+                    text: "hmm".to_string()
+                },
+                StreamEvent::MessageDone {
+                    stop_reason: StopReason::EndTurn,
+                    usage: Usage::default(),
+                },
+            ]
+        );
     }
 
     #[test]
@@ -300,30 +307,33 @@ data: {\"type\":\"content_block_stop\",\"index\":1}
 data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}
 data: {\"type\":\"message_stop\"}
 ";
-        assert_eq!(events(transcript), vec![
-            StreamEvent::ToolUseStart {
-                id: "toolu_9".to_string(),
-                name: "read_file".to_string(),
-            },
-            StreamEvent::ToolUseInputDelta {
-                id: "toolu_9".to_string(),
-                json: "{\"path\":".to_string(),
-            },
-            StreamEvent::ToolUseInputDelta {
-                id: "toolu_9".to_string(),
-                json: "\"a.rs\"}".to_string(),
-            },
-            StreamEvent::ToolUseStop {
-                id: "toolu_9".to_string(),
-            },
-            StreamEvent::MessageDone {
-                stop_reason: StopReason::ToolUse,
-                usage: Usage {
-                    input_tokens: 0,
-                    output_tokens: 3,
+        assert_eq!(
+            events(transcript),
+            vec![
+                StreamEvent::ToolUseStart {
+                    id: "toolu_9".to_string(),
+                    name: "read_file".to_string(),
                 },
-            },
-        ]);
+                StreamEvent::ToolUseInputDelta {
+                    id: "toolu_9".to_string(),
+                    json: "{\"path\":".to_string(),
+                },
+                StreamEvent::ToolUseInputDelta {
+                    id: "toolu_9".to_string(),
+                    json: "\"a.rs\"}".to_string(),
+                },
+                StreamEvent::ToolUseStop {
+                    id: "toolu_9".to_string(),
+                },
+                StreamEvent::MessageDone {
+                    stop_reason: StopReason::ToolUse,
+                    usage: Usage {
+                        input_tokens: 0,
+                        output_tokens: 3,
+                    },
+                },
+            ]
+        );
     }
 
     #[test]
@@ -333,13 +343,19 @@ data: {\"type\":\"message_stop\"}
         // The JSON payload is split mid-token across three pushes.
         decoder.push("data: {\"type\":\"content_bl", &mut out);
         assert!(out.is_empty(), "no complete line yet");
-        decoder.push("ock_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",", &mut out);
+        decoder.push(
+            "ock_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",",
+            &mut out,
+        );
         assert!(out.is_empty(), "still no newline");
         decoder.push("\"text\":\"ok\"}}\n", &mut out);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].as_ref().unwrap(), &StreamEvent::TextDelta {
-            text: "ok".to_string()
-        });
+        assert_eq!(
+            out[0].as_ref().unwrap(),
+            &StreamEvent::TextDelta {
+                text: "ok".to_string()
+            }
+        );
     }
 
     #[test]
@@ -373,9 +389,12 @@ data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\
 data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"future_reason\"},\"usage\":{}}
 data: {\"type\":\"message_stop\"}
 ";
-        assert_eq!(events(transcript), vec![StreamEvent::MessageDone {
-            stop_reason: StopReason::EndTurn,
-            usage: Usage::default(),
-        }]);
+        assert_eq!(
+            events(transcript),
+            vec![StreamEvent::MessageDone {
+                stop_reason: StopReason::EndTurn,
+                usage: Usage::default(),
+            }]
+        );
     }
 }
