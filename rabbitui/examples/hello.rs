@@ -27,14 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// no interactive widgets, so every key falls through to the app (ADR 0006's
 /// unconsumed-event path).
 fn update((): &mut (), update: Update<'_>) -> ControlFlow<()> {
-    if let Event::Input(input) = update.event() {
-        if matches!(
+    if let Event::Input(input) = update.event()
+        && matches!(
             input.as_key().map(|k| k.key),
             Some(Key::Char('q') | Key::Escape)
         ) {
             return ControlFlow::Break(());
         }
-    }
     ControlFlow::Continue(())
 }
 

@@ -45,14 +45,13 @@ fn update(app: &mut App, update: Update<'_>) -> ControlFlow<()> {
     }
 
     // `q` / Escape are never consumed by the buttons, so they fall through here.
-    if let Event::Input(input) = update.event() {
-        if matches!(
+    if let Event::Input(input) = update.event()
+        && matches!(
             input.as_key().map(|k| k.key),
             Some(Key::Char('q') | Key::Escape)
         ) {
             return ControlFlow::Break(());
         }
-    }
     ControlFlow::Continue(())
 }
 

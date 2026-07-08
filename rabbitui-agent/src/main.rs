@@ -98,12 +98,11 @@ fn build_app(args: &Args, backend: Box<dyn Backend>) -> Result<Agent, Box<dyn st
         let (session, history) = Session::resume(path)?;
         return Ok(Agent::new(args.model.clone(), backend).with_session(session, history));
     }
-    if args.continue_latest {
-        if let Some(path) = Session::latest()? {
+    if args.continue_latest
+        && let Some(path) = Session::latest()? {
             let (session, history) = Session::resume(path)?;
             return Ok(Agent::new(args.model.clone(), backend).with_session(session, history));
         }
-    }
     let session = Session::create(args.model.clone(), now_seconds())?;
     Ok(Agent::new(args.model.clone(), backend).with_session(session, Vec::new()))
 }

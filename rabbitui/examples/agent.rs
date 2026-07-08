@@ -205,8 +205,7 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
     // (Update::consumed — the composer eats printables while focused).
     if let Event::Input(input) = update.event()
         && !update.consumed()
-    {
-        if let Some(k) = input.as_key() {
+        && let Some(k) = input.as_key() {
             match k.key {
                 // Ctrl-T: mode toggle that works even while the composer is
                 // focused (printable 'm' below only fires when it is not).
@@ -252,7 +251,6 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
                 _ => {}
             }
         }
-    }
 
     ControlFlow::Continue(())
 }

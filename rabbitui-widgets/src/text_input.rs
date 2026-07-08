@@ -306,11 +306,10 @@ impl Widget for TextInput<'_> {
 
         let text_style = ctx.style(Role::Text);
         if state.value.is_empty() {
-            if let Some(placeholder) = self.placeholder {
-                if !ctx.is_focused() {
+            if let Some(placeholder) = self.placeholder
+                && !ctx.is_focused() {
                     ctx.set_string(Position::ORIGIN, placeholder, ctx.style(Role::Muted));
                 }
-            }
         } else {
             // Paint the value shifted left by `scroll` cells. Walk graphemes,
             // tracking each one's starting column, and place those within the

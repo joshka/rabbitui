@@ -108,11 +108,10 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
             close_modal(form, &update);
         }
         // Esc dismisses the modal (an unconsumed key at the base falls through).
-        if let Event::Input(input) = update.event() {
-            if input.as_key().map(|k| k.key) == Some(Key::Escape) {
+        if let Event::Input(input) = update.event()
+            && input.as_key().map(|k| k.key) == Some(Key::Escape) {
                 close_modal(form, &update);
             }
-        }
         // The focus request into the modal is owed exactly once, when it opens.
         if form.focus_modal {
             update.focus(&[key("modal"), key("ok")]);
@@ -163,16 +162,14 @@ fn update(form: &mut Form, update: Update<'_>) -> ControlFlow<()> {
 
     // App-level quit: `q` with no field focused, or Ctrl-C. TextInput leaves
     // Ctrl chords for the app, so Ctrl-C quits even while a field is focused.
-    if let Event::Input(input) = update.event() {
-        if let Some(k) = input.as_key() {
-            if (k.key == Key::Char('c') && k.modifiers.ctrl)
+    if let Event::Input(input) = update.event()
+        && let Some(k) = input.as_key()
+            && ((k.key == Key::Char('c') && k.modifiers.ctrl)
                 || ((k.key == Key::Char('q') && !update.consumed() || k.key == Key::Escape)
-                    && !form.confirming)
+                    && !form.confirming))
             {
                 return ControlFlow::Break(());
             }
-        }
-    }
 
     ControlFlow::Continue(())
 }

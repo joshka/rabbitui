@@ -206,14 +206,12 @@ pub fn route(
     // focusable target moves focus whether or not a handler consumes the
     // click, so activation happens as the focused widget and the next Tab
     // starts from where the user last clicked. It never consumes the event.
-    if let InputEvent::Mouse(mouse) = event {
-        if matches!(mouse.kind, MouseKind::Down) {
-            if let Some(entry) = target.and_then(|id| facts.get(id)) {
-                if entry.focusable {
-                    focus.current = Some(entry.id);
-                }
-            }
-        }
+    if let InputEvent::Mouse(mouse) = event
+        && matches!(mouse.kind, MouseKind::Down)
+        && let Some(entry) = target.and_then(|id| facts.get(id))
+        && entry.focusable
+    {
+        focus.current = Some(entry.id);
     }
 
     if let Some(target) = target {
@@ -370,11 +368,11 @@ mod tests {
                 ctx.emit(Outcome::Activated);
                 return Handled::Yes;
             }
-            if let Some(mouse) = event.as_mouse() {
-                if mouse.kind == crate::input::MouseKind::Down {
-                    ctx.emit(Outcome::Activated);
-                    return Handled::Yes;
-                }
+            if let Some(mouse) = event.as_mouse()
+                && mouse.kind == crate::input::MouseKind::Down
+            {
+                ctx.emit(Outcome::Activated);
+                return Handled::Yes;
             }
             Handled::No
         }

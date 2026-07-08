@@ -1055,8 +1055,8 @@ where
                         dirty = true;
                     }
 
-                    if !broke {
-                        if let Some(event) = crate::input::from_qwertty(&input) {
+                    if !broke
+                        && let Some(event) = crate::input::from_qwertty(&input) {
                             let result = route(&facts, &handlers, &mut focus, &mut store, &event);
                             let pending = RefCell::new(Pending::default());
                             let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
@@ -1076,7 +1076,6 @@ where
                             );
                             dirty = true;
                         }
-                    }
                 }
                 Wake::Effect(outbox) => {
                     broke = deliver_effect(

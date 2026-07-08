@@ -145,8 +145,8 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
 
     // App-level key bindings on keys no focused widget consumed. `Ctrl-L` clears
     // the field even while it is focused (TextInput ignores ctrl chords).
-    if let Event::Input(input) = update.event() {
-        if let Some(k) = input.as_key() {
+    if let Event::Input(input) = update.event()
+        && let Some(k) = input.as_key() {
             if k.key == Key::Char('l') && k.modifiers.ctrl {
                 update.widget::<TextInput>(&[key("input")], |state| state.clear());
                 app.draft.clear();
@@ -187,7 +187,6 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 _ => {}
             }
         }
-    }
 
     ControlFlow::Continue(())
 }
