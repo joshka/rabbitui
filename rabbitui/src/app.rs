@@ -1003,12 +1003,39 @@ where
     /// Returns an error if the terminal, input, size polling, or rendering fails,
     /// or if a configured theme file cannot be loaded or parsed at startup.
     pub async fn run(self) -> Result<()> {
-        // Install the tracing collector before anything opens the terminal, so
-        // startup events are captured. The default is by build profile (debug on,
-        // release off); an explicit `.tracing(bool)` overrides it. Installation is
-        // a no-op if a global default is already set — never a panic. The returned
-        // handle (if we installed and hold one) is flushed on close, after the
-        // terminal is restored, so WARN+ survives the alternate screen.
+        let terminal = Terminal::open().await?;
+        self.run_on(terminal).await
+    }
+
+    /// Runs the app over a caller-supplied [`TerminalDevice`](qwertty::TerminalDevice)
+    /// instead of the real controlling terminal.
+    ///
+    /// The headless-testing / embedding seam: pass a [`qwertty::FakeDevice`] (a
+    /// socketpair) and the *whole* [`run`](Self::run) loop executes with no pty,
+    /// so tests can drive the real `update` closure and assert on emitted bytes
+    /// (`docs/design/fakedevice-e2e-harness.md`). Unlike [`run`](Self::run) this
+    /// installs no panic-restore hook — a fake device has nothing to strand, and
+    /// a test wants panics to surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the session cannot be built over the device, the theme
+    /// file cannot be loaded, or the loop hits a terminal I/O error.
+    pub async fn run_over_device<D: qwertty::TerminalDevice>(self, device: D) -> Result<()> {
+        let terminal = Terminal::from_device(device)?;
+        self.run_on(terminal).await
+    }
+
+    /// Shared setup for [`run`](Self::run) and [`run_over_device`](Self::run_over_device):
+    /// installs tracing, resolves the initial theme, then enters [`run_loop`] over
+    /// the given terminal.
+    async fn run_on<D: qwertty::TerminalDevice>(self, terminal: Terminal<D>) -> Result<()> {
+        // Install the tracing collector before the loop starts, so startup events
+        // are captured. The default is by build profile (debug on, release off); an
+        // explicit `.tracing(bool)` overrides it. Installation is a no-op if a
+        // global default is already set — never a panic. The returned handle (if we
+        // installed and hold one) is flushed on close, after the terminal is
+        // restored, so WARN+ survives the alternate screen.
         #[cfg(feature = "tracing")]
         let flush_handle = install_tracing(self.tracing, self.log_handle.clone());
 
@@ -1027,7 +1054,6 @@ where
         // A startup error is fatal; a mid-run reload error is not (see below).
         let watcher = ThemeWatcher::new(theme_file, base_theme)?;
 
-        let terminal = Terminal::open().await?;
         run_loop(
             terminal,
             state,
