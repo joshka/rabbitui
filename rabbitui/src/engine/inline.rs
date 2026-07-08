@@ -302,6 +302,11 @@ fn flush_row_runs(frame: &mut CommandBuffer, pending: &mut Vec<CellChange>) {
         frame.text(&text);
         col = next_x;
     }
+    // Reset SGR before the row terminator: a run ending in a background-carrying
+    // style (e.g. the composer's Highlight cursor) would otherwise leave that
+    // background active across the `\r\n`, and terminals implement background-color
+    // erase — so the next row's blanks flood with it. Matches the commit path.
+    frame.bytes(encode::SGR_RESET);
     pending.clear();
 }
 
@@ -355,6 +360,12 @@ fn emit_runs_relative(frame: &mut CommandBuffer, changes: &[CellChange]) {
         }
         frame.bytes(encode::sgr(style));
         frame.text(&text);
+    }
+    // Reset SGR at the row's end so a background-carrying final run (e.g. the
+    // composer's Highlight cursor) does not bleed across the row's `\r\n` via
+    // terminal background-color erase. Only when a run was actually emitted.
+    if !changes.is_empty() {
+        frame.bytes(encode::SGR_RESET);
     }
 }
 
@@ -445,6 +456,28 @@ mod tests {
         let _ = engine.render(&t, &[]);
         // Same tail again, no commits: nothing to do.
         assert!(engine.render(&t, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_row_carrying_a_background_resets_sgr_before_its_terminator() {
+        // Row 0 carries a cyan background (like the composer's Highlight cursor);
+        // row 1 is plain. Without a reset at the row's end the cyan would bleed
+        // across the CRLF into row 1 via terminal background-color erase.
+        let mut engine = InlineEngine::new();
+        let _ = engine.enter();
+        let mut buffer = Buffer::new(Size::new(4, 2));
+        buffer.set_string(Position::new(0, 0), " ", Style::new().bg(Color::CYAN));
+        buffer.set_string(Position::new(0, 1), "x", Style::new());
+        let bytes = engine.render(&buffer, &[]);
+        let crlf = bytes
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .expect("row 0 ends in CRLF");
+        let reset = encode::SGR_RESET;
+        assert!(
+            bytes[..crlf].windows(reset.len()).any(|w| w == reset),
+            "SGR reset appears before the row's terminator"
+        );
     }
 
     #[test]
