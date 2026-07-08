@@ -291,6 +291,34 @@ impl<'a> Frame<'a> {
         split_columns(self.area(), constraints)
     }
 
+    /// Splits an arbitrary `area` into horizontal bands.
+    ///
+    /// The sub-area sibling of [`rows`](Self::rows): where `rows` splits the whole
+    /// frame, this splits a region you already carved out (a panel's interior, one
+    /// half of a prior split), so nested layout stays on the `frame` receiver
+    /// instead of reaching for the free [`split_rows`] function (dogfood finding
+    /// #8). `frame.rows([..])` then reads as `frame.split_rows(area, [..])` one
+    /// level down.
+    #[must_use]
+    pub fn split_rows<const N: usize>(
+        &self,
+        area: Rect,
+        constraints: [Constraint; N],
+    ) -> [Rect; N] {
+        split_rows(area, constraints)
+    }
+
+    /// Splits an arbitrary `area` into vertical bands (the sub-area sibling of
+    /// [`columns`](Self::columns); see [`split_rows`](Self::split_rows)).
+    #[must_use]
+    pub fn split_columns<const N: usize>(
+        &self,
+        area: Rect,
+        constraints: [Constraint; N],
+    ) -> [Rect; N] {
+        split_columns(area, constraints)
+    }
+
     /// Declares a widget: composes its identity from `key` under the current
     /// parent, lends it its retained state, renders it into `area`, and records
     /// its facts and handler.
@@ -623,6 +651,26 @@ mod tests {
         let _ = frame.finish();
         store.end_frame();
         assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn split_rows_and_columns_carve_a_sub_area() {
+        let mut buffer = Buffer::new(Size::new(10, 6));
+        let mut store = StateStore::new();
+        let frame = Frame::new(&mut buffer, &mut store);
+
+        // Whole-frame rows: the top band, then split that band into columns.
+        let [top, _body] = frame.rows([Constraint::Length(2), Constraint::Fill(1)]);
+        let [left, right] = frame.split_columns(top, [Constraint::Length(4), Constraint::Fill(1)]);
+        assert_eq!(left, Rect::new(Position::new(0, 0), Size::new(4, 2)));
+        assert_eq!(right, Rect::new(Position::new(4, 0), Size::new(6, 2)));
+
+        // split_rows over the same sub-area is the horizontal-band sibling.
+        let [upper, lower] = frame.split_rows(top, [Constraint::Length(1), Constraint::Fill(1)]);
+        assert_eq!(upper, Rect::new(Position::new(0, 0), Size::new(10, 1)));
+        assert_eq!(lower, Rect::new(Position::new(0, 1), Size::new(10, 1)));
+
+        let _ = frame.finish();
     }
 
     struct Focusable;
