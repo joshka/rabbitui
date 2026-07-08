@@ -4,6 +4,19 @@ Building a second real rabbitui app (a streaming log-follower with a filter and 
 detail modal) surfaced these framework rough edges — the same feedback loop the flagship
 gave, from an independent app. Ranked; the top three bite any second real app immediately.
 
+## Resolution status (2026-07-08)
+
+| #   | Finding                       | Status | Landed as                                              |
+| --- | ----------------------------- | ------ | ------------------------------------------------------ |
+| 1   | startup/init `Cmd` hook       | open   | —                                                      |
+| 2   | widget-state reader           | done   | `Update::widget_state::<W>(path)`                      |
+| 3   | `view` can't read focus       | done   | `Frame::is_focused` / `Frame::focused`                 |
+| 4   | declare-then-command panic    | done   | `Update::try_focus` / `try_command` + `apply_guarded`  |
+| 5   | lazy `ListSource` over `T`    | done   | `rows_with` / `from_fn` / `FromFn`                     |
+| 6   | empty↔populated focus drop    | done   | `SelectionList::empty_text`                            |
+| 7   | global chords at every return | open   | —                                                      |
+| 8   | `frame.split` naming sugar    | open   | —                                                      |
+
 ## Findings (ranked — 1–4 are the substantive framework fixes; 5–8 are papercuts)
 
 1. **No startup/init command hook.** `App::run` never calls `update` until the first
