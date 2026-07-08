@@ -288,7 +288,82 @@ that buffer-equality testing cannot.
 
 ---
 
-## 10. Why this discipline
+## 10. Conformance corpus
+
+The checklist in §9 is prose; a conforming implementation is verified against a **named, stable test
+corpus** so that "conforms" means the same thing to two independent implementers and to a
+regression suite over time. Each corpus entry has a stable identifier that never changes once
+published, a fixed input scenario, and an assertion made either on the emulated screen (feed the
+renderer's byte output to a headless terminal emulator and assert on the resulting grid) or directly
+on the byte stream (for ordering and framing properties the screen cannot reveal). Identifiers are
+the contract; the harness that executes them is a separate deliverable and is out of scope for this
+document.
+
+> **Status of the corpus.** The corpus itself — a runner, fixture scenarios, and a per-terminal
+> results matrix — is **planned work, not yet built**. This section fixes the identifier namespace
+> and the assertion each identifier stands for, so the spec, the future harness, and any
+> conformance claim reference the same stable names. Treat an identifier below as a promise about
+> _what_ is tested, not evidence that it is tested today.
+
+### 10.1 Corpus identifiers
+
+Each identifier maps to one or more checklist clauses in §9. The mapping is normative: an
+implementation "passes `<ID>`" iff it exhibits the referenced §9 behavior under the identifier's
+scenario.
+
+| Corpus ID                | Scenario                                                                                         | Asserts on   | §9 clause(s) |
+| ------------------------ | ------------------------------------------------------------------------------------------------ | ------------ | ------------ |
+| `INLINE-APPEND-ONCE`     | A line is committed, then the tail is repainted N times without re-committing.                   | screen+bytes | 1, 2         |
+| `INLINE-COMMIT-ORDER`    | Two lines committed in a single update.                                                          | screen       | 2            |
+| `INLINE-WRAP-ON-RESIZE`  | A committed line wider than the viewport; the emulator width is then reduced and increased.      | screen+bytes | 3, 11        |
+| `INLINE-COMMIT-STYLED`   | A committed line carrying multiple styled spans.                                                 | screen+bytes | 4            |
+| `INLINE-TAIL-BOUNDED`    | Declared tail content taller than the viewport across several frames.                            | screen       | 5            |
+| `INLINE-TAIL-SHRINK`     | A tail that shrinks in height between two frames.                                                | screen+bytes | 6            |
+| `INLINE-TAIL-CELL-DIFF`  | A stable-height, no-commit frame that changes only some cells.                                   | bytes        | 7            |
+| `INLINE-NOOP-SILENT`     | A frame with unchanged height, no commits, and no cell changes.                                  | bytes        | 8            |
+| `INLINE-RELATIVE-CURSOR` | Any multi-frame sequence; assert the floating-region addressing and bottom-row cursor invariant. | bytes        | 9            |
+| `MODE2026-FRAMING`       | Any frame; assert the whole update is bracketed by a synchronized-output begin/end pair.         | bytes        | 10           |
+| `INLINE-ALTSCREEN-FLUSH` | A commit and an alternate-screen switch requested in the same update.                            | bytes        | 12           |
+
+Two further identifiers name properties that this spec depends on but that live at the byte/erase
+layer rather than in the §9 region-behavior list. They are called out separately because they are
+the two failure modes most likely to pass a screen-equality test yet corrupt a real terminal, and
+because the companion gap analysis references them as evidence:
+
+| Corpus ID                    | Scenario                                                                                                   | Asserts on   | Spec basis |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------ | ---------- |
+| `BCE-RESET`                  | A styled tail (non-default background) is repainted and then shrinks, forcing an erase.                    | screen+bytes | §4.4       |
+| `WIDE-GRAPHEME-CONTINUATION` | Committed and tail content containing a wide grapheme (ZWJ emoji, CJK, combining sequence) at a wrap edge. | screen       | §3.1, §4.1 |
+
+`BCE-RESET` asserts that **every erase or clear the renderer emits is immediately preceded by an SGR
+reset** (`CSI 0 m`). An erase inherits the terminal's current graphic rendition, so an erase issued
+while a non-default background is active floods the vacated cells with that background color
+(background-color-erase, "BCE bleed") — the erase-below of §4.4 would paint a colored band beneath a
+shrinking tail. The assertion is on the byte stream (reset precedes erase) and confirmable on screen
+(no colored orphan rows). This is the erase-side companion to the §4.4 ED-based shrink clause.
+
+`WIDE-GRAPHEME-CONTINUATION` asserts that a wide grapheme is treated as a single indivisible unit of
+its measured width in both the committed channel and the tail: it is never split across a soft-wrap
+boundary such that its trailing cell is separated from its leading cell, and the renderer's own
+width accounting agrees with the emulator's cursor advance (the width-agreement invariant the gap
+analysis calls the contract every frame rests on). A disagreement here desynchronizes every
+subsequent cell on the row, so this identifier guards the measurement assumption underneath both the
+unwrapped-commit clause (§3.1) and the bounded-tail layout (§4.1).
+
+### 10.2 Using the corpus in a conformance claim
+
+An implementation states conformance as a pass/fail vector over the identifiers above, per terminal
+emulator tested — because several identifiers (`INLINE-WRAP-ON-RESIZE`, `BCE-RESET`,
+`WIDE-GRAPHEME-CONTINUATION`, `MODE2026-FRAMING`) can pass on one emulator and fail on another, and
+the honest unit of a conformance claim is therefore _(identifier × emulator)_, not a single boolean.
+The one artifact from §5 that is a known, accepted edge — the single stray line a floating region
+can leave on some emulators across a width change — is expected to surface as an emulator-specific
+soft failure of `INLINE-WRAP-ON-RESIZE`, and is documented as an inherent limit (§5), not a defect
+the implementation is required to eliminate.
+
+---
+
+## 11. Why this discipline
 
 The evidence base is a decade of the same lesson arriving from every direction. Ink discovered the
 two-region shape as `<Static>` and documented, in #359, that the naive alternative is unfixable
