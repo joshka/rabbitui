@@ -25,7 +25,7 @@ Arc 3 flagship progress (updated 2026-07-07): slice 1 (extraction, replay, persi
 (Anthropic wire) ✅ SSE decoder + HTTP client, real API default — live-smoke-confirmed by the author;
 slice 3 (markdown) ✅ headings/bold/italic/strikethrough, inline+fenced code, ordered/nested lists,
 links; slice 4 (tools) ✅ `read_file`/`list_dir` (cwd-confined), confirmation modal, tool-call cells,
-continuation loop (`docs/design/arc3-slice4-tools.md`) — four continuation wire details flagged for a
+continuation loop (`docs/design/arc3-slice4-tools.md`) — four wire details flagged for a
 live smoke test; slice 5 (chrome: keymap, help overlay, theme file, browse polish) 🔨 in progress;
 slice 6 (widget extraction + e2e tapes) ⬜. Content model is now typed blocks
 (text/thinking/tool_use/tool_result), wire-shaped and doubling as persistence.
@@ -88,13 +88,21 @@ gates live there).
 | Item                                                                                                                                                               | Status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
 | Error story: update/view panic policy, EffectFailed UX pattern, ErrorBanner widget + effect-panic restore-hook guard                                               | ✅     |
-| Suspend/resume + $EDITOR handoff surface (qwertty RestoreHandle now delivered; suspend API is qwertty M6, in flight — our wiring waits on it)                       | ⬜     |
-| Keybinding/config layer: declarative keymap, user remapping, help overlay generated from it                                                                        | 🔨 flagship keymap in Arc 3 slice 5; framework generalization pending |
-| Performance: budget assertions in CI from the 2B harness; CompactString cell optimization                                                                          | 🔨 iai-callgrind benches + CI workflow authored, **unverified** (valgrind is Linux-only) |
+| Suspend/resume + $EDITOR handoff surface (qwertty RestoreHandle now delivered; suspend API is qwertty M6, in flight — our wiring waits on it)                      | ⬜     |
+| Keybinding/config layer: declarative keymap, user remapping, help overlay generated from it                                                                        | 🔨     |
+| Performance: budget assertions in CI from the 2B harness; CompactString cell optimization                                                                          | 🔨     |
 | Accessibility groundwork: roles/labels on specs recorded into facts (the a11y export needs them; both field reports name a11y the likely architectural tiebreaker) | ✅     |
-| Key/WidgetId debuggability: recover names for devtools + a11y (interning or label capture)                                                                         | ✅ devtools-gated source-name capture |
-| Devtools: facts inspector (dump the frame facts tree, live overlay toggle)                                                                                         | ✅ `FactsInspector` + `facts::dump()` |
-| qwertty Phase 3 adoption: FakeDevice in testing, RestoreHandle, then the KeyEvent/TextPayload pre-pin migration                                                    | 🔨 typed mouse events adopted (input bridge); KeyEvent/TextPayload migration + `/dev/tty` backstop removal next (unblocked by qwertty) |
+| Key/WidgetId debuggability: recover names for devtools + a11y (interning or label capture)                                                                         | ✅     |
+| Devtools: facts inspector (dump the frame facts tree, live overlay toggle)                                                                                         | ✅     |
+| qwertty Phase 3 adoption: FakeDevice in testing, RestoreHandle, then the KeyEvent/TextPayload pre-pin migration                                                    | 🔨     |
+
+Status notes (2026-07-07): **a11y**, **widget-id debuggability** (devtools-gated source-name capture),
+and the **devtools inspector** (`FactsInspector` + `facts::dump()`) landed. **Keymap** 🔨 is the
+flagship's in-app keymap (Arc 3 slice 5); the framework generalization is still open. **Performance**
+🔨 = iai-callgrind benches + CI workflow authored but **unverified locally** (valgrind is Linux-only).
+**qwertty adoption** 🔨 = typed mouse events adopted in the input bridge; the KeyEvent/TextPayload
+migration and `/dev/tty` backstop removal are next — unblocked now that qwertty delivered
+RestoreHandle/FakeDevice and froze the event vocabulary (ADR 0019). **Suspend** waits on qwertty M6.
 
 ### Arc 5 — field leadership (what the field reports say would move the field)
 
@@ -103,12 +111,17 @@ Execution plan: `docs/plans/arc5-field.md`.
 | Item                                                                                                                                                           | Status |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | Public conformance story: PTY-matrix harness grown from our vt100+betamax layers; publish results (both reports: "whoever publishes the harness sets the bar") | ⬜     |
-| Inline mode as a named, specified discipline: extract our invariant into a standalone doc/spec others can implement (Fable report move #2)                     | 🔨 spec + conformance-corpus section written; author review before posting |
+| Inline mode as a named, specified discipline: extract our invariant into a standalone doc/spec others can implement (Fable report move #2)                     | 🔨     |
 | Comparisons: the same app in ratatui / Bubble Tea / Textual / rabbitui, honestly written                                                                       | ⬜     |
-| Agent-legibility: shipped agent skill for rabbitui + evals (ratatui-kit precedent)                                                                             | 🔨 `skills/rabbitui/SKILL.md` + eval prompts written; eval runs deferred |
+| Agent-legibility: shipped agent skill for rabbitui + evals (ratatui-kit precedent)                                                                             | 🔨     |
 | Concept docs/book (ratatui.rs-style site) once 2B/3 stop moving the API                                                                                        | ⬜     |
-| Terminal-gap advocacy: file the gap-analysis shortlist as upstream issues (regions, scroll decoupling) where maintainers engage                                | 🔨 3 issue drafts written (`docs/upstream-issues/`); author review before filing |
+| Terminal-gap advocacy: file the gap-analysis shortlist as upstream issues (regions, scroll decoupling) where maintainers engage                                | 🔨     |
 | CI growth: msrv job, cargo-semver-checks, release automation, tape job when qwertty publishes                                                                  | ⬜     |
+
+Status notes (2026-07-07, all 🔨 pending author review before anything is posted/filed): the
+**inline-mode spec** gained a conformance-corpus section; the **agent skill** (`skills/rabbitui/SKILL.md`)
+plus eval prompts are written (eval runs deferred — needs fresh agents); three **terminal-gap issue
+drafts** are in `docs/upstream-issues/`.
 
 Sequencing (updated 2026-07-07): 2B is done; Arc 3 is unblocked and starts next, in vertical slices
 like Arc 1, alongside the 2A remainder; Arc 4 items slot in whenever an Arc 3 slice needs them
