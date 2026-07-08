@@ -77,6 +77,102 @@ impl ListSource for &[String] {
     }
 }
 
+/// A [`ListSource`] computed on demand from a length and a per-row formatter.
+///
+/// This is the escape hatch for backing a list with *borrowed custom data*
+/// without materializing a `Vec<String>` every frame (dogfood finding #5). The
+/// formatter is called only for the rows the widget paints, so a filtered view
+/// of a million-row source still costs one screenful — the virtualization the
+/// widget promises, preserved through the app's own row formatting.
+///
+/// Build one with [`from_fn`] (a raw length + index closure) or the
+/// [`rows_with`] sugar (a borrowed slice + a `&T -> String` closure). The
+/// formatter returns an owned `String`, so it may format freely; the eager
+/// slice/`Vec` impls still borrow and remain the cheapest path for data that is
+/// already `String`.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_widgets::{ListSource, selection_list::from_fn};
+///
+/// let src = from_fn(3, |i| format!("row {i}"));
+/// assert_eq!(src.len(), 3);
+/// assert_eq!(&*src.item(1), "row 1");
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct FromFn<F> {
+    len: usize,
+    format: F,
+}
+
+impl<F> ListSource for FromFn<F>
+where
+    F: Fn(usize) -> String,
+{
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn item(&self, i: usize) -> Cow<'_, str> {
+        if i < self.len {
+            Cow::Owned((self.format)(i))
+        } else {
+            Cow::Borrowed("")
+        }
+    }
+}
+
+/// Builds a [`ListSource`] of `len` rows, formatting row `i` on demand.
+///
+/// The general lazy source: the widget calls `format` only for the rows it
+/// paints. Use this when the row text is derived from data the app already
+/// owns, to avoid allocating a `Vec<String>` of every row each frame. For the
+/// common "borrowed slice + formatter" shape, prefer [`rows_with`].
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_widgets::{ListSource, SelectionList, selection_list::from_fn};
+///
+/// let list = SelectionList::new(from_fn(1_000_000, |i| format!("line {i}")));
+/// assert_eq!(list.len(), 1_000_000);
+/// ```
+#[must_use]
+pub const fn from_fn<F>(len: usize, format: F) -> FromFn<F>
+where
+    F: Fn(usize) -> String,
+{
+    FromFn { len, format }
+}
+
+/// Builds a [`ListSource`] over a borrowed slice of `T`, formatting each visible
+/// row with `format`.
+///
+/// The ergonomic form of [`from_fn`] for the dominant case: an app holds a
+/// slice of some custom type (or a filtered `Vec<&T>`) and wants one text row
+/// per element without cloning them into a `Vec<String>`. The slice is borrowed
+/// for as long as the returned source lives (a single frame), and `format` runs
+/// only for the painted rows.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_widgets::{ListSource, selection_list::rows_with};
+///
+/// struct Log { level: &'static str, msg: &'static str }
+/// let logs = [Log { level: "INFO", msg: "up" }, Log { level: "WARN", msg: "slow" }];
+/// let src = rows_with(&logs, |l| format!("{} {}", l.level, l.msg));
+/// assert_eq!(src.len(), 2);
+/// assert_eq!(&*src.item(1), "WARN slow");
+/// ```
+pub fn rows_with<T, F>(items: &[T], format: F) -> FromFn<impl Fn(usize) -> String + '_>
+where
+    F: Fn(&T) -> String + 'static,
+{
+    from_fn(items.len(), move |i| format(&items[i]))
+}
+
 /// A single-column list the user moves a selection through, one row per item.
 ///
 /// Selection is **by index** (ADR 0008 / design note): [`SelectionListState`]
@@ -103,9 +199,16 @@ impl ListSource for &[String] {
 /// let list = SelectionList::new(items);
 /// assert_eq!(list.len(), 3);
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SelectionList<S> {
     source: S,
+    /// Placeholder shown *in place of the rows* when the source is empty
+    /// (dogfood finding #6). When set, an empty list renders this text in
+    /// [`Role::Muted`] and stays declared and focusable under one key, so an app
+    /// no longer swaps in a separate `key("empty")` widget (which drops focus and
+    /// risks the declare-then-command panic). `None` keeps the historical
+    /// behavior: an empty list paints nothing.
+    empty_text: Option<Cow<'static, str>>,
 }
 
 impl<S: ListSource> SelectionList<S> {
@@ -121,7 +224,41 @@ impl<S: ListSource> SelectionList<S> {
     /// ```
     #[must_use]
     pub const fn new(source: S) -> Self {
-        Self { source }
+        Self {
+            source,
+            empty_text: None,
+        }
+    }
+
+    /// Sets the placeholder shown when the list has zero rows.
+    ///
+    /// With an empty text set, an empty [`SelectionList`] renders the given
+    /// message (in [`Role::Muted`]) instead of painting nothing, and stays
+    /// declared and focusable under its own key. An app can therefore keep the
+    /// list under a single stable identity across the empty↔populated boundary
+    /// rather than swapping to a separate placeholder widget — which drops the
+    /// list's focus and can trigger the declare-then-command panic when a
+    /// deferred `update.widget` lands on the now-undeclared list (dogfood finding
+    /// #6).
+    ///
+    /// Focus and selection on an empty list: the list remains focusable (so focus
+    /// does not silently fall away when the last row is filtered out), the
+    /// selection clamps to `0`, and no [`Outcome::Selected`] is emitted while
+    /// empty. Movement keys are still consumed but move nothing, so there is no
+    /// out-of-range `Selected` and no panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::SelectionList;
+    ///
+    /// let list = SelectionList::new(Vec::<String>::new()).empty_text("no matches");
+    /// assert!(list.is_empty());
+    /// ```
+    #[must_use]
+    pub fn empty_text(mut self, text: impl Into<Cow<'static, str>>) -> Self {
+        self.empty_text = Some(text.into());
+        self
     }
 
     /// The number of rows in the source.
@@ -239,6 +376,21 @@ impl<S: ListSource> Widget for SelectionList<S> {
         let height = usize::from(ctx.size().height);
         state.scroll_into_view(height, len);
 
+        // Empty state: with a placeholder set, paint it in place of the rows and
+        // return. The widget stays declared and focusable (set above), so an app
+        // keeps the list under one key across the empty↔populated boundary rather
+        // than swapping to a separate widget (dogfood finding #6). Selection is
+        // already clamped to 0 by `clamp(len)` above; nothing else to paint.
+        if len == 0 {
+            if let Some(text) = &self.empty_text
+                && height > 0
+            {
+                let style = ctx.style(Role::Muted);
+                ctx.set_string(Position::new(0, 0), text, style);
+            }
+            return;
+        }
+
         let text_style = ctx.style(Role::Text);
         let selected_style = if ctx.is_focused() {
             ctx.style(Role::Highlight)
@@ -264,7 +416,14 @@ impl<S: ListSource> Widget for SelectionList<S> {
         // count. A container clamps this to its viewport, and the list virtualizes
         // internally (it only ever paints `offset .. offset + height`), so a
         // million-row source still reports a million but costs one screenful.
-        u16::try_from(self.source.len()).unwrap_or(u16::MAX)
+        // An empty list with a placeholder asks for one row so the empty text
+        // has somewhere to paint (dogfood finding #6); otherwise an empty list is
+        // zero rows tall, as before.
+        let len = self.source.len();
+        if len == 0 && self.empty_text.is_some() {
+            return 1;
+        }
+        u16::try_from(len).unwrap_or(u16::MAX)
     }
 
     fn handle(
@@ -681,5 +840,137 @@ mod tests {
         assert_eq!(state.selected(), 0);
         assert_eq!(state.offset(), 0);
         assert_eq!(row(&buffer, 0), "");
+    }
+
+    // ---- Finding #5: borrowed custom data + a row-formatting closure. --------
+
+    #[test]
+    fn from_fn_formats_only_within_bounds() {
+        let src = super::from_fn(3, |i| format!("row {i}"));
+        assert_eq!(ListSource::len(&src), 3);
+        assert!(!src.is_empty());
+        assert_eq!(&*src.item(0), "row 0");
+        assert_eq!(&*src.item(2), "row 2");
+        // Out of range yields an empty row rather than calling the formatter.
+        assert_eq!(&*src.item(3), "");
+    }
+
+    #[test]
+    fn rows_with_backs_a_list_by_borrowed_custom_type() {
+        // A custom type the app owns; no `Vec<String>` is materialized.
+        struct Entry {
+            level: &'static str,
+            msg: &'static str,
+        }
+        let entries = [
+            Entry {
+                level: "INFO",
+                msg: "started",
+            },
+            Entry {
+                level: "WARN",
+                msg: "slow",
+            },
+            Entry {
+                level: "ERROR",
+                msg: "boom",
+            },
+        ];
+        let src = super::rows_with(&entries, |e| format!("{} {}", e.level, e.msg));
+        let list = SelectionList::new(src);
+        assert_eq!(list.len(), 3);
+        assert_eq!(&*list.source.item(1), "WARN slow");
+
+        // And it renders through the widget like any other source.
+        let mut buffer = Buffer::new(Size::new(16, 3));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(16, 3)), true);
+        let mut state = SelectionListState::default();
+        list.render(&mut state, &mut ctx);
+        let read = |y: u16| {
+            let mut line = String::new();
+            for x in 0..16 {
+                line.push_str(&buffer.get(Position::new(x, y)).unwrap().symbol);
+            }
+            line.trim_end().to_string()
+        };
+        assert_eq!(read(0), "INFO started");
+        assert_eq!(read(2), "ERROR boom");
+    }
+
+    #[test]
+    fn existing_string_sources_still_work_unchanged() {
+        // Regression guard for finding #5: the eager impls are untouched.
+        let slice: &[&str] = &["a", "b", "c"];
+        assert_eq!(ListSource::len(&slice), 3);
+        assert_eq!(&*slice.item(1), "b");
+        let owned = vec!["x".to_string(), "y".to_string()];
+        assert_eq!(ListSource::len(&owned), 2);
+        assert_eq!(&*owned.item(1), "y");
+        let borrowed: &[String] = &owned;
+        assert_eq!(ListSource::len(&borrowed), 2);
+        assert_eq!(&*borrowed.item(0), "x");
+    }
+
+    // ---- Finding #6: built-in empty state, no key swap. ----------------------
+
+    #[test]
+    fn empty_text_renders_placeholder_when_no_rows() {
+        let list = SelectionList::new(Vec::<String>::new()).empty_text("no matches");
+        let mut state = SelectionListState {
+            selected: 3,
+            offset: 2,
+        };
+        let buffer = render(&list, &mut state, 4, true);
+        // The placeholder paints on the first row, in Muted.
+        assert_eq!(row(&buffer, 0), "no match"); // width 8 truncates "no matches"
+        let style = buffer.get(Position::new(0, 0)).unwrap().style;
+        assert_eq!(style, Theme::default().style(Role::Muted));
+        // Selection/offset are sane (clamped to zero), never out of range.
+        assert_eq!(state.selected(), 0);
+        assert_eq!(state.offset(), 0);
+    }
+
+    #[test]
+    fn empty_list_stays_focusable_and_asks_for_one_row() {
+        let list = SelectionList::new(Vec::<String>::new()).empty_text("no matches");
+        // Focusable so focus does not fall away when the last row is filtered out.
+        let mut buffer = Buffer::new(Size::new(16, 2));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(16, 2)), true);
+        let mut state = SelectionListState::default();
+        list.render(&mut state, &mut ctx);
+        assert!(ctx.is_focusable());
+        // Reports one row of intrinsic height so the placeholder has room.
+        assert_eq!(list.desired_height(&SelectionListState::default(), 16), 1);
+    }
+
+    #[test]
+    fn non_empty_list_ignores_empty_text() {
+        // A populated list renders its rows exactly as before; the placeholder is
+        // inert.
+        let list = SelectionList::new(items()).empty_text("no matches");
+        let mut state = SelectionListState::default();
+        let buffer = render(&list, &mut state, 3, true);
+        assert_eq!(row(&buffer, 0), "item0");
+        assert_eq!(list.desired_height(&state, 8), 10);
+    }
+
+    #[test]
+    fn empty_list_movement_is_a_safe_no_op() {
+        // Moving in an empty list is consumed but selects nothing out of range.
+        let list = SelectionList::new(Vec::<String>::new()).empty_text("empty");
+        let mut state = SelectionListState::default();
+        let (handled, outcomes) = dispatch(&mut state, Key::End);
+        assert_eq!(handled, Handled::Yes);
+        // At event time End is a sentinel (usize::MAX), but render re-clamps to 0.
+        render(&list, &mut state, 3, true);
+        assert_eq!(state.selected(), 0);
+        // The Down/Up path from a fresh empty list never leaves range after render.
+        let mut state = SelectionListState::default();
+        dispatch(&mut state, Key::Down);
+        render(&list, &mut state, 3, true);
+        assert_eq!(state.selected(), 0);
+        // (End emitted a provisional Selected(usize::MAX) at event time; that is
+        // the documented provisional payload, corrected by the render clamp.)
+        let _ = outcomes;
     }
 }

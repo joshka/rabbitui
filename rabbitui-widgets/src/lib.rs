@@ -88,6 +88,6 @@ pub use help_overlay::HelpOverlay;
 #[cfg(feature = "tracing")]
 pub use log_overlay::LogOverlay;
 pub use panel::Panel;
-pub use selection_list::{ListSource, SelectionList};
+pub use selection_list::{from_fn, rows_with, FromFn, ListSource, SelectionList};
 pub use text::{Content, Text};
 pub use text_input::TextInput;
