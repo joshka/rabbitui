@@ -22,9 +22,10 @@ rabbit — a terminal chat/agent client (rabbitui flagship)
 USAGE:
     rabbit [OPTIONS]
 
-By default rabbit talks to the Anthropic API (set ANTHROPIC_API_KEY, or run
-`ant auth login` then `eval \"$(ant auth print-credentials --env)\"`). Without
-credentials it falls back to an offline demo.
+By default rabbit talks to the Anthropic API. Export ANTHROPIC_API_KEY or
+ANTHROPIC_AUTH_TOKEN (they must be exported, not just set), or run `ant auth login`
+then `set -a; eval \"$(ant auth print-credentials --env)\"; set +a`. Without
+credentials it falls back to an offline demo. ANTHROPIC_BASE_URL is honored.
 
 OPTIONS:
     --model <ID>      Model id to request (default: claude-opus-4-8)

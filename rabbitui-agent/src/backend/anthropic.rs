@@ -8,9 +8,11 @@
 //! Auth resolves from the environment: `ANTHROPIC_API_KEY` (sent as `x-api-key`),
 //! or `ANTHROPIC_AUTH_TOKEN` (an OAuth bearer, sent as `Authorization: Bearer` with
 //! the `oauth-2025-04-20` beta header). Set the latter with
-//! `eval "$(ant auth print-credentials --env)"` after `ant auth login`. The base
-//! URL honors `ANTHROPIC_BASE_URL` (default `https://api.anthropic.com`), so a
-//! gateway or proxy just works.
+//! `set -a; eval "$(ant auth print-credentials --env)"; set +a` after
+//! `ant auth login` — the `set -a` matters: `print-credentials --env` emits bare
+//! `KEY=value` with no `export`, so a plain `eval` sets but does not export it,
+//! and the process would not see it. The base URL honors `ANTHROPIC_BASE_URL`
+//! (default `https://api.anthropic.com`), so a gateway or proxy just works.
 
 use futures_util::StreamExt as _;
 use serde_json::json;
@@ -88,8 +90,9 @@ impl AnthropicBackend {
     /// or if the HTTP client cannot be built.
     pub fn from_env() -> Result<Self, String> {
         let auth = Auth::from_env().ok_or_else(|| {
-            "no Anthropic credentials found — set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN, or run \
-             `ant auth login` then `eval \"$(ant auth print-credentials --env)\"`"
+            "no Anthropic credentials found — export ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN \
+             (they must be exported, not just set), or run `ant auth login` then \
+             `set -a; eval \"$(ant auth print-credentials --env)\"; set +a`"
                 .to_string()
         })?;
         let base = std::env::var("ANTHROPIC_BASE_URL")
