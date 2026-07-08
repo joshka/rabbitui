@@ -116,3 +116,39 @@ bounded-timeout flush (kitty-protocol negotiation later subsumes most of it,
 since enhanced mode disambiguates ESC positively). Until then rabbitui's
 examples document Ctrl-C as the reliable quit and keep their Esc bindings
 ready.
+
+## Prioritized asks after the M4 vocabulary freeze (2026-07-07)
+
+Re-baselined against `substrate-status.md`'s Phase-4 churn map. Several earlier P0/P1
+asks are now **delivered** and dropped from the queue: panic-safe `RestoreHandle`
+(P0-7), the socketpair `FakeDevice` seam (P1-15), typed `MouseEvent` decode (P1-9),
+resize events, OSC/DCS input preservation, and — the big one — the
+`Event`/`KeyEvent`/mouse vocabulary is now **frozen** (ADR 0019, M4-S4). rabbitui has
+adopted the typed `Event::Mouse` bridge against the freeze; the KeyEvent/TextPayload
+migration is next on our side.
+
+Remaining open asks, ranked by how much each unblocks rabbitui:
+
+1. **lone-ESC timing policy** — still the top UX blocker. Detail in the "P0
+   (UX-blocking): lone-ESC timing policy" section above; unchanged, and now our #1. It
+   forces the ctrl-chord workaround across the keymap layer, overlays, and the flagship.
+2. **Key decode coverage: Home/End, PageUp/PageDown, Delete, Shift-Tab** — field
+   finding #3 ("key vocabulary ceiling"), now high priority: these core keys never
+   fire, so ScrollView paging, TextInput Home/End, and Shift-Tab focus traversal are
+   dead. **Additive under the freeze** (`#[non_exhaustive]`), so low-risk on qwertty's
+   side. We adopt them in the same KeyEvent-migration pass as #1.
+3. **macOS `/dev/tty` EINVAL** — see the "P0 bug (macOS)" section above. We carry a
+   `ttyname` → `open_path` backstop purely for this; a root-cause fix (or documenting
+   `open_path` as required on macOS) lets us drop it.
+4. **Suspend/resume/$EDITOR handoff (M6)** — P1-14, design exists, not built. Wanted
+   for Ctrl-Z / `$EDITOR` since the flagship is a coding-agent chrome; fine to stay on
+   the M6 schedule behind the above.
+
+**Coordination note (process, not a bug).** When qwertty advanced `work/default` to
+the frozen M4 mouse events, it silently broke rabbitui's _runtime_ mouse: our bridge
+still matched the retired `Event::Syntax(Csi)` path, so every click and wheel event
+dropped, and the failing bridge tests read as "expected drift" — hiding a live
+regression until a user reported it. A decode-shape change is breaking for the consumer
+even when it is additive at the type level, because the consumer's match arms silently
+stop matching. Ask: at a vocabulary-adjacent seal, add a one-line "consumers: re-check
+event dispatch" to `substrate-status.md` so the downstream re-checks in lockstep.
