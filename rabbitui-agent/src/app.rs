@@ -686,12 +686,32 @@ fn flush_commits(app: &mut Agent, update: &Update<'_, Msg>) {
     if !app.inline {
         return;
     }
-    while app.committed < app.cells.len() {
+    let end = committable_end(&app.cells, app.committed);
+    while app.committed < end {
         for line in commit_lines_for(&app.cells[app.committed]) {
             update.commit(line);
         }
         app.committed += 1;
     }
+}
+
+/// The exclusive end index up to which cells from `committed` may be committed to
+/// native scrollback now: every cell until (not including) the first Tool cell
+/// that has not settled. The inline engine commits each cell once and cannot
+/// rewrite it, so a Pending/Running Tool cell — and everything after it — must
+/// wait, or its in-progress glyph would freeze in scrollback instead of showing
+/// the eventual result.
+fn committable_end(cells: &[TranscriptCell], committed: usize) -> usize {
+    let mut end = committed;
+    while end < cells.len() {
+        if let TranscriptCell::Tool { status, .. } = &cells[end]
+            && !status.is_terminal()
+        {
+            break;
+        }
+        end += 1;
+    }
+    end
 }
 
 /// Appends any new history messages to the session file (best effort).
@@ -991,5 +1011,47 @@ impl Stream for SpinnerTicker {
             Poll::Ready(_) => Poll::Ready(Some(Msg::Tick)),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transcript::ToolStatus;
+
+    fn tool(status: ToolStatus) -> TranscriptCell {
+        TranscriptCell::Tool {
+            name: "read_file".to_string(),
+            summary: "read_file(x)".to_string(),
+            output: String::new(),
+            status,
+        }
+    }
+
+    #[test]
+    fn committable_end_holds_at_a_non_terminal_tool_cell() {
+        let cells = vec![
+            TranscriptCell::User("hi".to_string()),
+            TranscriptCell::Assistant("reading".to_string()),
+            tool(ToolStatus::Pending),
+            TranscriptCell::Assistant("done".to_string()),
+        ];
+        // The user + assistant prose commit; the Pending tool cell (and the reply
+        // after it) are held.
+        assert_eq!(committable_end(&cells, 0), 2);
+    }
+
+    #[test]
+    fn committable_end_releases_once_the_tool_settles() {
+        let cells = vec![
+            TranscriptCell::User("hi".to_string()),
+            tool(ToolStatus::Ok),
+            TranscriptCell::Assistant("done".to_string()),
+        ];
+        // A settled tool cell no longer blocks: everything is committable.
+        assert_eq!(committable_end(&cells, 0), 3);
+        // A Running cell still blocks.
+        let running = vec![tool(ToolStatus::Running)];
+        assert_eq!(committable_end(&running, 0), 0);
     }
 }

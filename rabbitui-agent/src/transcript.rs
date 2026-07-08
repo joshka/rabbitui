@@ -30,6 +30,20 @@ pub enum ToolStatus {
     Failed,
 }
 
+impl ToolStatus {
+    /// Whether this is a settled, final status (`Ok`/`Failed`) rather than one
+    /// still in motion (`Pending`/`Running`).
+    ///
+    /// The inline engine commits each cell to native scrollback exactly once and
+    /// cannot rewrite it, so a Tool cell must not be committed until it is
+    /// terminal — otherwise its `Pending` glyph freezes there and never shows the
+    /// result. See `flush_commits` in `app.rs`.
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        matches!(self, ToolStatus::Ok | ToolStatus::Failed)
+    }
+}
+
 /// One cell of the transcript.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranscriptCell {
