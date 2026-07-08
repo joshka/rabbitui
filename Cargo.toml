@@ -41,6 +41,10 @@ serde = { version = "1", default-features = false, features = ["std", "derive"] 
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # Agent client: markdown → styled spans (app-land, as in the slice-8 example).
 pulldown-cmark = { version = "0.12", default-features = false }
+# Agent client (slice 2): the Anthropic wire. rustls-tls avoids an OpenSSL system
+# dependency; `stream` gives the SSE byte stream; `json` builds the request body.
+# default-features = false drops the default native-tls/cookies/etc. stack.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 rustix = { version = "1", default-features = false, features = ["std", "termios"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"

@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rabbitui_agent::app::{self, Agent};
 use rabbitui_agent::backend::Backend;
+use rabbitui_agent::backend::anthropic::AnthropicBackend;
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::demo::DemoBackend;
 use rabbitui_agent::session::Session;
@@ -21,11 +22,16 @@ rabbit — a terminal chat/agent client (rabbitui flagship)
 USAGE:
     rabbit [OPTIONS]
 
+By default rabbit talks to the Anthropic API (set ANTHROPIC_API_KEY, or run
+`ant auth login` then `eval \"$(ant auth print-credentials --env)\"`). Without
+credentials it falls back to an offline demo.
+
 OPTIONS:
     --model <ID>      Model id to request (default: claude-opus-4-8)
     --continue        Resume the most recent session
     --resume <FILE>   Resume a specific session file
-    --replay <FILE>   Use a JSONL replay fixture instead of the demo backend
+    --replay <FILE>   Play a JSONL replay fixture instead of calling the API
+    --demo            Use the built-in offline demo backend
     -h, --help        Print this help
 ";
 
@@ -51,9 +57,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(message) => return Err(message.into()),
     };
 
-    let backend: Box<dyn Backend> = match &args.replay {
-        Some(path) => Box::new(ReplayBackend::from_path(path)?),
-        None => Box::new(DemoBackend::default()),
+    let backend: Box<dyn Backend> = if let Some(path) = &args.replay {
+        Box::new(ReplayBackend::from_path(path)?)
+    } else if args.demo {
+        Box::new(DemoBackend::default())
+    } else {
+        match AnthropicBackend::from_env() {
+            Ok(backend) => Box::new(backend),
+            Err(message) => {
+                eprintln!("rabbit: {message}");
+                eprintln!("rabbit: using the offline demo backend (pass --demo to silence this).");
+                Box::new(DemoBackend::default())
+            }
+        }
     };
 
     let app = build_app(&args, backend)?;
@@ -93,8 +109,10 @@ struct Args {
     resume: Option<PathBuf>,
     /// Whether to resume the most recent session.
     continue_latest: bool,
-    /// A JSONL replay fixture to use instead of the demo backend.
+    /// A JSONL replay fixture to play instead of calling the API.
     replay: Option<PathBuf>,
+    /// Whether to force the offline demo backend.
+    demo: bool,
 }
 
 impl Args {
@@ -104,6 +122,7 @@ impl Args {
         let mut resume = None;
         let mut continue_latest = false;
         let mut replay = None;
+        let mut demo = false;
         let mut args = args;
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -111,6 +130,7 @@ impl Args {
                 "--resume" => resume = Some(value(&mut args, "--resume")?.into()),
                 "--continue" => continue_latest = true,
                 "--replay" => replay = Some(value(&mut args, "--replay")?.into()),
+                "--demo" => demo = true,
                 "-h" | "--help" => return Ok(None),
                 other => return Err(format!("unknown argument: {other}")),
             }
@@ -120,6 +140,7 @@ impl Args {
             resume,
             continue_latest,
             replay,
+            demo,
         }))
     }
 }

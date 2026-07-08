@@ -1,0 +1,203 @@
+//! The real Anthropic Messages backend.
+//!
+//! Turns a [`ChatRequest`] into a streaming POST to `/v1/messages`, feeds the
+//! response bytes through the [`SseDecoder`](super::sse::SseDecoder), and forwards
+//! the decoded [`StreamEvent`]s. The wire shape does not leak past this module —
+//! the app sees only `StreamEvent`s, exactly as it does from the replay backend.
+//!
+//! Auth resolves from the environment: `ANTHROPIC_API_KEY` (sent as `x-api-key`),
+//! or `ANTHROPIC_AUTH_TOKEN` (an OAuth bearer, sent as `Authorization: Bearer` with
+//! the `oauth-2025-04-20` beta header). Set the latter with
+//! `eval "$(ant auth print-credentials --env)"` after `ant auth login`.
+
+use futures_util::StreamExt as _;
+use serde_json::json;
+use tokio::sync::mpsc;
+
+use super::sse::SseDecoder;
+use super::{Backend, BackendError, ChatRequest, EventStream, StreamEvent};
+
+/// The Messages endpoint.
+const API_URL: &str = "https://api.anthropic.com/v1/messages";
+/// The API version header value.
+const API_VERSION: &str = "2023-06-01";
+/// The per-response output cap; streaming keeps the request from timing out at
+/// this size.
+const MAX_TOKENS: u32 = 64_000;
+/// The system prompt.
+const SYSTEM_PROMPT: &str =
+    "You are a helpful assistant running inside a terminal chat client. Keep replies focused.";
+
+/// Credentials resolved from the environment.
+#[derive(Debug, Clone)]
+enum Auth {
+    /// An `sk-ant-...` key, sent as `x-api-key`.
+    ApiKey(String),
+    /// An OAuth bearer token, sent as `Authorization: Bearer` with the OAuth beta.
+    Bearer(String),
+}
+
+impl Auth {
+    /// Resolves credentials, preferring an explicit API key over an OAuth token.
+    fn from_env() -> Option<Self> {
+        if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+            if !key.is_empty() {
+                return Some(Auth::ApiKey(key));
+            }
+        }
+        if let Ok(token) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
+            if !token.is_empty() {
+                return Some(Auth::Bearer(token));
+            }
+        }
+        None
+    }
+
+    /// Adds the auth headers to `builder`.
+    fn apply(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match self {
+            Auth::ApiKey(key) => builder.header("x-api-key", key),
+            Auth::Bearer(token) => builder
+                .header("authorization", format!("Bearer {token}"))
+                .header("anthropic-beta", "oauth-2025-04-20"),
+        }
+    }
+}
+
+/// A backend that talks to the Anthropic Messages API.
+#[derive(Debug, Clone)]
+pub struct AnthropicBackend {
+    /// The shared HTTP client.
+    client: reqwest::Client,
+    /// The resolved credentials.
+    auth: Auth,
+}
+
+impl AnthropicBackend {
+    /// Builds a backend, resolving credentials from the environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message describing how to authenticate if no credentials are set,
+    /// or if the HTTP client cannot be built.
+    pub fn from_env() -> Result<Self, String> {
+        let auth = Auth::from_env().ok_or_else(|| {
+            "no Anthropic credentials found — set ANTHROPIC_API_KEY, or run `ant auth login` \
+             then `eval \"$(ant auth print-credentials --env)\"`"
+                .to_string()
+        })?;
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(|error| format!("could not build HTTP client: {error}"))?;
+        Ok(Self { client, auth })
+    }
+}
+
+impl Backend for AnthropicBackend {
+    fn send(&mut self, request: ChatRequest) -> EventStream {
+        // A task drives the request and decodes the SSE; the returned stream drains
+        // the channel it feeds. An unbounded channel keeps `send` non-blocking.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let client = self.client.clone();
+        let auth = self.auth.clone();
+        tokio::spawn(async move {
+            run_request(&client, &auth, request, &tx).await;
+        });
+        Box::pin(futures_util::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|event| (event, rx))
+        }))
+    }
+}
+
+/// Drives one request: POST, check status, stream + decode, forward events.
+async fn run_request(
+    client: &reqwest::Client,
+    auth: &Auth,
+    request: ChatRequest,
+    tx: &mpsc::UnboundedSender<Result<StreamEvent, BackendError>>,
+) {
+    let body = json!({
+        "model": request.model,
+        "max_tokens": MAX_TOKENS,
+        "stream": true,
+        "system": SYSTEM_PROMPT,
+        "thinking": { "type": "adaptive", "display": "summarized" },
+        "messages": request.messages,
+    });
+
+    let builder = client
+        .post(API_URL)
+        .header("content-type", "application/json")
+        .header("anthropic-version", API_VERSION);
+    let builder = auth.apply(builder).json(&body);
+
+    let response = match builder.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            let _ = tx.send(Err(BackendError::Transport(error.to_string())));
+            return;
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let raw = response.text().await.unwrap_or_default();
+        let _ = tx.send(Err(BackendError::Api {
+            status: status.as_u16(),
+            message: error_message(&raw),
+        }));
+        return;
+    }
+
+    let mut bytes = response.bytes_stream();
+    let mut decoder = SseDecoder::new();
+    // Accumulate raw bytes so a multi-byte character split across chunks is decoded
+    // whole: feed only the valid UTF-8 prefix, keep the incomplete tail.
+    let mut carry: Vec<u8> = Vec::new();
+    while let Some(chunk) = bytes.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                let _ = tx.send(Err(BackendError::Transport(error.to_string())));
+                return;
+            }
+        };
+        carry.extend_from_slice(&chunk);
+        let valid = match std::str::from_utf8(&carry) {
+            Ok(text) => text.len(),
+            Err(error) => error.valid_up_to(),
+        };
+        if valid == 0 {
+            continue;
+        }
+        let text: String = String::from_utf8_lossy(&carry[..valid]).into_owned();
+        carry.drain(..valid);
+        let mut events = Vec::new();
+        decoder.push(&text, &mut events);
+        for event in events {
+            if tx.send(event).is_err() {
+                return; // the app dropped the stream (e.g. cancelled the turn).
+            }
+        }
+    }
+}
+
+/// Extracts a human-readable message from an API error body, falling back to the
+/// raw text.
+fn error_message(raw: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            if raw.is_empty() {
+                "request failed".to_string()
+            } else {
+                raw.to_string()
+            }
+        })
+}

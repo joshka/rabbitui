@@ -22,7 +22,9 @@ Date: 2026-07-06 · **Progress tracker** (updated as each slice commits):
 | 9     | Bridge, docs pass, 0.1                 | ✅ done — 0.1 gated on qwertty publish + ADR 0014 |
 
 Arc 3 flagship progress: slice 1 (extraction, replay backend, persistence) ✅ done
-(`docs/design/arc3-slice1-agent-extraction.md`); slice 2 (Anthropic wire) 🔨 SSE decoder landing.
+(`docs/design/arc3-slice1-agent-extraction.md`); slice 2 (Anthropic wire) 🔨 SSE decoder + HTTP
+client landed and the `rabbit` binary defaults to the real API — pending one live smoke test (needs
+a key) + recording real fixtures.
 
 ## Arc 2 — make the product match the architecture (adjudicated 2026-07-07, expanded same day)
 

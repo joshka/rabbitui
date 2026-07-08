@@ -15,6 +15,7 @@ use std::pin::Pin;
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 
+pub mod anthropic;
 pub mod replay;
 pub mod sse;
 
