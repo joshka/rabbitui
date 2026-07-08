@@ -766,6 +766,7 @@ pub fn view(app: &Agent, frame: &mut Frame<'_>) {
 /// Allow / Deny buttons. Focus is moved into it via the declare-then-focus
 /// handshake in `update`.
 fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
+    use rabbitui_core::geometry::{Position, Size};
     use rabbitui_core::layout::{center, split_columns, split_rows};
 
     let calls = app
@@ -774,11 +775,28 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
         .map(|awaiting| awaiting.calls.as_slice())
         .unwrap_or_default();
 
-    // Panel chrome (border + padding = 4 rows) wraps: prompt (1) + calls
-    // (`listed`) + gap (1) + button row (1).
-    let listed = calls.len().min(6) as u16;
-    let height = 4 + (1 + listed + 1 + 1);
-    let area = center(frame.area(), 60, height.min(frame.area().size.height));
+    // Fit the modal inside the frame, which in inline mode is only the bounded
+    // tail (TAIL_HEIGHT rows). Everything derives from the live area, so a resize
+    // just recomputes — and the prompt and button rows are always reserved, so
+    // many calls (or a short terminal) never clip the y/n away; the call list
+    // truncates with an "…and N more" line instead.
+    let avail = frame.area();
+    let width = avail.size.width.saturating_sub(4).clamp(24, 60);
+    // Panel chrome (border + padding) eats 4 rows; prompt + buttons eat 2.
+    // Whatever remains is the call list, at least one row.
+    let chrome = 4u16;
+    let reserved = chrome + 2;
+    let call_capacity = avail.size.height.saturating_sub(reserved).max(1);
+    let call_rows = (calls.len() as u16).clamp(1, call_capacity);
+    let truncated = calls.len() as u16 > call_rows;
+    // When truncated, the last visible row is the "…and N more" summary.
+    let individual = if truncated {
+        call_rows.saturating_sub(1) as usize
+    } else {
+        call_rows as usize
+    };
+    let height = (reserved + call_rows).min(avail.size.height);
+    let area = center(avail, width, height);
 
     frame.layer(key("modal"), |modal| {
         let panel = Panel::new()
@@ -788,12 +806,9 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
         modal.widget(key("bg"), area, &panel);
         let inner = Panel::inner(area, &panel);
 
-        // Fixed skeleton: prompt, a calls block (one row per listed call), a
-        // gap, then the button row.
-        let [prompt_row, calls_block, _gap, button_row] = split_rows(inner, [
+        let [prompt_row, calls_block, button_row] = split_rows(inner, [
             Constraint::Length(1),
-            Constraint::Length(listed.max(1)),
-            Constraint::Length(1),
+            Constraint::Length(call_rows),
             Constraint::Length(1),
         ]);
 
@@ -802,27 +817,34 @@ fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
             prompt_row,
             &Text::new("The agent wants to run:").role(Role::Warning),
         );
-        for (offset, call) in calls.iter().take(6).enumerate() {
+        let call_row = |offset: u16| {
+            Rect::new(
+                Position::new(calls_block.origin.x, calls_block.origin.y + offset),
+                Size::new(calls_block.size.width, 1),
+            )
+        };
+        for (offset, call) in calls.iter().take(individual).enumerate() {
             let input =
                 serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
             let summary = crate::tools::summarize(&call.name, &input);
-            let row = Rect::new(
-                rabbitui_core::geometry::Position::new(
-                    calls_block.origin.x,
-                    calls_block.origin.y + offset as u16,
-                ),
-                rabbitui_core::geometry::Size::new(calls_block.size.width, 1),
-            );
             modal.widget(
                 key("call").index(offset),
-                row,
+                call_row(offset as u16),
                 &Text::new(format!("  • {summary}")).role(Role::Accent),
+            );
+        }
+        if truncated {
+            let more = calls.len() - individual;
+            modal.widget(
+                key("more"),
+                call_row(individual as u16),
+                &Text::new(format!("  …and {more} more")).role(Role::Muted),
             );
         }
         let [allow_col, deny_col] =
             split_columns(button_row, [Constraint::Fill(1), Constraint::Fill(1)]);
-        modal.widget(key("allow"), allow_col, &Button::new("[ Allow (y) ]"));
-        modal.widget(key("deny"), deny_col, &Button::new("[ Deny (n) ]"));
+        modal.widget(key("allow"), allow_col, &Button::new("Allow (y)").filled(true));
+        modal.widget(key("deny"), deny_col, &Button::new("Deny (n)").filled(true));
     });
 }
 
