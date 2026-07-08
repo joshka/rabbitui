@@ -163,6 +163,11 @@ impl SseDecoder {
                     text: string_field(delta, "thinking"),
                 }));
             }
+            Some("signature_delta") => {
+                out.push(Ok(StreamEvent::ThinkingSignatureDelta {
+                    signature: string_field(delta, "signature"),
+                }));
+            }
             Some("input_json_delta") => {
                 if let Some(id) = index_of(value).and_then(|index| self.tool_blocks.get(&index)) {
                     out.push(Ok(StreamEvent::ToolUseInputDelta {

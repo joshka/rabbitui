@@ -32,8 +32,8 @@ impl Backend for DemoBackend {
             .iter()
             .rev()
             .find(|message| message.role == Role::User)
-            .map_or("your request", |message| message.content.trim());
-        stream_turn(demo_turn(topic), Some(self.delay))
+            .map_or_else(|| "your request".to_string(), |message| message.text());
+        stream_turn(demo_turn(topic.trim()), Some(self.delay))
     }
 }
 

@@ -16,12 +16,17 @@ use rabbitui_core::text::Span;
 
 use crate::markdown::markdown_to_commit_lines;
 
-/// The status a finished tool call reports (drives its summary's color).
+/// The status a tool call reports as it moves through the confirm/run cycle
+/// (drives its summary's color and header).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolStatus {
+    /// Awaiting the user's allow/deny decision.
+    Pending,
+    /// Allowed and executing.
+    Running,
     /// The tool succeeded.
     Ok,
-    /// The tool failed (or was cancelled).
+    /// The tool failed (or was denied/cancelled).
     Failed,
 }
 
@@ -50,15 +55,34 @@ pub enum TranscriptCell {
     Error(String),
 }
 
-/// The in-flight assistant turn: accumulating prose, thinking, and a running tool.
+/// The in-flight assistant turn: accumulating prose, thinking, and any streamed
+/// tool-use blocks.
 #[derive(Debug, Default, Clone)]
 pub struct Streaming {
     /// The markdown prose accumulated from `TextDelta`s so far.
     pub source: String,
     /// The summarized thinking accumulated from `ThinkingDelta`s so far.
     pub thinking: String,
+    /// The thinking block's signature, from a `signature_delta` — replayed
+    /// verbatim on the continuation after a tool-use turn.
+    pub thinking_signature: String,
     /// The name of a tool whose call has started but not finished, if any.
     pub running_tool: Option<String>,
+    /// The tool-use blocks accumulated this turn, in wire order. Each opens on a
+    /// `ToolUseStart`, accretes JSON on `ToolUseInputDelta`, and finalizes on
+    /// `ToolUseStop`.
+    pub tool_uses: Vec<PendingToolUse>,
+}
+
+/// A tool-use block being (or already) accumulated from the stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingToolUse {
+    /// The tool-call id, echoed back on the matching `tool_result`.
+    pub id: String,
+    /// The tool's name.
+    pub name: String,
+    /// The streamed JSON input, accumulated as raw text then parsed on stop.
+    pub input_json: String,
 }
 
 /// The committed scrollback lines for one transcript cell.
@@ -82,11 +106,16 @@ pub fn commit_lines_for(cell: &TranscriptCell) -> Vec<CommitLine> {
         TranscriptCell::Tool {
             summary, status, ..
         } => {
-            let style = match status {
-                ToolStatus::Ok => Style::new().fg(Color::GREEN),
-                ToolStatus::Failed => Style::new().fg(Color::RED),
+            let (glyph, style) = match status {
+                ToolStatus::Pending => ("… ", Style::new().fg(Color::Ansi(8))),
+                ToolStatus::Running => ("▸ ", Style::new().fg(Color::CYAN)),
+                ToolStatus::Ok => ("✓ ", Style::new().fg(Color::GREEN)),
+                ToolStatus::Failed => ("✗ ", Style::new().fg(Color::RED)),
             };
-            vec![CommitLine::from_spans([Span::styled(summary.clone(), style)])]
+            vec![CommitLine::from_spans([Span::styled(
+                format!("{glyph}{summary}"),
+                style,
+            )])]
         }
         TranscriptCell::Error(message) => vec![CommitLine::from_spans([Span::styled(
             format!("⚠ {message}"),

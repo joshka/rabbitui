@@ -1,0 +1,10 @@
+{"type":"thinking_delta","text":"I should read the file to answer."}
+{"type":"thinking_signature_delta","signature":"sig-abc123"}
+{"type":"text_delta","text":"Let me read that file.\n"}
+{"type":"tool_use_start","id":"toolu_01","name":"read_file"}
+{"type":"tool_use_input_delta","id":"toolu_01","json":"{\"path\":"}
+{"type":"tool_use_input_delta","id":"toolu_01","json":"\"hello.txt\"}"}
+{"type":"tool_use_stop","id":"toolu_01"}
+{"type":"message_done","stop_reason":"tool_use","usage":{"input_tokens":20,"output_tokens":8}}
+{"type":"text_delta","text":"The file says: hi there."}
+{"type":"message_done","stop_reason":"end_turn","usage":{"input_tokens":40,"output_tokens":6}}

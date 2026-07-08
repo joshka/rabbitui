@@ -30,11 +30,15 @@ use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_widgets::{Collapsible, Panel, Text, TextInput};
+use rabbitui_widgets::{Button, Collapsible, Panel, Text, TextInput};
 
-use crate::backend::{Backend, ChatMessage, ChatRequest, Role as ApiRole, StreamEvent};
+use crate::backend::{
+    Backend, ChatMessage, ChatRequest, ContentBlock, Role as ApiRole, StopReason, StreamEvent,
+};
 use crate::session::Session;
-use crate::transcript::{Streaming, TranscriptCell, commit_lines_for};
+use crate::transcript::{
+    PendingToolUse, Streaming, ToolStatus, TranscriptCell, commit_lines_for,
+};
 
 /// The bounded live-tail height in inline mode, in rows.
 pub const TAIL_HEIGHT: u16 = 8;
@@ -48,6 +52,23 @@ const SPINNER_GROUP: &str = "spinner";
 const SPINNER: [&str; 4] = ["⠋", "⠙", "⠹", "⠸"];
 /// The one-line help under the composer.
 const HINT: &str = "Enter: send  Ctrl-X: cancel  Ctrl-T: mode  Ctrl-C: quit";
+/// The cap on tool-continuation round-trips per user turn, so a model that
+/// keeps calling tools cannot loop forever.
+const MAX_CONTINUATIONS: usize = 5;
+
+/// The pending tool calls awaiting the user's allow/deny decision, held while
+/// the confirmation modal is up.
+#[derive(Debug, Clone)]
+pub struct Awaiting {
+    /// The tool calls to run (or deny), in order — one Tool cell each.
+    pub calls: Vec<PendingToolUse>,
+    /// The `cells` index of each call's Tool cell, parallel to `calls`, so
+    /// execution can flip them Pending → Running → Done/Error.
+    pub cell_indices: Vec<usize>,
+    /// How many continuation round-trips this turn has already made, so the loop
+    /// is capped at [`MAX_CONTINUATIONS`].
+    pub continuations: usize,
+}
 
 /// The whole app's owned state.
 pub struct Agent {
@@ -75,6 +96,13 @@ pub struct Agent {
     pub backend: Box<dyn Backend>,
     /// The session persistence handle, if persistence is enabled.
     pub session: Option<Session>,
+    /// The pending tool calls awaiting the confirmation modal's decision, if the
+    /// turn stopped on `tool_use`.
+    pub awaiting: Option<Awaiting>,
+    /// Whether a focus request into the modal is still owed (set when the modal
+    /// opens, cleared once honored — the declare-then-focus handshake, per
+    /// `examples/form.rs`).
+    pub focus_modal: bool,
 }
 
 impl Agent {
@@ -94,6 +122,8 @@ impl Agent {
             model: model.into(),
             backend,
             session: None,
+            awaiting: None,
+            focus_modal: false,
         }
     }
 
@@ -101,11 +131,20 @@ impl Agent {
     #[must_use]
     pub fn with_session(mut self, session: Session, resumed: Vec<ChatMessage>) -> Self {
         for message in resumed {
+            // Render a resumed message as its text; tool_use / tool_result /
+            // thinking blocks carry no user-visible prose here (they replay into
+            // the request from `history`, not the transcript).
+            let text = message.text();
             let cell = match message.role {
-                ApiRole::User => TranscriptCell::User(message.content.clone()),
-                ApiRole::Assistant => TranscriptCell::Assistant(message.content.clone()),
+                ApiRole::User if !text.trim().is_empty() => Some(TranscriptCell::User(text)),
+                ApiRole::Assistant if !text.trim().is_empty() => {
+                    Some(TranscriptCell::Assistant(text))
+                }
+                _ => None,
             };
-            self.cells.push(cell);
+            if let Some(cell) = cell {
+                self.cells.push(cell);
+            }
             self.history.push(message);
         }
         // Resumed history is already on disk; do not re-append it.
@@ -120,6 +159,15 @@ impl Agent {
     pub fn is_streaming(&self) -> bool {
         self.streaming.is_some()
     }
+
+    /// Whether the confirmation modal is up with real pending calls (a
+    /// placeholder `Awaiting` carrying only a continuation count is not).
+    #[must_use]
+    pub fn is_confirming(&self) -> bool {
+        self.awaiting
+            .as_ref()
+            .is_some_and(|awaiting| !awaiting.calls.is_empty())
+    }
 }
 
 /// A message an effect delivers to [`update`].
@@ -132,13 +180,16 @@ pub enum Msg {
 }
 
 /// What [`apply_message`] did, so the caller can run the side effects the pure
-/// reducer cannot (stop the spinner, persist).
+/// reducer cannot (stop the spinner, persist, open the modal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reaction {
     /// Streaming continues (or nothing happened).
     None,
-    /// The turn finished.
+    /// The turn finished normally (end/max/refusal): stop the spinner, persist.
     TurnComplete,
+    /// The turn stopped on `tool_use`: `app.awaiting` now holds the pending
+    /// calls; the caller opens the confirmation modal (spinner stops too).
+    AwaitConfirmation,
 }
 
 // ---------------------------------------------------------------------------
@@ -177,36 +228,269 @@ fn apply_event(app: &mut Agent, event: StreamEvent) -> Reaction {
             }
             Reaction::None
         }
-        // Tool execution is slice 4; slice 1 only reflects a running tool in the
-        // status line and otherwise ignores tool events.
-        StreamEvent::ToolUseStart { name, .. } => {
+        StreamEvent::ThinkingSignatureDelta { signature } => {
             if let Some(streaming) = app.streaming.as_mut() {
-                streaming.running_tool = Some(name);
+                streaming.thinking_signature.push_str(&signature);
             }
             Reaction::None
         }
-        StreamEvent::ToolUseInputDelta { .. } | StreamEvent::ToolUseStop { .. } => Reaction::None,
-        // Slice 1 treats every stop reason as end-of-turn; the tool-continuation
-        // loop for `tool_use` arrives in slice 4.
-        StreamEvent::MessageDone { .. } => {
-            finish_turn(app);
-            Reaction::TurnComplete
+        // A tool-use block opens: record it and show its name in the status line.
+        StreamEvent::ToolUseStart { id, name } => {
+            if let Some(streaming) = app.streaming.as_mut() {
+                streaming.running_tool = Some(name.clone());
+                streaming.tool_uses.push(PendingToolUse {
+                    id,
+                    name,
+                    input_json: String::new(),
+                });
+            }
+            Reaction::None
         }
+        // Streamed JSON input accretes onto the matching open block.
+        StreamEvent::ToolUseInputDelta { id, json } => {
+            if let Some(streaming) = app.streaming.as_mut()
+                && let Some(call) = streaming.tool_uses.iter_mut().find(|call| call.id == id)
+            {
+                call.input_json.push_str(&json);
+            }
+            Reaction::None
+        }
+        StreamEvent::ToolUseStop { .. } => Reaction::None,
+        StreamEvent::MessageDone { stop_reason, .. } => finish_turn(app, stop_reason),
     }
 }
 
-/// Commits the streaming turn's thinking and prose as transcript cells, then
-/// appends the assistant prose to history and clears the streaming state.
-fn finish_turn(app: &mut Agent) {
+/// Closes the streaming turn. On a `tool_use` stop, pushes the assistant block
+/// message (thinking + text + tool_use per call), adds Pending Tool cells, and
+/// arms `app.awaiting` for the confirmation modal. On any other stop reason,
+/// commits thinking + prose as cells and appends the assistant text to history.
+fn finish_turn(app: &mut Agent, stop_reason: StopReason) -> Reaction {
     let Some(streaming) = app.streaming.take() else {
-        return;
+        return Reaction::TurnComplete;
     };
+
+    if stop_reason == StopReason::ToolUse && !streaming.tool_uses.is_empty() {
+        return arm_tool_use(app, streaming);
+    }
+
+    // A normal end-of-turn closes the tool loop (if one was running): clear the
+    // continuation-count placeholder left by `continue_with_results`.
+    app.awaiting = None;
+
+    // Normal end-of-turn: commit thinking + prose, extend history with the
+    // assistant text.
     if !streaming.thinking.trim().is_empty() {
         app.cells.push(TranscriptCell::Thinking(streaming.thinking));
     }
     if !streaming.source.trim().is_empty() {
-        app.cells.push(TranscriptCell::Assistant(streaming.source.clone()));
+        app.cells
+            .push(TranscriptCell::Assistant(streaming.source.clone()));
         app.history.push(ChatMessage::assistant(streaming.source));
+    }
+    Reaction::TurnComplete
+}
+
+/// Handles a turn that stopped on `tool_use`: builds the assistant block message
+/// (thinking, text, one `tool_use` per call), pushes it to history, adds a
+/// Pending Tool cell per call, and arms `app.awaiting`. Returns
+/// [`Reaction::AwaitConfirmation`] so the caller opens the modal.
+fn arm_tool_use(app: &mut Agent, streaming: Streaming) -> Reaction {
+    // Assemble the assistant message exactly as it must replay on continuation:
+    // thinking block (with its signature) first, then any prose, then a
+    // tool_use block per call.
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    if !streaming.thinking.trim().is_empty() {
+        blocks.push(ContentBlock::Thinking {
+            thinking: streaming.thinking.clone(),
+            signature: streaming.thinking_signature.clone(),
+        });
+    }
+    if !streaming.source.trim().is_empty() {
+        blocks.push(ContentBlock::Text {
+            text: streaming.source.clone(),
+        });
+    }
+    for call in &streaming.tool_uses {
+        // A finished block's input parses; a malformed one falls back to null so
+        // the request stays well-formed and the tool reports the error.
+        let input = serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
+        blocks.push(ContentBlock::ToolUse {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            input,
+        });
+    }
+
+    // Surface any thinking and prose as cells too (the same way a normal turn
+    // would), so the reasoning that led to the tool call is visible.
+    if !streaming.thinking.trim().is_empty() {
+        app.cells
+            .push(TranscriptCell::Thinking(streaming.thinking.clone()));
+    }
+    if !streaming.source.trim().is_empty() {
+        app.cells
+            .push(TranscriptCell::Assistant(streaming.source.clone()));
+    }
+
+    app.history.push(ChatMessage::assistant_blocks(blocks));
+
+    // One Pending Tool cell per call; remember its index for status updates.
+    let mut cell_indices = Vec::with_capacity(streaming.tool_uses.len());
+    for call in &streaming.tool_uses {
+        let input = serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
+        cell_indices.push(app.cells.len());
+        app.cells.push(TranscriptCell::Tool {
+            name: call.name.clone(),
+            summary: crate::tools::summarize(&call.name, &input),
+            output: String::new(),
+            status: ToolStatus::Pending,
+        });
+    }
+
+    let continuations = app
+        .awaiting
+        .as_ref()
+        .map_or(0, |awaiting| awaiting.continuations);
+    app.awaiting = Some(Awaiting {
+        calls: streaming.tool_uses,
+        cell_indices,
+        continuations,
+    });
+    Reaction::AwaitConfirmation
+}
+
+/// The outcome of one resolved tool call, ready to fold into state.
+#[derive(Debug, Clone)]
+pub struct ToolOutcome {
+    /// The tool-call id this answers.
+    pub id: String,
+    /// The result (or error) text.
+    pub content: String,
+    /// Whether it was an error (execution failure or a denial).
+    pub is_error: bool,
+}
+
+/// Runs every awaiting tool call against `root` (the cwd in production), marking
+/// each Tool cell Running then Done/Error, and returns the outcomes. Denial is
+/// handled by [`deny_pending`] instead; this is the Allow path.
+///
+/// This touches the filesystem, so it is a side effect the update closure runs —
+/// but it takes an explicit `root` so tests can drive it against a temp dir.
+pub fn run_pending(app: &mut Agent, root: &std::path::Path) -> Vec<ToolOutcome> {
+    let Some(awaiting) = app.awaiting.as_ref() else {
+        return Vec::new();
+    };
+    let calls = awaiting.calls.clone();
+    let cell_indices = awaiting.cell_indices.clone();
+    let mut outcomes = Vec::with_capacity(calls.len());
+    for (call, &cell_index) in calls.iter().zip(cell_indices.iter()) {
+        set_tool_status(app, cell_index, ToolStatus::Running, None);
+        let input = serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
+        let (content, is_error) = match crate::tools::execute_in(root, &call.name, &input) {
+            Ok(output) => (output, false),
+            Err(message) => (message, true),
+        };
+        let status = if is_error {
+            ToolStatus::Failed
+        } else {
+            ToolStatus::Ok
+        };
+        set_tool_status(app, cell_index, status, Some(content.clone()));
+        outcomes.push(ToolOutcome {
+            id: call.id.clone(),
+            content,
+            is_error,
+        });
+    }
+    outcomes
+}
+
+/// The Deny path: marks every Tool cell Failed and returns a "user denied"
+/// error outcome per call, so the model still sees a result and can react.
+pub fn deny_pending(app: &mut Agent) -> Vec<ToolOutcome> {
+    let Some(awaiting) = app.awaiting.as_ref() else {
+        return Vec::new();
+    };
+    let calls = awaiting.calls.clone();
+    let cell_indices = awaiting.cell_indices.clone();
+    let mut outcomes = Vec::with_capacity(calls.len());
+    for (call, &cell_index) in calls.iter().zip(cell_indices.iter()) {
+        let message = "user denied this tool call".to_string();
+        set_tool_status(app, cell_index, ToolStatus::Failed, Some(message.clone()));
+        outcomes.push(ToolOutcome {
+            id: call.id.clone(),
+            content: message,
+            is_error: true,
+        });
+    }
+    outcomes
+}
+
+/// Folds resolved tool outcomes into state and returns the continuation request:
+/// pushes one user message of all `tool_result` blocks to history, clears
+/// `awaiting`, opens a fresh streaming turn, and returns the request to re-send
+/// — or `None` once [`MAX_CONTINUATIONS`] is exhausted (the loop is capped).
+pub fn continue_with_results(
+    app: &mut Agent,
+    outcomes: Vec<ToolOutcome>,
+) -> Option<ChatRequest> {
+    let continuations = app
+        .awaiting
+        .as_ref()
+        .map_or(0, |awaiting| awaiting.continuations);
+    app.awaiting = None;
+
+    // Parallel tool_use → all results in a single user message.
+    let blocks = outcomes
+        .into_iter()
+        .map(|outcome| ContentBlock::ToolResult {
+            tool_use_id: outcome.id,
+            content: outcome.content,
+            is_error: outcome.is_error,
+        })
+        .collect();
+    app.history.push(ChatMessage::tool_results(blocks));
+
+    if continuations >= MAX_CONTINUATIONS {
+        // Give up gracefully rather than loop forever.
+        app.cells.push(TranscriptCell::Error(format!(
+            "tool-continuation cap ({MAX_CONTINUATIONS}) reached; stopping."
+        )));
+        return None;
+    }
+
+    app.streaming = Some(Streaming::default());
+    // Carry the incremented continuation count on a placeholder `Awaiting` so
+    // that if the *next* turn also stops on tool_use, `arm_tool_use` reads it
+    // and keeps counting. A turn that ends normally clears it in `finish_turn`.
+    app.awaiting = Some(Awaiting {
+        calls: Vec::new(),
+        cell_indices: Vec::new(),
+        continuations: continuations + 1,
+    });
+    Some(ChatRequest {
+        model: app.model.clone(),
+        messages: app.history.clone(),
+    })
+}
+
+/// Sets a Tool cell's status (and optionally its output), by cell index.
+fn set_tool_status(
+    app: &mut Agent,
+    index: usize,
+    status: ToolStatus,
+    output: Option<String>,
+) {
+    if let Some(TranscriptCell::Tool {
+        status: cell_status,
+        output: cell_output,
+        ..
+    }) = app.cells.get_mut(index)
+    {
+        *cell_status = status;
+        if let Some(text) = output {
+            *cell_output = text;
+        }
     }
 }
 
@@ -245,10 +529,38 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
 
     // Absorb effect messages (stream events, spinner ticks).
     if let Event::Message(message) = update.event() {
-        let reaction = apply_message(app, message.clone());
-        if reaction == Reaction::TurnComplete {
-            stop_spinner(app, &update);
+        match apply_message(app, message.clone()) {
+            Reaction::TurnComplete => stop_spinner(app, &update),
+            Reaction::AwaitConfirmation => {
+                // The turn stopped on tool_use: stop the spinner and open the
+                // modal, requesting focus into it (the form.rs handshake).
+                stop_spinner(app, &update);
+                app.focus_modal = true;
+            }
+            Reaction::None => {}
         }
+    }
+
+    // Confirmation modal routing (when up): Allow/Deny buttons, plus y/n and Esc.
+    if app.is_confirming() {
+        handle_modal(app, &update);
+        // Honor the one-shot focus request into the modal.
+        if app.focus_modal {
+            update.focus(&[key("modal"), key("allow")]);
+            app.focus_modal = false;
+        }
+        // While the modal is up, keys belong to it — skip base app bindings,
+        // except the always-available quit chords below.
+        if let Event::Input(input) = update.event()
+            && let Some(press) = input.as_key()
+            && ((press.key == Key::Char('c') && press.modifiers.ctrl)
+                || (press.key == Key::Char('q') && !update.consumed()))
+        {
+            return ControlFlow::Break(());
+        }
+        flush_commits(app, &update);
+        persist_history(app);
+        return ControlFlow::Continue(());
     }
 
     // App-level key bindings on keys no focused widget consumed.
@@ -304,10 +616,60 @@ fn submit(app: &mut Agent, update: &Update<'_, Msg>) {
     }
 }
 
+/// Routes the confirmation modal: Allow (button / Enter / 'y') runs the tools;
+/// Deny (button / Esc / 'n') denies them. Both build the tool_result message and
+/// re-send the grown history, looping the turn.
+fn handle_modal(app: &mut Agent, update: &Update<'_, Msg>) {
+    let allow_button =
+        update.outcome_for(&[key("modal"), key("allow")]) == Some(&Outcome::Activated);
+    let deny_button =
+        update.outcome_for(&[key("modal"), key("deny")]) == Some(&Outcome::Activated);
+
+    // Key affordances on keys the buttons didn't consume: y allows, n / Esc deny.
+    let (mut key_allow, mut key_deny) = (false, false);
+    if let Event::Input(input) = update.event()
+        && let Some(press) = input.as_key()
+    {
+        match press.key {
+            Key::Char('y') if !press.modifiers.ctrl => key_allow = true,
+            Key::Char('n') if !press.modifiers.ctrl => key_deny = true,
+            Key::Escape => key_deny = true,
+            _ => {}
+        }
+    }
+
+    if allow_button || key_allow {
+        let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let outcomes = run_pending(app, &root);
+        resend(app, update, outcomes);
+    } else if deny_button || key_deny {
+        let outcomes = deny_pending(app);
+        resend(app, update, outcomes);
+    }
+}
+
+/// Folds the resolved tool outcomes into history and re-sends the grown
+/// conversation, re-arming the spinner — the continuation round-trip.
+fn resend(app: &mut Agent, update: &Update<'_, Msg>, outcomes: Vec<ToolOutcome>) {
+    let Some(request) = continue_with_results(app, outcomes) else {
+        // The cap was hit: `continue_with_results` recorded the notice and left
+        // no streaming turn open.
+        stop_spinner(app, update);
+        return;
+    };
+    let stream = app.backend.send(request);
+    update.spawn(Cmd::stream(stream.map(Msg::Event)).group(AGENT_GROUP));
+    if !app.ticking {
+        app.ticking = true;
+        update.spawn(Cmd::stream(SpinnerTicker::new()).group(SPINNER_GROUP));
+    }
+}
+
 /// Aborts the running turn, discarding any partial prose, and stops the spinner.
 fn cancel(app: &mut Agent, update: &Update<'_, Msg>) {
     update.spawn(Cmd::<Msg>::cancel_group(AGENT_GROUP));
     app.streaming = None;
+    app.awaiting = None;
     stop_spinner(app, update);
 }
 
@@ -341,7 +703,10 @@ fn persist_history(app: &mut Agent) {
     let session = app.session.as_mut().expect("session present");
     for message in &new {
         if message.role == ApiRole::User {
-            session.set_title_if_empty(title_from(&message.content));
+            let text = message.text();
+            if !text.trim().is_empty() {
+                session.set_title_if_empty(title_from(&text));
+            }
         }
         if let Err(error) = session.append(message) {
             eprintln!("rabbit: could not persist to session file: {error}");
@@ -364,13 +729,81 @@ fn title_from(prompt: &str) -> String {
 // View
 // ---------------------------------------------------------------------------
 
-/// Declares the frame for the active mode.
+/// Declares the frame for the active mode, plus the confirmation modal over it.
 pub fn view(app: &Agent, frame: &mut Frame<'_>) {
     if app.inline {
         view_inline(app, frame);
     } else {
         view_alt(app, frame);
     }
+    if app.is_confirming() {
+        view_modal(app, frame);
+    }
+}
+
+/// The confirmation modal, on a z-layer over the transcript (the `form.rs`
+/// pattern): a centered focused panel listing the pending tool call(s) with
+/// Allow / Deny buttons. Focus is moved into it via the declare-then-focus
+/// handshake in `update`.
+fn view_modal(app: &Agent, frame: &mut Frame<'_>) {
+    use rabbitui_core::layout::{center, split_columns, split_rows};
+
+    let calls = app
+        .awaiting
+        .as_ref()
+        .map(|awaiting| awaiting.calls.as_slice())
+        .unwrap_or_default();
+
+    // Panel chrome (border + padding = 4 rows) wraps: prompt (1) + calls
+    // (`listed`) + gap (1) + button row (1).
+    let listed = calls.len().min(6) as u16;
+    let height = 4 + (1 + listed + 1 + 1);
+    let area = center(frame.area(), 60, height.min(frame.area().size.height));
+
+    frame.layer(key("modal"), |modal| {
+        let panel = Panel::new()
+            .title("confirm tool use")
+            .padding(1)
+            .focused(true);
+        modal.widget(key("bg"), area, &panel);
+        let inner = Panel::inner(area, &panel);
+
+        // Fixed skeleton: prompt, a calls block (one row per listed call), a
+        // gap, then the button row.
+        let [prompt_row, calls_block, _gap, button_row] = split_rows(inner, [
+            Constraint::Length(1),
+            Constraint::Length(listed.max(1)),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ]);
+
+        modal.widget(
+            key("prompt"),
+            prompt_row,
+            &Text::new("The agent wants to run:").role(Role::Warning),
+        );
+        for (offset, call) in calls.iter().take(6).enumerate() {
+            let input =
+                serde_json::from_str(&call.input_json).unwrap_or(serde_json::Value::Null);
+            let summary = crate::tools::summarize(&call.name, &input);
+            let row = Rect::new(
+                rabbitui_core::geometry::Position::new(
+                    calls_block.origin.x,
+                    calls_block.origin.y + offset as u16,
+                ),
+                rabbitui_core::geometry::Size::new(calls_block.size.width, 1),
+            );
+            modal.widget(
+                key("call").index(offset),
+                row,
+                &Text::new(format!("  • {summary}")).role(Role::Accent),
+            );
+        }
+        let [allow_col, deny_col] =
+            split_columns(button_row, [Constraint::Fill(1), Constraint::Fill(1)]);
+        modal.widget(key("allow"), allow_col, &Button::new("[ Allow (y) ]"));
+        modal.widget(key("deny"), deny_col, &Button::new("[ Deny (n) ]"));
+    });
 }
 
 /// The inline live tail: a streaming preview, status, composer, and hint.
@@ -492,7 +925,9 @@ fn render_footer(
 /// The status line: mode, agent state, and a spinner while streaming.
 fn status_line(app: &Agent) -> String {
     let mode = if app.inline { "inline" } else { "alt-screen" };
-    if app.is_streaming() {
+    if app.is_confirming() {
+        format!("[{mode}]  awaiting tool confirmation · y/n")
+    } else if app.is_streaming() {
         let spinner = SPINNER[app.spinner];
         let tool = app
             .streaming
@@ -505,9 +940,12 @@ fn status_line(app: &Agent) -> String {
     }
 }
 
-/// The status line's role: accent while streaming, success when idle.
+/// The status line's role: warning while confirming, accent while streaming,
+/// success when idle.
 fn status_role(app: &Agent) -> Role {
-    if app.is_streaming() {
+    if app.is_confirming() {
+        Role::Warning
+    } else if app.is_streaming() {
         Role::Accent
     } else {
         Role::Success

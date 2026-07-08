@@ -16,4 +16,5 @@ pub mod backend;
 pub mod demo;
 pub mod markdown;
 pub mod session;
+pub mod tools;
 pub mod transcript;

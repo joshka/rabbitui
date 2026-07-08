@@ -136,12 +136,24 @@ async fn run_request(
     request: ChatRequest,
     tx: &mpsc::UnboundedSender<Result<StreamEvent, BackendError>>,
 ) {
+    // The `tools` array (slice 4) is declared here; the app runs the tool loop
+    // above the backend and re-sends the grown history each continuation.
+    //
+    // CRITICAL CAVEAT (offline session): the live continuation request's
+    // acceptance — especially thinking-block replay (the API requires the
+    // `Thinking{thinking, signature}` block returned unmodified on the turn
+    // after a `tool_use` stop) — can only be verified against the real endpoint,
+    // which is unreachable here. The SHAPE is fully offline-tested (wire
+    // serialization round-trips + a replay-fixture reducer/modal/executor flow);
+    // the live tool-continuation smoke test is PENDING a real key. See
+    // `docs/design/arc3-slice4-tools.md`.
     let body = json!({
         "model": request.model,
         "max_tokens": MAX_TOKENS,
         "stream": true,
         "system": SYSTEM_PROMPT,
         "thinking": { "type": "adaptive", "display": "summarized" },
+        "tools": crate::tools::declarations(),
         "messages": request.messages,
     });
 

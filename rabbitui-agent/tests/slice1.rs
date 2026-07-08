@@ -100,9 +100,9 @@ fn history_accumulates_user_then_assistant() {
     let history = &app.state().history;
     assert_eq!(history.len(), 2, "one user + one assistant message");
     assert_eq!(history[0].role, Role::User);
-    assert_eq!(history[0].content, "count to three");
+    assert_eq!(history[0].text(), "count to three");
     assert_eq!(history[1].role, Role::Assistant);
-    assert!(history[1].content.contains("Hello"));
+    assert!(history[1].text().contains("Hello"));
 }
 
 #[test]

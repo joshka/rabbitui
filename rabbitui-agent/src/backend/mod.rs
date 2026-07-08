@@ -44,34 +44,121 @@ pub struct ChatRequest {
 
 /// One message in the conversation history.
 ///
-/// Slice 1 carries text-only content; slices 2 and 4 grow this into content
-/// blocks (thinking, tool_use, tool_result) as the wire requires.
+/// `content` is a list of typed content blocks, serialized to match the
+/// Anthropic wire exactly (`content` as an array of `{"type": ..., ...}`
+/// objects). This same serialization *is* the session-persistence JSONL, so the
+/// on-disk format and the request body share one shape. `user`/`assistant`
+/// still produce a single [`ContentBlock::Text`] so existing call sites and
+/// equality-by-constructor tests keep working (slice 4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatMessage {
     /// Who authored the message.
     pub role: Role,
-    /// The message text.
-    pub content: String,
+    /// The message's content blocks, in wire order.
+    pub content: Vec<ContentBlock>,
 }
 
 impl ChatMessage {
-    /// A user message.
+    /// A user message with a single text block.
     #[must_use]
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: Role::User,
-            content: content.into(),
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
 
-    /// An assistant message.
+    /// An assistant message with a single text block.
     #[must_use]
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
-            content: content.into(),
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
+
+    /// An assistant message carrying arbitrary content blocks (thinking, text,
+    /// tool_use) — the shape a `tool_use` turn replays as.
+    #[must_use]
+    pub fn assistant_blocks(content: Vec<ContentBlock>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content,
+        }
+    }
+
+    /// A user-role message of `tool_result` blocks — the single message that
+    /// carries all results for a turn's (possibly parallel) tool calls.
+    #[must_use]
+    pub fn tool_results(content: Vec<ContentBlock>) -> Self {
+        Self {
+            role: Role::User,
+            content,
+        }
+    }
+
+    /// The message's text: the concatenation of its [`ContentBlock::Text`]
+    /// blocks (used for titles, the transcript, and the demo backend). Non-text
+    /// blocks contribute nothing.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// One content block of a [`ChatMessage`], serialized to the Anthropic wire.
+///
+/// The `#[serde(tag = "type")]` discriminant plus `rename_all = "snake_case"`
+/// yields exactly the wire's `{"type": "text" | "thinking" | "tool_use" |
+/// "tool_result", ...}` object shapes. A `thinking` block carries its opaque
+/// `signature`, which must be replayed **verbatim** on the continuation request
+/// after a tool-use turn (the API rejects modified thinking blocks) — see the
+/// tool-continuation loop in `app.rs`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    /// Prose (assistant output or a user prompt).
+    Text {
+        /// The block's text.
+        text: String,
+    },
+    /// A summarized-thinking block; `signature` is replayed verbatim.
+    Thinking {
+        /// The thinking text.
+        thinking: String,
+        /// The opaque signature the API returns and requires back unchanged.
+        #[serde(default)]
+        signature: String,
+    },
+    /// The model's request to run a tool.
+    ToolUse {
+        /// The tool-call id, echoed on the matching `tool_result`.
+        id: String,
+        /// The tool's name.
+        name: String,
+        /// The tool's JSON input.
+        input: serde_json::Value,
+    },
+    /// The result of running a tool, returned in a user message.
+    ToolResult {
+        /// The `id` of the `tool_use` this answers.
+        tool_use_id: String,
+        /// The result (or error) text.
+        content: String,
+        /// Whether the tool call failed (or was denied).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        is_error: bool,
+    },
 }
 
 /// The author of a [`ChatMessage`].
@@ -100,6 +187,13 @@ pub enum StreamEvent {
     ThinkingDelta {
         /// The appended thinking text.
         text: String,
+    },
+    /// The signature that closes a thinking block. The wire sends this as a
+    /// `signature_delta` right before the block stops; it must be replayed
+    /// verbatim on the continuation request after a tool-use turn.
+    ThinkingSignatureDelta {
+        /// The (opaque) signature text.
+        signature: String,
     },
     /// The model requested a tool call; `id` correlates the eventual result.
     ToolUseStart {
@@ -201,4 +295,130 @@ pub trait Backend {
     /// `Err(BackendError)` items rather than a failed return, so a mid-turn
     /// failure lands in the transcript in order with the prose before it.
     fn send(&mut self, request: ChatRequest) -> EventStream;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    /// Round-trips a message through JSON and asserts it matches an exact wire
+    /// value, then that it deserializes back unchanged.
+    fn assert_wire(message: &ChatMessage, expected: Value) {
+        let serialized = serde_json::to_value(message).expect("serializes");
+        assert_eq!(serialized, expected, "wire JSON must match exactly");
+        let back: ChatMessage = serde_json::from_value(serialized).expect("round-trips");
+        assert_eq!(&back, message, "deserializes back to the same message");
+    }
+
+    #[test]
+    fn text_block_matches_the_wire() {
+        assert_wire(
+            &ChatMessage::user("hello"),
+            json!({"role": "user", "content": [{"type": "text", "text": "hello"}]}),
+        );
+    }
+
+    #[test]
+    fn thinking_block_carries_its_signature() {
+        let message = ChatMessage::assistant_blocks(vec![ContentBlock::Thinking {
+            thinking: "let me think".to_string(),
+            signature: "sig-xyz".to_string(),
+        }]);
+        assert_wire(
+            &message,
+            json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "thinking",
+                    "thinking": "let me think",
+                    "signature": "sig-xyz"
+                }]
+            }),
+        );
+    }
+
+    #[test]
+    fn tool_use_block_matches_the_wire() {
+        let message = ChatMessage::assistant_blocks(vec![ContentBlock::ToolUse {
+            id: "toolu_1".to_string(),
+            name: "read_file".to_string(),
+            input: json!({"path": "a.rs"}),
+        }]);
+        assert_wire(
+            &message,
+            json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "read_file",
+                    "input": {"path": "a.rs"}
+                }]
+            }),
+        );
+    }
+
+    #[test]
+    fn tool_result_block_omits_is_error_when_false() {
+        let ok = ChatMessage::tool_results(vec![ContentBlock::ToolResult {
+            tool_use_id: "toolu_1".to_string(),
+            content: "ok".to_string(),
+            is_error: false,
+        }]);
+        // A successful result never serializes `is_error` — matching the wire,
+        // where `is_error` is only sent on failures.
+        assert_wire(
+            &ok,
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "ok"
+                }]
+            }),
+        );
+    }
+
+    #[test]
+    fn tool_result_block_includes_is_error_when_true() {
+        let err = ChatMessage::tool_results(vec![ContentBlock::ToolResult {
+            tool_use_id: "toolu_2".to_string(),
+            content: "user denied this tool call".to_string(),
+            is_error: true,
+        }]);
+        assert_wire(
+            &err,
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_2",
+                    "content": "user denied this tool call",
+                    "is_error": true
+                }]
+            }),
+        );
+    }
+
+    #[test]
+    fn text_concatenates_only_text_blocks() {
+        let message = ChatMessage::assistant_blocks(vec![
+            ContentBlock::Thinking {
+                thinking: "hmm".to_string(),
+                signature: "s".to_string(),
+            },
+            ContentBlock::Text {
+                text: "answer".to_string(),
+            },
+            ContentBlock::ToolUse {
+                id: "t".to_string(),
+                name: "read_file".to_string(),
+                input: Value::Null,
+            },
+        ]);
+        assert_eq!(message.text(), "answer");
+    }
 }
