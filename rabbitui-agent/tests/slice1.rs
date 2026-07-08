@@ -143,6 +143,41 @@ fn on_submit_sends_the_full_history() {
 }
 
 #[test]
+fn mouse_wheel_scrolls_the_transcript_in_browse_mode() {
+    use rabbitui_core::geometry::Position;
+    use rabbitui_core::input::MouseKind;
+
+    // A transcript taller than the viewport, so scrolling has somewhere to go.
+    let mut agent = alt_screen_app();
+    for n in 0..40 {
+        agent.cells.push(TranscriptCell::User(format!("line {n:02}")));
+    }
+    let mut app = TestApp::new(Size::new(48, 24), agent);
+    app.render(app::view);
+
+    let top = app.buffer_text();
+    assert!(top.contains("line 00"), "starts at the top:\n{top}");
+    assert!(
+        !top.contains("line 39"),
+        "the newest line is below the fold before scrolling:\n{top}"
+    );
+
+    // Wheel down over the transcript: positive notches scroll toward newer cells.
+    app.send_mouse(MouseKind::Scroll(30), Position::new(10, 10));
+    app.render(app::view);
+
+    let scrolled = app.buffer_text();
+    assert!(
+        scrolled.contains("line 39"),
+        "wheeling down reveals the newest cells:\n{scrolled}"
+    );
+    assert!(
+        !scrolled.contains("line 00"),
+        "and scrolls the oldest out of view:\n{scrolled}"
+    );
+}
+
+#[test]
 fn empty_submit_is_a_no_op() {
     let mut app = alt_screen_app();
     app.draft = "   ".to_string();

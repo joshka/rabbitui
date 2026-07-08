@@ -30,26 +30,19 @@
 //!   Tab/Enter at the byte level and stay Tab/Enter, as every terminal treats
 //!   them.
 //!
-//! # Mouse: an SGR bridge over preserved CSI (slice 7)
+//! # Mouse: adopting qwertty's typed mouse events (slice 7; M4 adoption)
 //!
-//! qwertty emits no typed mouse events; an SGR mouse report arrives as a
-//! **complete preserved CSI** — `CSI < b ; x ; y M/m` — inside
-//! [`Event::Syntax`](qwertty::Event::Syntax) as a
-//! [`SyntaxToken::Csi`](qwertty::SyntaxToken::Csi)
-//! (`docs/adr/0006-input-focus-events.md` §5, slice-7 design note). This module
-//! interprets that one complete CSI's already-parsed pieces (private marker,
-//! parameters, final byte) into a core [`MouseEvent`] — the same interim posture
-//! as the SGR *encoder*: qwertty owns byte framing, we bridge semantics until it
-//! grows typed mouse events. This does **not** fork qwertty's byte decoder; it
-//! reads the [`ControlSequence`](qwertty::ControlSequence)'s
-//! [`ControlParams`](qwertty::ControlParams). Any CSI that is not a well-formed
-//! SGR mouse report falls through to the "dropped" path.
-//!
-//! The `b` byte packs button + modifiers + motion/wheel flags: the low two bits
-//! select the button (with wheel/no-button escapes), bit `0x04` is Shift, `0x08`
-//! Alt, `0x10` Ctrl, `0x20` a motion (drag), and `0x40` a wheel event. Final byte
-//! `M` is a press/motion, `m` a release. `x`/`y` are 1-based cell columns/rows,
-//! converted to rabbitui's 0-based [`Position`].
+//! qwertty's M4 semantic decoder decodes an SGR (DEC 1006) mouse report
+//! `CSI < b ; x ; y M/m` into a typed [`Event::Mouse`](qwertty::Event::Mouse)
+//! carrying a [`MouseEvent`](qwertty::MouseEvent) — button, modifiers, kind
+//! (press/release/motion/scroll), and 1-based coordinates, already parsed. This
+//! module only remaps that vocabulary into the core [`MouseEvent`]: the kind and
+//! button, the modifier set, and the 1-based coordinates converted to rabbitui's
+//! 0-based [`Position`]. (This seam once parsed the raw preserved CSI itself; that
+//! interim byte-level bridge retired the moment qwertty grew typed mouse events —
+//! the same "decode on top, delete module-by-module" discipline as the keys.) A
+//! report with no core meaning — a horizontal wheel tick — falls through to the
+//! "dropped" path.
 //!
 //! Everything else is **dropped** (mapped to `None`): non-mouse CSI sequences,
 //! undecoded bytes, and control bytes rabbitui has no key for yet.
@@ -62,7 +55,10 @@
 //! discipline). Dropping unmapped input is deliberate: a half-understood escape
 //! sequence must never be mistaken for a binding.
 
-use qwertty::{ControlSequence, Event as QwerttyEvent, Key as QKey, SyntaxToken};
+use qwertty::{
+    Event as QwerttyEvent, Key as QKey, Modifiers as QModifiers, MouseButton as QMouseButton,
+    MouseEvent as QMouseEvent, MouseEventKind as QMouseEventKind, ScrollDirection,
+};
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{
     InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseKind,
@@ -75,9 +71,8 @@ use rabbitui_core::input::{
 /// `InputEvent` with an [`Event`](qwertty::Event) of a typed [`KeyEvent`] or a
 /// lossless [`Syntax`](qwertty::Event::Syntax) passthrough; this seam adapts to it
 /// unchanged in behavior: text and named keys map to core keys, a Ctrl-letter
-/// chord surfaces as the letter with the Ctrl modifier, an SGR mouse report (a
-/// preserved CSI in `Syntax`) bridges to a core [`MouseEvent`], and everything
-/// else is dropped.
+/// chord surfaces as the letter with the Ctrl modifier, a typed mouse event
+/// bridges to a core [`MouseEvent`], and everything else is dropped.
 ///
 /// # Examples
 ///
@@ -93,11 +88,10 @@ use rabbitui_core::input::{
 pub fn from_qwertty(event: &QwerttyEvent) -> Option<InputEvent> {
     match event {
         QwerttyEvent::Key(key_event) => key_from_qwertty(key_event.key()),
-        // A preserved CSI may be an SGR mouse report; bridge those semantics here.
-        // Every other complete/malformed token has no core key.
-        QwerttyEvent::Syntax(SyntaxToken::Csi(csi)) => {
-            mouse_from_csi(csi).map(InputEvent::Mouse)
-        }
+        // qwertty's M4 layer decodes SGR mouse reports into a typed mouse event.
+        QwerttyEvent::Mouse(mouse) => mouse_from_qwertty(mouse).map(InputEvent::Mouse),
+        // Every other event (focus, resize, paste, preserved syntax) has no core
+        // input yet and is dropped.
         _ => None,
     }
 }
@@ -131,91 +125,48 @@ fn key_from_qwertty(key: QKey) -> Option<InputEvent> {
     Some(InputEvent::key(core))
 }
 
-/// Interprets a complete preserved CSI as an SGR mouse report, or `None` if it is
-/// not one.
+/// Bridges qwertty's typed [`MouseEvent`](qwertty::MouseEvent) to a core
+/// [`MouseEvent`], or `None` for a report with no core meaning (a horizontal wheel
+/// tick, or a future `non_exhaustive` variant).
 ///
-/// An SGR mouse report is `CSI < b ; x ; y M/m`: private marker `<`, three
-/// decimal parameters, and final byte `M` (press/motion) or `m` (release). This
-/// reads the [`ControlSequence`]'s already-parsed pieces — it does not re-parse
-/// bytes. Any deviation (wrong marker, wrong final byte, non-decimal or missing
-/// fields) returns `None`, leaving the CSI to the "dropped" path.
-fn mouse_from_csi(csi: &ControlSequence) -> Option<MouseEvent> {
-    let params = csi.params();
-    // The report must carry the `<` private marker and end in `M` or `m`.
-    if params.private_markers() != b"<" {
-        return None;
-    }
-    let release = match params.final_byte() {
-        b'M' => false,
-        b'm' => true,
+/// qwertty already parsed the SGR (DEC 1006) report — button, modifiers, 1-based
+/// coordinates — so this seam only remaps vocabularies: press/release/motion/
+/// scroll to a [`MouseKind`], the button, 1-based coordinates to 0-based buffer
+/// cells, and the modifier set.
+fn mouse_from_qwertty(mouse: &QMouseEvent) -> Option<MouseEvent> {
+    let kind = match mouse.kind() {
+        QMouseEventKind::Press => MouseKind::Down,
+        QMouseEventKind::Release => MouseKind::Up,
+        QMouseEventKind::Moved => MouseKind::Drag,
+        // One notch per report (qwertty never coalesces wheel ticks): up scrolls
+        // content up (negative), down scrolls it down (positive).
+        QMouseEventKind::Scroll(ScrollDirection::Up) => MouseKind::Scroll(-1),
+        QMouseEventKind::Scroll(ScrollDirection::Down) => MouseKind::Scroll(1),
+        // Horizontal wheel/trackpad has no core (vertical-only) scroll meaning yet.
+        QMouseEventKind::Scroll(_) => return None,
+        // qwertty's MouseEventKind is non_exhaustive.
         _ => return None,
     };
-    if !params.intermediates().is_empty() {
-        return None;
-    }
-
-    // Parameter bytes exclude the leading private marker: they are `b;x;y`.
-    let numeric = params.param_bytes();
-    let mut fields = numeric.split(|&byte| byte == b';');
-    let b = parse_u32(fields.next()?)?;
-    let x = parse_u16(fields.next()?)?;
-    let y = parse_u16(fields.next()?)?;
-    if fields.next().is_some() {
-        return None; // more than three fields is not a mouse report.
-    }
-
-    // 1-based protocol coordinates → 0-based cell position (a zero coordinate is
-    // out of the protocol's range but is clamped rather than rejected).
-    let position = Position::new(x.saturating_sub(1), y.saturating_sub(1));
-
+    let button = match mouse.button() {
+        QMouseButton::Left => MouseButton::Left,
+        QMouseButton::Middle => MouseButton::Middle,
+        QMouseButton::Right => MouseButton::Right,
+        // MouseButton::None, a wheel "button", a bare motion, and any future
+        // high button (back/forward) all have no core button.
+        _ => MouseButton::None,
+    };
+    // qwertty reports 1-based protocol coordinates; core uses 0-based buffer cells.
+    let position = Position::new(
+        mouse.column().saturating_sub(1),
+        mouse.row().saturating_sub(1),
+    );
+    let modifiers = mouse.modifiers();
     let modifiers = Modifiers {
-        shift: b & 0x04 != 0,
-        alt: b & 0x08 != 0,
-        ctrl: b & 0x10 != 0,
+        ctrl: modifiers.contains(QModifiers::CTRL),
+        alt: modifiers.contains(QModifiers::ALT),
+        shift: modifiers.contains(QModifiers::SHIFT),
     };
-    let wheel = b & 0x40 != 0;
-    let motion = b & 0x20 != 0;
-    let low = b & 0x03;
-
-    let (kind, button) = if wheel {
-        // Wheel: low bit 0 = up (scroll content up), 1 = down.
-        let lines = if low == 0 { -1 } else { 1 };
-        (MouseKind::Scroll(lines), MouseButton::None)
-    } else {
-        let button = match low {
-            0 => MouseButton::Left,
-            1 => MouseButton::Middle,
-            2 => MouseButton::Right,
-            _ => MouseButton::None,
-        };
-        let kind = if release {
-            MouseKind::Up
-        } else if motion {
-            MouseKind::Drag
-        } else {
-            MouseKind::Down
-        };
-        (kind, button)
-    };
-
-    Some(MouseEvent {
-        kind,
-        button,
-        position,
-        modifiers,
-    })
-}
-
-/// Parses an ASCII decimal byte slice as a `u32`, or `None` if empty or
-/// non-decimal.
-fn parse_u32(bytes: &[u8]) -> Option<u32> {
-    std::str::from_utf8(bytes).ok()?.parse().ok()
-}
-
-/// Parses an ASCII decimal byte slice as a `u16`, or `None` if empty or
-/// non-decimal.
-fn parse_u16(bytes: &[u8]) -> Option<u16> {
-    std::str::from_utf8(bytes).ok()?.parse().ok()
+    Some(MouseEvent::new(kind, button, position).with_modifiers(modifiers))
 }
 
 #[cfg(test)]
