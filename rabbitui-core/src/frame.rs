@@ -247,11 +247,16 @@ impl<'a> Frame<'a> {
         let bounds = Rect::from_size(self.buffer.size());
         let clipped = area.intersection(bounds);
 
-        let (focusable, visibility) = {
+        let (focusable, visibility, role, label) = {
             let state = self.store.get_or_default::<W::State>(id);
             let mut ctx = RenderCtx::new_themed(self.buffer, area, focused, self.theme);
             widget.render(state, &mut ctx);
-            (ctx.is_focusable(), ctx.requested_visibility())
+            (
+                ctx.is_focusable(),
+                ctx.requested_visibility(),
+                ctx.declared_role(),
+                ctx.declared_label().map(str::to_owned),
+            )
         };
 
         self.facts.push(FactEntry {
@@ -260,7 +265,13 @@ impl<'a> Frame<'a> {
             area: clipped,
             focusable,
             layer: self.layer,
+            role,
         });
+        #[cfg(feature = "devtools")]
+        self.facts.record_name(id, key.name());
+        if let Some(label) = label {
+            self.facts.record_label(id, label);
+        }
         if let Some(area) = visibility {
             self.facts.push_visibility(VisibilityRequest { id, area });
         }
@@ -341,7 +352,11 @@ impl<'a> Frame<'a> {
     /// The visibility requests recorded after index `since`, in order — the
     /// requests a container's children added during its scope.
     pub(crate) fn visibility_since(&self, since: usize) -> Vec<VisibilityRequest> {
-        self.facts.visibility_requests().skip(since).copied().collect()
+        self.facts
+            .visibility_requests()
+            .skip(since)
+            .copied()
+            .collect()
     }
 
     /// Records a widget fact for a container's own scope id (focusable, at `area`),
@@ -356,6 +371,7 @@ impl<'a> Frame<'a> {
             area: area.intersection(bounds),
             focusable: true,
             layer: self.layer,
+            role: crate::a11y::SemanticRole::None,
         });
         self.handlers.insert(id, handler_thunk::<W>());
     }
@@ -425,6 +441,8 @@ impl<'a> Frame<'a> {
     /// with the scope id as their parent, preserving the routing path.
     pub fn scoped(&mut self, key: Key, scope: impl FnOnce(&mut Frame<'_>)) {
         let scope_id = self.parent.child(key);
+        #[cfg(feature = "devtools")]
+        self.facts.record_name(scope_id, key.name());
         self.with_child_scope(scope_id, 0, scope);
     }
 
@@ -470,6 +488,8 @@ impl<'a> Frame<'a> {
     /// ```
     pub fn layer(&mut self, key: Key, scope: impl FnOnce(&mut Frame<'_>)) {
         let scope_id = self.parent.child(key);
+        #[cfg(feature = "devtools")]
+        self.facts.record_name(scope_id, key.name());
         // A layer delta of 1 puts the scope's widgets one layer above the base;
         // the base frame's own layer is unchanged, so widgets declared after this
         // call stay on the base.

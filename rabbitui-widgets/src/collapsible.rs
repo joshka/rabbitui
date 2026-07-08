@@ -1,5 +1,6 @@
 //! A collapsible cell: a header that toggles a body open or closed.
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
@@ -197,6 +198,9 @@ impl Widget for Collapsible<'_> {
 
     fn render(&self, state: &mut CollapsibleState, ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
+        // A11y groundwork (ADR arc4 §5): a disclosure header, labelled by its title.
+        ctx.semantic_role(SemanticRole::Disclosure);
+        ctx.label(self.header);
         state.apply_default(self.default_collapsed);
 
         let header_style = if ctx.is_focused() {
@@ -428,7 +432,10 @@ mod tests {
         assert_eq!(tool.desired_height(&CollapsibleState::default(), 40), 1);
         // An assistant cell defaults expanded.
         let assistant = Collapsible::new("h", "a\nb\nc");
-        assert_eq!(assistant.desired_height(&CollapsibleState::default(), 40), 4);
+        assert_eq!(
+            assistant.desired_height(&CollapsibleState::default(), 40),
+            4
+        );
     }
 
     #[test]

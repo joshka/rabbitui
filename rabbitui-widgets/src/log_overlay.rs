@@ -55,6 +55,7 @@
 //! # store.end_frame();
 //! ```
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::log::{Level, LogHandle, LogRecord};
 use rabbitui_core::style::Style;
@@ -131,6 +132,8 @@ impl Widget for LogOverlay<'_> {
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
         // A passive readout: never a focus target.
         ctx.focusable(false);
+        // A11y groundwork (ADR arc4 §5): a read-only log readout.
+        ctx.semantic_role(SemanticRole::Log);
 
         let size = ctx.size();
         if size.width == 0 || size.height == 0 {
@@ -288,9 +291,15 @@ mod tests {
         let handle = LogHandle::new();
         let theme = Theme::default();
         let mut buffer = Buffer::new(Size::new(20, 3));
-        let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(20, 3)), false, &theme);
-        LogOverlay::new(&handle).title("debug").render(&mut (), &mut ctx);
+        let mut ctx = RenderCtx::new_themed(
+            &mut buffer,
+            Rect::from_size(Size::new(20, 3)),
+            false,
+            &theme,
+        );
+        LogOverlay::new(&handle)
+            .title("debug")
+            .render(&mut (), &mut ctx);
         assert!(row(&buffer, 0).starts_with("┌ debug"));
     }
 

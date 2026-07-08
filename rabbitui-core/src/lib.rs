@@ -15,6 +15,7 @@
 //! assert!(style.attrs.contains(rabbitui_core::style::Attrs::BOLD));
 //! ```
 
+pub mod a11y;
 pub mod buffer;
 pub mod commit;
 pub mod facts;

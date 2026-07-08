@@ -17,8 +17,13 @@ unicode-width.workspace = true
 # feature (on by default there). The widget itself pulls in no new dependency —
 # it reads the *core* `LogHandle`, keeping `tracing` out of this crate (ADR 0011).
 # On by default so the default catalog includes the overlay.
-default = ["tracing"]
+default = ["tracing", "devtools"]
 tracing = []
+# Gates the `FactsInspector` overlay (ADR arc4 §7). Turns on
+# `rabbitui-core/devtools` so the `id → name` side table and `dump_lines` the
+# inspector renders exist. On by default, matching the facade's `devtools`; a
+# release catalog drops it (and the name capture) with `--no-default-features`.
+devtools = ["rabbitui-core/devtools"]
 
 [dev-dependencies]
 rabbitui-testing.workspace = true

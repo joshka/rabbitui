@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# Disable bench auto-discovery: the iai-callgrind target `benches/frame_iai.rs`
+# (Arc 4 item 4) must NOT be auto-compiled — it needs valgrind (Linux-only) and its
+# dependency is not vendored offline. With auto-discovery off, only the explicit
+# `[[bench]]` entries below build; the iai target is enabled by the `perf-budgets`
+# CI job, which uncomments its `[[bench]]` entry on an ubuntu runner.
+autobenches = false
 
 [dependencies]
 rabbitui-core.workspace = true
@@ -30,13 +36,34 @@ tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
 pulldown-cmark = { version = "0.12", default-features = false }
 # Benchmark harness (Arc 2B): the full declared-frame benches live here.
 criterion = { workspace = true }
+# Instruction-count budgets for CI (Arc 4 item 4). iai-callgrind drives valgrind,
+# which does NOT run on macOS and is not vendored here — so this dev-dependency and
+# the `frame_iai` bench below are left COMMENTED OUT to keep the workspace compiling
+# offline. Uncomment BOTH on a valgrind host (the `perf-budgets` CI job, ubuntu) to
+# enable the instruction-count target `benches/frame_iai.rs`. See that file's header
+# and `.github/workflows/perf-budgets.yml`.
+# iai-callgrind = "0.14"
 
 [[bench]]
 name = "frame"
 harness = false
 
+# The instruction-count budget target (Arc 4 item 4). UNVERIFIED LOCALLY — needs the
+# Linux CI runner (valgrind). Uncomment together with the `iai-callgrind`
+# dev-dependency above on a valgrind host.
+# [[bench]]
+# name = "frame_iai"
+# harness = false
+
 [features]
-default = ["themes", "tracing"]
+default = ["themes", "tracing", "devtools"]
+# Devtools name capture and inspector plumbing (ADR arc4 §6/§7): turns on
+# `rabbitui-core/devtools`, so `Key` retains its source name and the frame builds
+# the `id → name` side table the `FactsInspector` renders. In `default` so a plain
+# dev `cargo build`/`cargo test` (and the examples) get human paths for free. Ship
+# a release binary FNV-only with `--no-default-features` (re-adding `themes`/
+# `tracing` as wanted): the capture then compiles out to the zero-cost `Key(u64)`.
+devtools = ["rabbitui-core/devtools"]
 # TOML theme-file loading and debug-build hot reload. On by default; disabling it
 # drops the `toml` dependency and the `theme` module (ADR 0007: file loading lives
 # in the facade, core stays dep-free).

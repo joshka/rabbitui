@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::style::Style;
 use rabbitui_core::text::Span;
@@ -409,6 +410,9 @@ impl Widget for Text<'_> {
     type State = ();
 
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+        // A11y groundwork (ADR arc4 §5): a static label announced by its text.
+        ctx.semantic_role(SemanticRole::Label);
+        ctx.label(self.content.to_plain_string());
         let base = self.base_style(ctx);
         let area = ctx.area().size;
         if area.height == 0 || area.width == 0 {
@@ -429,9 +433,7 @@ impl Widget for Text<'_> {
         // `area.height` rows land at the top of the area; the default keeps the
         // first rows and clips the tail.
         let start = if self.anchor_bottom {
-            display_rows
-                .len()
-                .saturating_sub(usize::from(area.height))
+            display_rows.len().saturating_sub(usize::from(area.height))
         } else {
             0
         };
@@ -567,7 +569,10 @@ mod tests {
     #[test]
     fn new_accepts_str_string_and_spans() {
         assert!(matches!(Text::new("x").content(), Content::Plain(_)));
-        assert!(matches!(Text::new(String::from("x")).content(), Content::Plain(_)));
+        assert!(matches!(
+            Text::new(String::from("x")).content(),
+            Content::Plain(_)
+        ));
         assert!(matches!(
             Text::new(vec![Span::raw("x")]).content(),
             Content::Spans(_)
@@ -693,7 +698,10 @@ mod tests {
         let ok = buffer.get(Position::new(0, 0)).unwrap();
         assert_eq!(ok.style.fg, Some(Color::GREEN));
         assert!(ok.style.attrs.contains(Attrs::BOLD));
-        assert_eq!(buffer.get(Position::new(3, 0)).unwrap().style.fg, Some(Color::RED));
+        assert_eq!(
+            buffer.get(Position::new(3, 0)).unwrap().style.fg,
+            Some(Color::RED)
+        );
     }
 
     #[test]
@@ -797,8 +805,14 @@ mod tests {
         assert_eq!(row(&buffer, 1), "語");
         // Styling survives the wrap: the second grapheme (red) is on row 0, the
         // third (blue) wrapped to row 1.
-        assert_eq!(buffer.get(Position::new(2, 0)).unwrap().style.fg, Some(Color::RED));
-        assert_eq!(buffer.get(Position::new(0, 1)).unwrap().style.fg, Some(Color::BLUE));
+        assert_eq!(
+            buffer.get(Position::new(2, 0)).unwrap().style.fg,
+            Some(Color::RED)
+        );
+        assert_eq!(
+            buffer.get(Position::new(0, 1)).unwrap().style.fg,
+            Some(Color::BLUE)
+        );
     }
 
     #[test]
@@ -826,8 +840,14 @@ mod tests {
         .render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "aaa");
         assert_eq!(row(&buffer, 1), "bbb");
-        assert_eq!(buffer.get(Position::new(0, 0)).unwrap().style.fg, Some(Color::GREEN));
-        assert_eq!(buffer.get(Position::new(0, 1)).unwrap().style.fg, Some(Color::RED));
+        assert_eq!(
+            buffer.get(Position::new(0, 0)).unwrap().style.fg,
+            Some(Color::GREEN)
+        );
+        assert_eq!(
+            buffer.get(Position::new(0, 1)).unwrap().style.fg,
+            Some(Color::RED)
+        );
     }
 
     // --- measurement ---

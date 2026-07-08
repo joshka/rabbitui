@@ -11,6 +11,14 @@ repository.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
+[features]
+# Devtools name capture (ADR arc4 §6): `Key` retains its source `&'static str`
+# and the frame records an `id → name` side table in `FrameFacts`, feeding the
+# facts inspector (arc4 §7) and a11y label defaults (arc4 §5). Off by default so
+# a plain `cargo build`/`--release` of core is the zero-cost FNV-only `Key`; the
+# `rabbitui` facade turns it on for dev builds via its own `devtools` feature.
+devtools = []
+
 [dev-dependencies]
 criterion.workspace = true
 

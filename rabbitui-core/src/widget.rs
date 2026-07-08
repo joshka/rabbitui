@@ -193,6 +193,13 @@ pub struct RenderCtx<'a> {
     /// visibility-request fact (slice-7 plumbing). At most one is kept — the
     /// last request wins.
     visibility: Option<Rect>,
+    /// The accessibility role the widget declared this frame (ADR arc4 §5),
+    /// read back by the frame onto the widget's fact. Defaults to
+    /// [`SemanticRole::None`](crate::a11y::SemanticRole::None).
+    role: crate::a11y::SemanticRole,
+    /// The accessible label the widget declared this frame, read back by the frame
+    /// into the facts' label side table. `None` until a widget sets one.
+    label: Option<String>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -239,6 +246,8 @@ impl<'a> RenderCtx<'a> {
             focused,
             focusable: false,
             visibility: None,
+            role: crate::a11y::SemanticRole::None,
+            label: None,
         }
     }
 
@@ -325,6 +334,59 @@ impl<'a> RenderCtx<'a> {
             );
             Rect::new(origin, Size::new(relative.size.width, relative.size.height))
         })
+    }
+
+    /// Declares this widget's **accessibility role** (ADR arc4 §5) — what kind of
+    /// control it is (button, text field, list, …).
+    ///
+    /// Recorded onto the widget's [`FactEntry`](crate::facts::FactEntry) for a
+    /// future assistive-technology exporter; nothing consumes it yet. Calling more
+    /// than once keeps the last role. The catalog widgets set an appropriate role;
+    /// a purely-decorative widget leaves it at the
+    /// [`SemanticRole::None`](crate::a11y::SemanticRole::None) default.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::a11y::SemanticRole;
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Rect, Size};
+    /// use rabbitui_core::widget::RenderCtx;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(6, 1));
+    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(6, 1)), false);
+    /// ctx.semantic_role(SemanticRole::Button);
+    /// ctx.label("Save");
+    /// ```
+    pub fn semantic_role(&mut self, role: crate::a11y::SemanticRole) {
+        self.role = role;
+    }
+
+    /// Declares this widget's **accessible label** (ADR arc4 §5) — the human name
+    /// an assistive technology would announce (a button's text, a field's purpose).
+    ///
+    /// Recorded into the frame's label side table
+    /// ([`FrameFacts::label`](crate::facts::FrameFacts::label)) keyed by the
+    /// widget's identity; nothing consumes it yet. Calling more than once keeps the
+    /// last label. See [`semantic_role`](Self::semantic_role) for an example.
+    pub fn label(&mut self, label: impl Into<String>) {
+        self.label = Some(label.into());
+    }
+
+    /// The accessibility role the widget declared this frame, read back by
+    /// [`Frame`](crate::frame::Frame) onto the fact. Not typically called by
+    /// widgets.
+    #[must_use]
+    pub fn declared_role(&self) -> crate::a11y::SemanticRole {
+        self.role
+    }
+
+    /// The accessible label the widget declared this frame, read back by
+    /// [`Frame`](crate::frame::Frame) into the label table. Not typically called by
+    /// widgets.
+    #[must_use]
+    pub fn declared_label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     /// The concrete [`Style`] the active theme maps `role` to.
@@ -525,6 +587,23 @@ mod tests {
         let resolved = ctx.requested_visibility().unwrap();
         assert_eq!(resolved.origin, Position::new(2, 2));
         assert_eq!(resolved.size, Size::new(6, 1));
+    }
+
+    #[test]
+    fn a11y_role_and_label_default_off_and_are_settable() {
+        use crate::a11y::SemanticRole;
+        let mut buffer = Buffer::new(Size::new(6, 1));
+        let area = Rect::from_size(Size::new(6, 1));
+        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        // Defaults: no role, no label.
+        assert_eq!(ctx.declared_role(), SemanticRole::None);
+        assert_eq!(ctx.declared_label(), None);
+        // Set both; the last write wins (label set twice).
+        ctx.semantic_role(SemanticRole::Button);
+        ctx.label("first");
+        ctx.label("Save");
+        assert_eq!(ctx.declared_role(), SemanticRole::Button);
+        assert_eq!(ctx.declared_label(), Some("Save"));
     }
 
     #[test]

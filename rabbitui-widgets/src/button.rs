@@ -1,5 +1,6 @@
 //! A focusable push button.
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
@@ -116,6 +117,9 @@ impl Widget for Button<'_> {
 
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
+        // A11y groundwork (ADR arc4 §5): a button, labelled by its caption.
+        ctx.semantic_role(SemanticRole::Button);
+        ctx.label(self.label);
         let style = if ctx.is_focused() {
             ctx.style(Role::Highlight)
         } else {

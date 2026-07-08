@@ -37,6 +37,11 @@
 //!   Because widgets cannot nest yet, it paints behind content declared into its
 //!   [`Panel::inner`] area (the pre-composition pattern; the catalog arc turns it
 //!   into a real container).
+//! - `FactsInspector` — a read-only devtools overlay that renders the previous
+//!   frame's [`FrameFacts`](rabbitui_core::facts::FrameFacts) tree (id path, area,
+//!   layer, focusable, visibility, focus marker) in a themed panel, matching the
+//!   [`facts::dump`](rabbitui_core::facts::dump) log format. Behind the `devtools`
+//!   feature (ADR arc4 §7); reads only the *core* facts, so no runtime is pulled in.
 //!
 //! Every widget references semantic [`Role`]s rather than hard-coded colors, so
 //! the active [`Theme`] re-skins the whole catalog (ADR 0007).
@@ -59,6 +64,8 @@
 pub mod button;
 pub mod collapsible;
 pub mod error_banner;
+#[cfg(feature = "devtools")]
+pub mod facts_inspector;
 #[cfg(feature = "tracing")]
 pub mod log_overlay;
 pub mod panel;
@@ -69,6 +76,8 @@ pub mod text_input;
 pub use button::Button;
 pub use collapsible::Collapsible;
 pub use error_banner::ErrorBanner;
+#[cfg(feature = "devtools")]
+pub use facts_inspector::FactsInspector;
 #[cfg(feature = "tracing")]
 pub use log_overlay::LogOverlay;
 pub use panel::Panel;

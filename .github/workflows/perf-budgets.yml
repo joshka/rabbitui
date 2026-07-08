@@ -1,0 +1,60 @@
+# Performance budgets (Arc 4 item 4, docs/plans/arc4-spine.md §4).
+#
+# Instruction-count regression gate for the frame + diff hot paths, using
+# iai-callgrind (valgrind/callgrind). Instruction counts are load-insensitive, so
+# unlike wall-clock they make a stable CI budget (the 2B verification measured
+# scroll-10k at 1.13 ms quiet vs 2.4 ms under load — a wall-clock gate would flake).
+# criterion stays for local trend work; this job is the gate.
+#
+# This runs ONLY on ubuntu: valgrind does not run on macOS, so the bench target
+# (rabbitui/benches/frame_iai.rs) is authored but disabled in the manifest on dev
+# machines and enabled here. See that file's header.
+#
+# NOTE: same qwertty path-dependency caveat as ci.yml — the workspace lives at
+# work/default and depends on qwertty three levels up; CI clones it to the expected
+# sibling location.
+#
+# Updating a baseline intentionally: iai-callgrind stores baselines under
+# target/iai. A deliberate change to a hot path will trip the threshold; regenerate
+# with `cargo bench --bench frame_iai -- --save-baseline=main` on this runner (or
+# locally on any valgrind host), review the instruction-count delta in the diff, and
+# commit the updated baseline. Never bump the threshold to make a red run pass
+# without understanding the delta — the whole point is that a regression is loud.
+name: perf-budgets
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  WORKSPACE: work/default
+
+jobs:
+  iai-callgrind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install iai-callgrind-runner
+        # The runner binary must match the bench crate's iai-callgrind version.
+        run: cargo install iai-callgrind-runner --version 0.14 --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Enable the iai bench target
+        # The manifest ships the target commented out so the workspace compiles on
+        # macOS/offline dev machines. Enable it here (uncomment the dev-dependency
+        # and the [[bench]] entry) before running.
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          sed -i 's/^# iai-callgrind = /iai-callgrind = /' rabbitui/Cargo.toml
+          sed -i 's/^# \[\[bench\]\]/[[bench]]/; s/^# name = "frame_iai"/name = "frame_iai"/; s/^# harness = false/harness = false/' rabbitui/Cargo.toml
+      - name: Run instruction-count budgets
+        working-directory: ${{ env.WORKSPACE }}
+        run: cargo bench --bench frame_iai

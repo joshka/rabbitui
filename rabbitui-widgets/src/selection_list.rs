@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
@@ -230,6 +231,8 @@ impl<S: ListSource> Widget for SelectionList<S> {
 
     fn render(&self, state: &mut SelectionListState, ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
+        // A11y groundwork (ADR arc4 §5): a selectable list.
+        ctx.semantic_role(SemanticRole::List);
         let len = self.source.len();
         state.clamp(len);
 

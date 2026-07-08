@@ -8,6 +8,7 @@
 //!
 //! [`close`]: Terminal::close
 
+use std::cell::Cell;
 use std::io::Write as _;
 use std::sync::Once;
 
@@ -62,6 +63,47 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 static PANIC_RESTORE_HOOK: Once = Once::new();
 
+thread_local! {
+    /// Set on a thread while it is polling a *contained* effect task (ADR 0005:
+    /// effect panics are caught at the tokio task boundary and surfaced as
+    /// [`Event::EffectFailed`](crate::app::Event::EffectFailed), never unwinding
+    /// the loop). The panic-restore hook (`restore_directly` via the installed
+    /// hook) checks this flag: while it is set, a panic on this thread is a
+    /// *contained* effect panic — the loop stays alive and will repaint — so the
+    /// hook must NOT write the visible leave-alt-screen restore sequence, which
+    /// would corrupt the live display mid-run. A genuine panic in `view`/`update`
+    /// (the main loop thread, where this flag is never set) still restores.
+    ///
+    /// A `Cell<bool>` is enough: effect tasks are polled to a panic point without
+    /// re-entering the guard (no nesting across tasks on one thread mid-panic).
+    static IN_EFFECT_POLL: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs `f` with the current thread marked as polling a contained effect task,
+/// restoring the previous flag afterward.
+///
+/// The effect runtime (`crate::effect`) wraps each spawned task's poll in this so
+/// the panic-restore hook can tell a *contained* effect panic (which the runtime
+/// reports as a message and survives) from a genuine `view`/`update` panic (which
+/// must visibly restore the terminal). See [`IN_EFFECT_POLL`].
+pub(crate) fn with_effect_poll_guard<R>(f: impl FnOnce() -> R) -> R {
+    struct Guard(bool);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            IN_EFFECT_POLL.with(|flag| flag.set(self.0));
+        }
+    }
+    let previous = IN_EFFECT_POLL.with(|flag| flag.replace(true));
+    let _guard = Guard(previous);
+    f()
+}
+
+/// Whether the current thread is inside a contained effect poll — the signal the
+/// restore hook uses to suppress the visible restore for a contained panic.
+fn in_effect_poll() -> bool {
+    IN_EFFECT_POLL.with(Cell::get)
+}
+
 /// Exclusive ownership of the interactive terminal.
 ///
 /// Opening a `Terminal` enters raw mode only; the active render **engine**
@@ -93,7 +135,15 @@ impl Terminal {
         PANIC_RESTORE_HOOK.call_once(|| {
             let previous = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                restore_directly();
+                // A *contained* effect-task panic (ADR 0005) is caught at the
+                // tokio task boundary and reported as `EffectFailed`; the loop
+                // survives and repaints. Writing the visible leave-alt-screen
+                // restore here would corrupt the live display mid-run, so skip it
+                // when this thread is inside an effect poll. A genuine `view` /
+                // `update` panic runs on the main loop thread, where the flag is
+                // never set, and still restores. `panic = "abort"` is unaffected:
+                // there the process dies and the Terminal Drop / OS teardown apply.
+                handle_panic_restore(restore_directly);
                 previous(info);
             }));
         });
@@ -250,6 +300,22 @@ fn controlling_tty_path() -> Option<std::path::PathBuf> {
     None
 }
 
+/// The panic-hook decision: run `restore` only for a genuine panic, never for a
+/// *contained* effect-task panic.
+///
+/// Split out from the installed hook so the containment rule is unit-testable
+/// without writing to a real `/dev/tty` (the test passes a counting closure).
+/// The rule: if this thread is inside an effect poll ([`in_effect_poll`]), the
+/// panic is caught and reported as `EffectFailed` and the loop repaints — so
+/// suppress the visible restore. Otherwise (a `view`/`update` panic on the main
+/// loop thread) restore the terminal, the whole panic-safety contract.
+fn handle_panic_restore(restore: impl Fn()) {
+    if in_effect_poll() {
+        return;
+    }
+    restore();
+}
+
 /// Writes the restore-of-last-resort sequence straight to the controlling
 /// terminal, bypassing session buffering. Safe to call at any time, including
 /// from a panic hook; all errors are deliberately ignored.
@@ -257,5 +323,55 @@ fn restore_directly() {
     if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open("/dev/tty") {
         let _ = tty.write_all(encode::RESTORE);
         let _ = tty.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::{handle_panic_restore, in_effect_poll, with_effect_poll_guard};
+
+    #[test]
+    fn effect_poll_guard_sets_and_clears_the_flag() {
+        assert!(!in_effect_poll(), "flag starts clear");
+        with_effect_poll_guard(|| assert!(in_effect_poll(), "flag set inside the guard"));
+        assert!(!in_effect_poll(), "flag restored after the guard");
+    }
+
+    #[test]
+    fn guard_restores_previous_flag_even_on_panic() {
+        // A panic inside the guarded closure must still restore the previous flag
+        // (the guard's Drop runs during unwind), so a later poll on the same
+        // reused worker thread is not left wedged as "in effect poll".
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_effect_poll_guard(|| {
+                assert!(in_effect_poll());
+                panic!("boom");
+            });
+        }));
+        assert!(result.is_err(), "the panic propagated");
+        assert!(!in_effect_poll(), "flag cleared after an unwinding guard");
+    }
+
+    #[test]
+    fn contained_effect_panic_does_not_restore_but_a_real_panic_does() {
+        // The hook's decision, exercised with a counting closure standing in for
+        // the real `/dev/tty` restore. Inside an effect poll: suppressed. Outside
+        // (a view/update panic on the main thread): the restore fires.
+        let restores = Cell::new(0u32);
+        let restore = || restores.set(restores.get() + 1);
+
+        // Contained effect panic: the guard is set, so no visible restore.
+        with_effect_poll_guard(|| handle_panic_restore(restore));
+        assert_eq!(
+            restores.get(),
+            0,
+            "a contained effect panic must not restore"
+        );
+
+        // A genuine view/update panic: the flag is clear, so restore fires.
+        handle_panic_restore(restore);
+        assert_eq!(restores.get(), 1, "a real panic must restore the terminal");
     }
 }

@@ -294,9 +294,19 @@ impl<M: Send + 'static> Effects<M> {
         // The task body: run the effect and forward its messages. Panics inside
         // the future/stream are caught by the tokio task boundary; the join
         // watcher below turns a panicked join into an `EffectError`.
+        // Each poll of the app-supplied future/stream is wrapped in
+        // `with_effect_poll_guard`: it marks this worker thread as inside a
+        // *contained* effect poll so the terminal's panic-restore hook suppresses
+        // the visible restore if the poll panics (the panic is caught here and
+        // reported as `EffectFailed`; the loop survives, so writing leave-alt-screen
+        // bytes would corrupt the live display). Only the app-code poll is guarded —
+        // the mailbox `send` is framework code and never panics on app input.
         let handle: JoinHandle<()> = match kind {
-            Kind::Future(future) => tokio::spawn(async move {
-                let message = future.await;
+            Kind::Future(mut future) => tokio::spawn(async move {
+                let message = std::future::poll_fn(move |cx| {
+                    crate::terminal::with_effect_poll_guard(|| future.as_mut().poll(cx))
+                })
+                .await;
                 // A closed receiver means the loop is gone; dropping is correct.
                 let _ = tx.send(Outbox::Message(message));
             }),
@@ -304,7 +314,10 @@ impl<M: Send + 'static> Effects<M> {
                 use std::task::Poll;
                 std::future::poll_fn(move |cx| {
                     loop {
-                        match stream.as_mut().poll_next(cx) {
+                        let polled = crate::terminal::with_effect_poll_guard(|| {
+                            stream.as_mut().poll_next(cx)
+                        });
+                        match polled {
                             Poll::Ready(Some(message)) => {
                                 if tx.send(Outbox::Message(message)).is_err() {
                                     return Poll::Ready(());

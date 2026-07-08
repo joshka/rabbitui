@@ -20,6 +20,7 @@
 //! assert_eq!(banner.message(), "the request timed out");
 //! ```
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
@@ -107,6 +108,9 @@ impl Widget for ErrorBanner<'_> {
 
     fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
+        // A11y groundwork (ADR arc4 §5): a modal dialog, labelled by title + message.
+        ctx.semantic_role(SemanticRole::Dialog);
+        ctx.label(format!("{}: {}", self.title, self.message));
         let size = ctx.size();
         if size.width < 2 || size.height < 2 {
             return;
@@ -222,7 +226,11 @@ mod tests {
     /// The symbols of one buffer row, concatenated.
     fn row(buffer: &Buffer, y: u16) -> String {
         (0..buffer.size().width)
-            .map(|x| buffer.get(Position::new(x, y)).map_or(String::new(), |c| c.symbol.to_string()))
+            .map(|x| {
+                buffer
+                    .get(Position::new(x, y))
+                    .map_or(String::new(), |c| c.symbol.to_string())
+            })
             .collect()
     }
 
@@ -237,7 +245,12 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(Phase::Bubble, Rect::default(), &mut outcomes, &mut request_focus);
+            let mut ctx = HandleCtx::new(
+                Phase::Bubble,
+                Rect::default(),
+                &mut outcomes,
+                &mut request_focus,
+            );
             ErrorBanner::handle(&mut (), &event, &mut ctx)
         };
         (handled, outcomes)
@@ -253,13 +266,22 @@ mod tests {
 
     #[test]
     fn renders_a_bordered_box_with_title_message_and_hint() {
-        let buffer = render(&ErrorBanner::new("disk full").title("Save failed"), Size::new(24, 3));
+        let buffer = render(
+            &ErrorBanner::new("disk full").title("Save failed"),
+            Size::new(24, 3),
+        );
         let top = row(&buffer, 0);
-        assert!(top.starts_with('┌') && top.ends_with('┐'), "top border: {top}");
+        assert!(
+            top.starts_with('┌') && top.ends_with('┐'),
+            "top border: {top}"
+        );
         assert!(top.contains("Save failed"), "title in top border: {top}");
         assert!(row(&buffer, 1).contains("disk full"), "message row");
         let bottom = row(&buffer, 2);
-        assert!(bottom.starts_with('└') && bottom.ends_with('┘'), "bottom border");
+        assert!(
+            bottom.starts_with('└') && bottom.ends_with('┘'),
+            "bottom border"
+        );
         assert!(bottom.contains("dismiss"), "dismiss hint in bottom border");
     }
 
@@ -269,7 +291,10 @@ mod tests {
         // Inner width 18 (box 20) wraps the message across several rows.
         let lines = banner.wrap(18);
         assert!(lines.len() > 1, "wraps: {lines:?}");
-        assert!(lines.iter().all(|l| l.chars().count() <= 18), "no line exceeds width");
+        assert!(
+            lines.iter().all(|l| l.chars().count() <= 18),
+            "no line exceeds width"
+        );
         assert_eq!(
             banner.desired_height(&(), 20),
             u16::try_from(lines.len()).unwrap() + 2,
@@ -279,8 +304,14 @@ mod tests {
 
     #[test]
     fn enter_space_and_click_dismiss() {
-        assert_eq!(dispatch(InputEvent::key(Key::Enter)), (Handled::Yes, vec![Outcome::Dismissed]));
-        assert_eq!(dispatch(InputEvent::key(Key::Char(' '))), (Handled::Yes, vec![Outcome::Dismissed]));
+        assert_eq!(
+            dispatch(InputEvent::key(Key::Enter)),
+            (Handled::Yes, vec![Outcome::Dismissed])
+        );
+        assert_eq!(
+            dispatch(InputEvent::key(Key::Char(' '))),
+            (Handled::Yes, vec![Outcome::Dismissed])
+        );
         let click = InputEvent::Mouse(MouseEvent {
             kind: MouseKind::Down,
             button: MouseButton::Left,
@@ -292,6 +323,9 @@ mod tests {
 
     #[test]
     fn an_unrelated_key_is_not_handled() {
-        assert_eq!(dispatch(InputEvent::key(Key::Char('x'))), (Handled::No, vec![]));
+        assert_eq!(
+            dispatch(InputEvent::key(Key::Char('x'))),
+            (Handled::No, vec![])
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! A single-line, uncontrolled text input with grapheme-correct editing.
 
+use rabbitui_core::a11y::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key};
 use rabbitui_core::outcome::Outcome;
@@ -284,6 +285,10 @@ impl Widget for TextInput<'_> {
 
     fn render(&self, state: &mut TextInputState, ctx: &mut RenderCtx<'_>) {
         ctx.focusable(true);
+        // A11y groundwork (ADR arc4 §5): a text field, labelled by its placeholder
+        // (its purpose) — the value itself may be empty or sensitive.
+        ctx.semantic_role(SemanticRole::TextInput);
+        ctx.label(self.placeholder.unwrap_or("text input"));
         let width = ctx.size().width;
         if width == 0 {
             return;
