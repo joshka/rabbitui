@@ -254,15 +254,11 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
         app.filter = value.clone();
         // A narrower filter can strand the selection past the new end; reset both
         // the widget's state and our mirror to the top so the highlight is always
-        // on a visible row. Only command the list when it will actually be
-        // declared next frame — when the filter strands *everything*, `view`
-        // shows a `key("empty")` placeholder instead, and commanding the absent
-        // `key("list")` panics (declare-then-command, the widget sibling of the
-        // declare-then-focus rule). DOGFOODING: a framework footgun — see README.
+        // on a visible row. The list now renders its own empty state and stays
+        // declared under `key("list")` even with zero matches, so this command
+        // always lands — no is-empty guard needed (the finding-#4 footgun is gone).
         app.selected = 0;
-        if !app.visible().is_empty() {
-            update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
-        }
+        update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
     }
 
     if app.detail.is_some() {
@@ -368,17 +364,22 @@ fn view(app: &App_, frame: &mut Frame<'_>) {
     frame.widget(key("list_panel"), list_area, &panel);
     let inner = Panel::inner(list_area, &panel);
 
-    let rows: Vec<String> = visible.iter().map(|entry| entry.row()).collect();
-    if rows.is_empty() {
-        let empty = if app.entries.is_empty() {
-            "waiting for logs…"
-        } else {
-            "no lines match the filter"
-        };
-        frame.widget(key("empty"), inner, &Text::new(empty).role(Role::Muted));
+    // The list is backed by a lazy source that borrows `visible` and formats only
+    // the painted rows — no per-frame `Vec<String>`. It renders its own empty state
+    // (built-in `empty_text`), so it always stays declared under `key("list")`:
+    // no `key("empty")` swap, so focus and the deferred `select(0)` command never
+    // hit an absent widget.
+    let empty = if app.entries.is_empty() {
+        "waiting for logs…"
     } else {
-        frame.widget(key("list"), inner, &SelectionList::new(rows));
-    }
+        "no lines match the filter"
+    };
+    let source = rabbitui_widgets::rows_with(&visible, |entry| entry.row());
+    frame.widget(
+        key("list"),
+        inner,
+        &SelectionList::new(source).empty_text(empty),
+    );
 
     // Status line: the source state and selection, in a role that reads the state.
     let (status, status_role) = if app.paused {
