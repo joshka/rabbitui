@@ -218,6 +218,59 @@ impl<'a> Frame<'a> {
         self.theme
     }
 
+    /// The [`WidgetId`] the framework currently focuses, if any.
+    ///
+    /// This is the read-only focus snapshot the frame carries (the *previous*
+    /// frame's focus verdict; the runtime advances focus between frames, ADR
+    /// 0006). It is the same value a widget's
+    /// [`RenderCtx::is_focused`](crate::widget::RenderCtx::is_focused) reflects
+    /// for its own id, exposed at the frame level so a `view` can read focus
+    /// without mirroring it into app state. Prefer
+    /// [`is_focused`](Self::is_focused) when you know the path you want to test.
+    #[must_use]
+    pub fn focused(&self) -> Option<WidgetId> {
+        self.focus
+    }
+
+    /// Whether the widget at this **root-relative** key `path` currently holds
+    /// focus.
+    ///
+    /// Lets a `view` paint focus-reactive chrome (highlight the focused panel's
+    /// border) by asking the framework directly, instead of mirroring focus into
+    /// app state on every event. The id is composed from `path` exactly as
+    /// [`widget`](Self::widget) composes a declared widget's id — folding
+    /// [`WidgetId::child`] from [`WidgetId::ROOT`] — so it resolves scoped and
+    /// nested paths and agrees with the router's focus and with the facade's
+    /// `Update::is_focused`:
+    /// `frame.is_focused(&[key("sidebar"), key("list")])`. An unknown path simply
+    /// compares unequal and returns `false` (never panics).
+    ///
+    /// The path is absolute from the frame root even when called on a child
+    /// scope frame, matching the facade's root-relative semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::frame::Frame;
+    /// use rabbitui_core::geometry::Size;
+    /// use rabbitui_core::id::{WidgetId, key};
+    /// use rabbitui_core::store::StateStore;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(8, 1));
+    /// let mut store = StateStore::new();
+    /// let focused = WidgetId::ROOT.child(key("filter"));
+    /// let frame = Frame::with_focus(&mut buffer, &mut store, Some(focused));
+    /// assert!(frame.is_focused(&[key("filter")]));
+    /// assert!(!frame.is_focused(&[key("list")]));
+    /// # let _ = frame.finish();
+    /// ```
+    #[must_use]
+    pub fn is_focused(&self, path: &[Key]) -> bool {
+        let id = path.iter().fold(WidgetId::ROOT, |id, k| id.child(*k));
+        self.focus == Some(id)
+    }
+
     /// The full drawable area of this frame.
     #[must_use]
     pub fn area(&self) -> Rect {
@@ -792,6 +845,75 @@ mod tests {
         let _ = frame.finish();
         store.end_frame();
         assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "F");
+    }
+
+    #[test]
+    fn frame_is_focused_reads_the_focus_snapshot() {
+        let mut buffer = Buffer::new(Size::new(8, 2));
+        let mut store = StateStore::new();
+        let filter = WidgetId::ROOT.child(key("filter"));
+        store.begin_frame();
+        let mut frame = Frame::with_focus(&mut buffer, &mut store, Some(filter));
+        let [top, bottom] = frame.rows([Constraint::Length(1), Constraint::Length(1)]);
+        frame.widget(key("filter"), top, &Focusable);
+        frame.widget(key("list"), bottom, &Focusable);
+        // The focused widget's path is true; a sibling path and the frame-level
+        // snapshot both agree.
+        assert!(frame.is_focused(&[key("filter")]));
+        assert!(!frame.is_focused(&[key("list")]));
+        assert_eq!(frame.focused(), Some(filter));
+        // An unknown path is a plain `false`, not a panic.
+        assert!(!frame.is_focused(&[key("nonexistent")]));
+        assert!(!frame.is_focused(&[]));
+        let _ = frame.finish();
+        store.end_frame();
+    }
+
+    #[test]
+    fn frame_is_focused_resolves_a_scoped_path() {
+        let mut buffer = Buffer::new(Size::new(8, 2));
+        let mut store = StateStore::new();
+        // The focused id is a nested one, composed under a scope — exactly the id
+        // `scoped(key("panel"), |f| f.widget(key("row"), …))` would declare.
+        let row = WidgetId::ROOT.child(key("panel")).child(key("row"));
+        store.begin_frame();
+        let mut frame = Frame::with_focus(&mut buffer, &mut store, Some(row));
+        frame.scoped(key("panel"), |f| {
+            f.widget(key("row"), Rect::from_size(Size::new(8, 1)), &Focusable);
+        });
+        // The full root-relative path resolves the nested id; a single-key path to
+        // the same leaf name (missing the scope) does not.
+        assert!(frame.is_focused(&[key("panel"), key("row")]));
+        assert!(!frame.is_focused(&[key("row")]));
+        let _ = frame.finish();
+        store.end_frame();
+    }
+
+    #[test]
+    fn frame_is_focused_agrees_with_render_ctx_is_focused() {
+        // The frame-level reader and the widget's own `RenderCtx::is_focused` must
+        // report the same verdict for the same id.
+        let mut buffer = Buffer::new(Size::new(1, 1));
+        let mut store = StateStore::new();
+        let w = WidgetId::ROOT.child(key("w"));
+        store.begin_frame();
+        let mut frame = Frame::with_focus(&mut buffer, &mut store, Some(w));
+        // FocusPainter paints "F" iff its RenderCtx reports focus.
+        frame.widget(key("w"), frame.area(), &FocusPainter);
+        assert!(frame.is_focused(&[key("w")]));
+        let _ = frame.finish();
+        store.end_frame();
+        assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "F");
+    }
+
+    #[test]
+    fn frame_with_no_focus_is_never_focused() {
+        let mut buffer = Buffer::new(Size::new(4, 1));
+        let mut store = StateStore::new();
+        let frame = Frame::new(&mut buffer, &mut store);
+        assert_eq!(frame.focused(), None);
+        assert!(!frame.is_focused(&[key("anything")]));
+        let _ = frame.finish();
     }
 
     struct RoleProbe;
