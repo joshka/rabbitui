@@ -152,3 +152,40 @@ regression until a user reported it. A decode-shape change is breaking for the c
 even when it is additive at the type level, because the consumer's match arms silently
 stop matching. Ask: at a vocabulary-adjacent seal, add a one-line "consumers: re-check
 event dispatch" to `substrate-status.md` so the downstream re-checks in lockstep.
+
+### Resolution — qwertty sync (2026-07-07)
+
+qwertty answered all four; three had already moved. Source of truth is qwertty's
+`substrate-status.md` ("Consumer requests status"); mirrored here:
+
+1. **lone-ESC** — not built, but confirmed as qwertty's **next input slice**, queued
+   immediately behind M6-S1 (it lands in the async session, which the in-flight
+   suspend/resume slice owns, so it is sequenced behind it, not deprioritized). Still
+   our #1 blocker until it lands. (Kitty disambiguate-escape already gives unambiguous
+   Esc where enabled; this policy is the fallback for terminals without it.)
+2. **Key decode — resolved at `work/default`.** Home/End/PageUp/PageDown/Delete/Insert
+   already decode from their legacy escape forms, with tests; if they never fire for us
+   it is because our bridge is still on the pre-KeyEvent path — they light up on our
+   KeyEvent migration (Arc 4 item 8 step 3). The genuine gaps qwertty just closed:
+   Shift-Tab (`CSI Z` → `KeyEvent { key: Tab, modifiers: SHIFT }`, additive under ADR
+   0019) and the `CSI 1~`/`CSI 4~` Home/End forms. **Action moves to us.**
+3. **macOS `/dev/tty` EINVAL — fixed.** `TokioTerminalSession::open()` dups the inherited
+   read-write stdin (the fd kqueue accepts on macOS), falling back to resolved-device-path
+   then the alias; `session.acquisition()` reports which branch won. **Action moves to us:**
+   drop our hand-rolled `ttyname → open_path` restore backstop and open through qwertty's
+   session.
+4. **Suspend/$EDITOR — in flight.** M6-S1 (`suspend()`/`resume()`: ledger undo + SIGTSTP,
+   SIGCONT resync + synthetic resize) building now; M6-S2 (the `run_detached`-shaped
+   `$EDITOR` handoff) is the next M6 slice.
+
+Coordination note: **adopted.** qwertty started a change-impact log in `substrate-status.md`
+and back-logged both this session's `CSI Z` decode-shape change and the M4 mouse
+`Event::Syntax(Csi)` → `Event::Mouse` move that broke our runtime mouse. Their status doc
+stays the source of truth; this file mirrors each seal.
+
+**Newly unblocked on our side (Arc 4 item 8 — qwertty adoption):** #2 and #3 are ready to
+pick up from `work/default` — the KeyEvent/TextPayload migration (retires the mouse-bridge
+fragility, gains the full key set incl. Shift-Tab and the tilde Home/End forms) and dropping
+the `/dev/tty` backstop. Both land in the rabbitui facade (`input.rs`, `terminal.rs`); the
+tape suite is where key regressions surface, so they gate on running it. Sequenced **after**
+the in-flight flagship tool slice, to avoid churning `input.rs` under it.
