@@ -8,7 +8,9 @@
 //! Auth resolves from the environment: `ANTHROPIC_API_KEY` (sent as `x-api-key`),
 //! or `ANTHROPIC_AUTH_TOKEN` (an OAuth bearer, sent as `Authorization: Bearer` with
 //! the `oauth-2025-04-20` beta header). Set the latter with
-//! `eval "$(ant auth print-credentials --env)"` after `ant auth login`.
+//! `eval "$(ant auth print-credentials --env)"` after `ant auth login`. The base
+//! URL honors `ANTHROPIC_BASE_URL` (default `https://api.anthropic.com`), so a
+//! gateway or proxy just works.
 
 use futures_util::StreamExt as _;
 use serde_json::json;
@@ -17,8 +19,9 @@ use tokio::sync::mpsc;
 use super::sse::SseDecoder;
 use super::{Backend, BackendError, ChatRequest, EventStream, StreamEvent};
 
-/// The Messages endpoint.
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
+/// The default API base URL, overridable via `ANTHROPIC_BASE_URL` (a gateway,
+/// proxy, or a compatible endpoint).
+const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// The API version header value.
 const API_VERSION: &str = "2023-06-01";
 /// The per-response output cap; streaming keeps the request from timing out at
@@ -71,10 +74,13 @@ pub struct AnthropicBackend {
     client: reqwest::Client,
     /// The resolved credentials.
     auth: Auth,
+    /// The full messages endpoint, built from `ANTHROPIC_BASE_URL`.
+    endpoint: String,
 }
 
 impl AnthropicBackend {
-    /// Builds a backend, resolving credentials from the environment.
+    /// Builds a backend, resolving credentials and the base URL from the
+    /// environment.
     ///
     /// # Errors
     ///
@@ -82,14 +88,23 @@ impl AnthropicBackend {
     /// or if the HTTP client cannot be built.
     pub fn from_env() -> Result<Self, String> {
         let auth = Auth::from_env().ok_or_else(|| {
-            "no Anthropic credentials found — set ANTHROPIC_API_KEY, or run `ant auth login` \
-             then `eval \"$(ant auth print-credentials --env)\"`"
+            "no Anthropic credentials found — set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN, or run \
+             `ant auth login` then `eval \"$(ant auth print-credentials --env)\"`"
                 .to_string()
         })?;
+        let base = std::env::var("ANTHROPIC_BASE_URL")
+            .ok()
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let endpoint = format!("{}/v1/messages", base.trim_end_matches('/'));
         let client = reqwest::Client::builder()
             .build()
             .map_err(|error| format!("could not build HTTP client: {error}"))?;
-        Ok(Self { client, auth })
+        Ok(Self {
+            client,
+            auth,
+            endpoint,
+        })
     }
 }
 
@@ -100,8 +115,9 @@ impl Backend for AnthropicBackend {
         let (tx, rx) = mpsc::unbounded_channel();
         let client = self.client.clone();
         let auth = self.auth.clone();
+        let endpoint = self.endpoint.clone();
         tokio::spawn(async move {
-            run_request(&client, &auth, request, &tx).await;
+            run_request(&client, &auth, &endpoint, request, &tx).await;
         });
         Box::pin(futures_util::stream::unfold(rx, |mut rx| async move {
             rx.recv().await.map(|event| (event, rx))
@@ -113,6 +129,7 @@ impl Backend for AnthropicBackend {
 async fn run_request(
     client: &reqwest::Client,
     auth: &Auth,
+    endpoint: &str,
     request: ChatRequest,
     tx: &mpsc::UnboundedSender<Result<StreamEvent, BackendError>>,
 ) {
@@ -126,7 +143,7 @@ async fn run_request(
     });
 
     let builder = client
-        .post(API_URL)
+        .post(endpoint)
         .header("content-type", "application/json")
         .header("anthropic-version", API_VERSION);
     let builder = auth.apply(builder).json(&body);
