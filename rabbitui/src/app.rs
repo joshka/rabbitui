@@ -282,6 +282,25 @@ impl<'a, M> Update<'a, M> {
         self.focus == Some(id)
     }
 
+    /// The action this event dispatches under `keymap`, with the printable-chord
+    /// consumed-guard applied.
+    ///
+    /// Returns `None` when the event is not a key, the chord is unbound, or a
+    /// focused widget consumed a *guarded* (typeable) chord — so a bare letter is
+    /// never stolen from an input. One call replaces the
+    /// `!consumed() && event().as_key() && keymap.action_for(...)` dance at every
+    /// dispatch site (see [`rabbitui_core::keymap`]).
+    #[must_use]
+    pub fn action<A>(&self, keymap: &rabbitui_core::keymap::Keymap<'_, A>) -> Option<A>
+    where
+        A: Copy + PartialEq,
+    {
+        let Event::Input(input) = self.event() else {
+            return None;
+        };
+        keymap.action_for_guarded(input.as_key()?, self.consumed())
+    }
+
     /// Commits `line` into the terminal's native scrollback (inline mode).
     ///
     /// The line is appended once, above the live tail, and thereafter owned by

@@ -30,12 +30,12 @@ use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::spacing;
 use rabbitui_core::theme::{Role, Theme};
-use rabbitui_widgets::{Button, Collapsible, Panel, Text, TextInput};
+use rabbitui_widgets::{Button, Collapsible, HelpOverlay, Panel, Text, TextInput};
 
 use crate::backend::{
     Backend, ChatMessage, ChatRequest, ContentBlock, Role as ApiRole, StopReason, StreamEvent,
 };
-use crate::keymap::{Action, Keymap};
+use crate::keymap::{Action, KEYMAP, base_help_rows};
 use crate::session::Session;
 use crate::transcript::{
     PendingToolUse, Streaming, ToolStatus, TranscriptCell, commit_lines_for,
@@ -589,34 +589,26 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
         return ControlFlow::Continue(());
     }
 
-    // App-level key bindings, dispatched through the ONE keymap on keys no focused
-    // widget consumed. `Send` is owned by the composer's `Submitted` outcome (see
-    // the top of `update`), so it is not dispatched here.
-    if let Event::Input(input) = update.event()
-        && !update.consumed()
-        && let Some(press) = input.as_key()
-    {
-        match KEYMAP.action_for(press) {
-            Some(Action::ToggleMode) => toggle_mode(app, &update),
-            Some(Action::Cancel) => {
-                if app.is_streaming() {
-                    cancel(app, &update);
-                }
+    // App-level key bindings, dispatched through the ONE keymap. `Update::action`
+    // applies the consumed-guard (a printable chord a focused widget took is never
+    // re-interpreted). `Send` is owned by the composer's `Submitted` outcome (see
+    // the top of `update`), so its arm is absent here.
+    match update.action(&KEYMAP) {
+        Some(Action::ToggleMode) => toggle_mode(app, &update),
+        Some(Action::Cancel) => {
+            if app.is_streaming() {
+                cancel(app, &update);
             }
-            Some(Action::Help) => app.showing_help = true,
-            Some(Action::Quit) => return ControlFlow::Break(()),
-            _ => {}
         }
+        Some(Action::Help) => app.showing_help = true,
+        Some(Action::Quit) => return ControlFlow::Break(()),
+        _ => {}
     }
 
     flush_commits(app, &update);
     persist_history(app);
     ControlFlow::Continue(())
 }
-
-/// The app's single keymap, read by both dispatch (here) and the help overlay
-/// (`view_help`).
-const KEYMAP: Keymap = Keymap::app();
 
 /// Toggles inline ↔ alt-screen browse and switches the runtime mode.
 ///
@@ -810,76 +802,37 @@ pub fn view(app: &Agent, frame: &mut Frame<'_>) {
 /// ([`TAIL_HEIGHT`] rows); the row list truncates with an "…and N more" line
 /// rather than clipping the panel chrome or the footer hint.
 fn view_help(frame: &mut Frame<'_>) {
-    use rabbitui_core::geometry::{Position, Size};
     use rabbitui_core::layout::center;
 
-    let rows = KEYMAP.help_rows();
+    let rows = base_help_rows();
+    // The HelpOverlay widget owns the two-column layout, panel chrome, and the
+    // responsive "…and N more" truncation this function used to hand-roll.
+    let overlay = HelpOverlay::new(&rows).title("keys — Esc to close");
 
-    // Width fits the widest "chord   action" row, clamped to sit inside the frame
-    // with the standard overlay margin on each side.
-    let widest_chord = rows.iter().map(|(chord, _)| chord.len()).max().unwrap_or(0);
+    // Size the layer to fit the rows, clamped to the frame — in inline mode the
+    // frame is only the bounded tail (TAIL_HEIGHT rows), and the widget truncates
+    // when the area is shorter than the list.
+    let avail = frame.area();
     let content_width = rows
         .iter()
-        .map(|(_chord, label)| widest_chord + COLUMN_GAP + label.len())
+        .map(|(chord, label)| chord.len() + COLUMN_GAP + label.len())
         .max()
         .unwrap_or(0);
-    let avail = frame.area();
-    let margin = spacing::OVERLAY_MARGIN * 2;
-    let max_width = avail.size.width.saturating_sub(margin);
-    // Panel chrome (border + padding) eats 2 cols each side.
-    let width = (content_width as u16 + 4).clamp(20, max_width.max(20));
-
-    // Panel chrome eats 4 rows (border + padding top/bottom); the title row is
-    // free. Reserve one row for a "…and N more" line if the list must truncate.
-    let chrome = 4u16;
-    let capacity = avail.size.height.saturating_sub(chrome).max(1);
-    let visible = (rows.len() as u16).min(capacity);
-    let truncated = rows.len() as u16 > visible;
-    let listed = if truncated {
-        visible.saturating_sub(1) as usize
-    } else {
-        visible as usize
-    };
-    let height = (chrome + visible).min(avail.size.height);
+    let max_width = avail.size.width.saturating_sub(spacing::OVERLAY_MARGIN * 2);
+    // Panel chrome (border + padding) eats 2 cols each side; +2 slack so the
+    // widget's column layout has room and long labels are not clipped.
+    let width = (content_width as u16 + 6).clamp(20, max_width.max(20));
+    // Chrome (border 2 + padding 2 + title 1) plus one row per binding.
+    let height = (rows.len() as u16 + 5).min(avail.size.height);
     let area = center(avail, width, height);
 
     frame.layer(key("help"), |help| {
-        let panel = Panel::new()
-            .title("keys — Esc to close")
-            .padding(spacing::PANEL_PADDING)
-            .focused(true);
-        help.widget(key("panel"), area, &panel);
-        let inner = Panel::inner(area, &panel);
-
-        let row_rect = |offset: u16| {
-            Rect::new(
-                Position::new(inner.origin.x, inner.origin.y + offset),
-                Size::new(inner.size.width, 1),
-            )
-        };
-        for (offset, (chord, label)) in rows.iter().take(listed).enumerate() {
-            let line = format!("{chord:<widest_chord$}{gap}{label}", gap = " ".repeat(COLUMN_GAP));
-            // Two columns in one line so the chord and action stay aligned; the
-            // whole row is Accent so the chord reads as the actionable part.
-            help.widget(
-                key("row").index(offset),
-                row_rect(offset as u16),
-                &Text::new(line).role(Role::Accent),
-            );
-        }
-        if truncated {
-            let more = rows.len() - listed;
-            // The last visible inner row is the summary (the modal's pattern).
-            help.widget(
-                key("more"),
-                row_rect(listed as u16),
-                &Text::new(format!("…and {more} more")).role(Role::Muted),
-            );
-        }
+        help.widget(key("panel"), area, &overlay);
     });
 }
 
-/// The gap between the chord column and the action column in the help overlay.
+/// The gap between the chord column and the action column in the help overlay
+/// (matches [`HelpOverlay`]'s default column gap).
 const COLUMN_GAP: usize = 2;
 
 /// The confirmation modal, on a z-layer over the transcript (the `form.rs`

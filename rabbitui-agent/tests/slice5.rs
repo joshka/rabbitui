@@ -10,7 +10,8 @@
 
 use rabbitui_agent::app::{self, Agent};
 use rabbitui_agent::backend::replay::ReplayBackend;
-use rabbitui_agent::keymap::{Action, Chord, Keymap};
+use rabbitui_agent::keymap::{Action, KEYMAP, base_help_rows};
+use rabbitui_core::keymap::Chord;
 use rabbitui_core::geometry::Size;
 use rabbitui_core::id::{WidgetId, key};
 use rabbitui_core::input::Key;
@@ -63,7 +64,7 @@ fn the_help_overlay_opens_and_lists_bindings_generated_from_the_keymap() {
 fn the_help_rows_come_only_from_the_keymap_table() {
     // Every row the overlay could render is derivable from the keymap; nothing
     // is hand-maintained. Assert the row set equals the keymap's base bindings.
-    let rows = Keymap::app().help_rows();
+    let rows = base_help_rows();
     let labels: Vec<&str> = rows.iter().map(|(_, label)| *label).collect();
     assert!(labels.contains(&Action::Send.label()));
     assert!(labels.contains(&Action::ToggleMode.label()));
@@ -93,7 +94,7 @@ fn a_bound_printable_key_reaches_the_focused_composer() {
     // And the app-level dispatch would only ever act on an UNconsumed key: the
     // keymap maps bare `y` to Allow, but the dispatch site is consumed-guarded.
     assert_eq!(
-        Keymap::app().action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('y'))),
+        KEYMAP.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('y'))),
         Some(Action::Allow),
         "the keymap knows the chord, but the guard keeps it from firing here"
     );
@@ -104,18 +105,17 @@ fn the_toggle_mode_chord_is_ctrl_only() {
     // Standing invariant: app actions are Ctrl-chords only while composing.
     // Ctrl-T toggles; a bare `t` (or `m`) is not a base action — it is the
     // composer's to keep.
-    let km = Keymap::app();
     assert_eq!(
-        km.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('t')).ctrl()),
+        KEYMAP.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('t')).ctrl()),
         Some(Action::ToggleMode),
     );
     assert_eq!(
-        km.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('t'))),
+        KEYMAP.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('t'))),
         None,
         "a bare letter is never a base app action"
     );
     assert_eq!(
-        km.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('m'))),
+        KEYMAP.action_for(&rabbitui_core::input::KeyEvent::new(Key::Char('m'))),
         None,
         "the old bare-m mode toggle was dropped (composer-owned)",
     );
