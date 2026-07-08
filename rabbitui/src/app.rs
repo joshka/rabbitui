@@ -221,6 +221,8 @@ pub struct Update<'a, M = ()> {
     consumed: bool,
     /// The framework's focus at event time.
     focus: Option<WidgetId>,
+    /// The widget-state store as of the last frame, for read-only peeks.
+    store: Option<&'a StateStore>,
 }
 
 impl<'a, M> Update<'a, M> {
@@ -242,6 +244,7 @@ impl<'a, M> Update<'a, M> {
             pending,
             consumed: false,
             focus: None,
+            store: None,
         }
     }
 
@@ -274,6 +277,18 @@ impl<'a, M> Update<'a, M> {
     #[must_use]
     pub fn with_focus(mut self, focus: Option<WidgetId>) -> Self {
         self.focus = focus;
+        self
+    }
+
+    /// Supplies the widget-state store so [`widget_state`](Self::widget_state)
+    /// can read committed state.
+    ///
+    /// The loop sets this from the store as of the last painted frame; tests may
+    /// too. The reference is read-only — peeking never mutates the store or marks
+    /// an id seen, so it is safe to hand out during `update`.
+    #[must_use]
+    pub fn with_store(mut self, store: &'a StateStore) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -418,6 +433,44 @@ impl<'a, M> Update<'a, M> {
     {
         let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
         self.pending.borrow_mut().widget.command::<W>(id, f);
+    }
+
+    /// Reads the widget at the given root-relative key path's committed state, if
+    /// it exists in the store as of the last painted frame.
+    ///
+    /// The write-side sibling of [`widget`](Self::widget): where `widget` queues a
+    /// mutation applied before the next frame, this peeks the *current* value so an
+    /// app can branch on what a widget holds (a list's selection, an input's text)
+    /// without mirroring it from outcomes (dogfood finding #2). Returns `None` when
+    /// no store was supplied (`with_store` was not called — e.g. a bare test
+    /// `Update`), the id was never declared, or the stored type does not match
+    /// `W::State`.
+    ///
+    /// Peeking is read-only: it does not mark the id seen, so a widget the app
+    /// peeks but does not re-declare still ages out at frame end.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    ///
+    /// use rabbitui::app::{Event, Update};
+    /// use rabbitui_core::id::key;
+    /// use rabbitui_core::input::{InputEvent, Key};
+    /// use rabbitui_widgets::TextInput;
+    ///
+    /// let pending = RefCell::new(Default::default());
+    /// let update: Update<'_, ()> = Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
+    /// // No store supplied on a bare `Update`, so the read is `None`.
+    /// assert!(update.widget_state::<TextInput>(&[key("search")]).is_none());
+    /// ```
+    #[must_use]
+    pub fn widget_state<W>(&self, path: &[Key]) -> Option<&W::State>
+    where
+        W: Widget,
+    {
+        let id = path.iter().fold(WidgetId::ROOT, |id, &key| id.child(key));
+        self.store?.peek::<W::State>(id)
     }
 
     /// Requests focus move to the widget at the given root-relative key path,
@@ -1079,7 +1132,8 @@ where
                         back.resize(size);
                         engine.force_repaint();
                         let pending = RefCell::new(Pending::default());
-                        let ctx = Update::new(Event::Resize(viewport), &[], &pending);
+                        let ctx =
+                            Update::new(Event::Resize(viewport), &[], &pending).with_store(&store);
                         broke = update(&mut state, ctx).is_break();
                         drain_pending(
                             pending.into_inner(),
@@ -1101,7 +1155,8 @@ where
                             let pending = RefCell::new(Pending::default());
                             let ctx = Update::new(Event::Input(event), &result.outcomes, &pending)
                                 .with_consumed(result.consumed)
-                                .with_focus(focus.current());
+                                .with_focus(focus.current())
+                                .with_store(&store);
                             broke = update(&mut state, ctx).is_break();
                             drain_pending(
                                 pending.into_inner(),
@@ -1401,7 +1456,7 @@ where
         Outbox::Failed(error) => Event::EffectFailed(error),
     };
     let pending = RefCell::new(Pending::default());
-    let ctx = Update::new(event, &[], &pending);
+    let ctx = Update::new(event, &[], &pending).with_store(&*store);
     let broke = update(state, ctx).is_break();
     drain_pending(
         pending.into_inner(),
