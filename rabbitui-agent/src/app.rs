@@ -382,10 +382,16 @@ fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
         Constraint::Length(1),
         Constraint::Length(1),
     ]);
+    // Anchor the preview to the bottom so a reply taller than this region streams
+    // its newest lines into view instead of filling the top and then appearing to
+    // freeze until the finished message commits to scrollback.
     frame.widget(
         key("preview"),
         preview,
-        &Text::new(preview_text(app)).wrap(true).role(Role::Text),
+        &Text::new(preview_text(app))
+            .wrap(true)
+            .role(Role::Text)
+            .anchor_bottom(true),
     );
     render_footer(app, frame, status_row, composer_row, hint_row);
 }

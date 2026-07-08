@@ -182,6 +182,11 @@ pub struct Text<'a> {
     /// Whether long lines soft-wrap to the area width (grapheme-correct) rather
     /// than clip at the right edge.
     wrap: bool,
+    /// When the content is taller than the area, whether to keep the *last* rows
+    /// visible (anchor to the bottom) rather than the first. Off by default, so
+    /// overflow clips at the bottom as usual; on, it clips at the top — a live
+    /// tail view, e.g. a streaming preview that should always show newest text.
+    anchor_bottom: bool,
 }
 
 /// How a [`Text`] resolves its default paint style: a semantic role (resolved
@@ -217,6 +222,7 @@ impl<'a> Text<'a> {
             content: content.into(),
             style: Appearance::Role(Role::Text),
             wrap: false,
+            anchor_bottom: false,
         }
     }
 
@@ -290,6 +296,34 @@ impl<'a> Text<'a> {
     #[must_use]
     pub const fn is_wrapped(&self) -> bool {
         self.wrap
+    }
+
+    /// Anchors overflow to the bottom: when the content is taller than the area,
+    /// the *last* rows stay visible and the top is clipped, instead of the
+    /// default (first rows visible, bottom clipped).
+    ///
+    /// Use it for a fixed-height live tail — a streaming preview, a log pane —
+    /// where the newest lines matter most. With content that fits the area it has
+    /// no effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_widgets::Text;
+    ///
+    /// let tail = Text::new("many\nlines").wrap(true).anchor_bottom(true);
+    /// assert!(tail.is_anchored_bottom());
+    /// ```
+    #[must_use]
+    pub const fn anchor_bottom(mut self, anchor_bottom: bool) -> Self {
+        self.anchor_bottom = anchor_bottom;
+        self
+    }
+
+    /// Whether overflow anchors to the bottom (see [`anchor_bottom`](Self::anchor_bottom)).
+    #[must_use]
+    pub const fn is_anchored_bottom(&self) -> bool {
+        self.anchor_bottom
     }
 
     /// The [`Content`] this widget shows.
@@ -391,7 +425,17 @@ impl Widget for Text<'_> {
             lines
         };
 
-        for (y, row) in display_rows.iter().enumerate() {
+        // Anchoring to the bottom drops the leading overflow rows so the last
+        // `area.height` rows land at the top of the area; the default keeps the
+        // first rows and clips the tail.
+        let start = if self.anchor_bottom {
+            display_rows
+                .len()
+                .saturating_sub(usize::from(area.height))
+        } else {
+            0
+        };
+        for (y, row) in display_rows[start..].iter().enumerate() {
             let Ok(y) = u16::try_from(y) else { break };
             if y >= area.height {
                 break;
@@ -581,6 +625,28 @@ mod tests {
         let mut buffer = Buffer::new(Size::new(10, 2));
         let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "one");
+        assert_eq!(row(&buffer, 1), "two");
+    }
+
+    #[test]
+    fn anchor_bottom_keeps_the_last_rows_when_content_overflows() {
+        let mut buffer = Buffer::new(Size::new(10, 2));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
+        Text::new("one\ntwo\nthree")
+            .anchor_bottom(true)
+            .render(&mut (), &mut ctx);
+        assert_eq!(row(&buffer, 0), "two");
+        assert_eq!(row(&buffer, 1), "three");
+    }
+
+    #[test]
+    fn anchor_bottom_is_a_no_op_when_content_fits() {
+        let mut buffer = Buffer::new(Size::new(10, 3));
+        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
+        Text::new("one\ntwo")
+            .anchor_bottom(true)
+            .render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two");
     }
