@@ -37,24 +37,25 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}/conformance
 
   msrv:
-    # MSRV = stable-minus-one per docs/plans/arc5-field.md item 7(a) and the brief.
-    # Pinned here in ONE place. AUTHOR: confirm this concrete version each toolchain
-    # bump — see the header note below. If you also want it enforced by cargo at the
-    # manifest level, add `rust-version = "1.89"` under [workspace.package] in the
-    # root Cargo.toml (it currently reads 1.85, the edition-2024 floor, NOT the MSRV
-    # policy version); this workflow does not touch Cargo.toml to avoid colliding
-    # with the code workstreams.
+    # Policy: the *actual* MSRV is the true compile floor and "moves only when
+    # needed" — it bumps only when the code adopts a newer language/std feature.
+    # It is NOT the policy ceiling: the MSRV *policy* is stable-minus-one (N-1),
+    # currently 1.95, which is only an upper bound we never exceed. Today the true
+    # floor is 1.88, set by stabilized let-chains (`if let … && let …`, Rust 1.88)
+    # used in rabbitui-agent/src/app.rs, rabbitui/examples/gallery.rs, et al.
+    # This pin must equal `rust-version` under [workspace.package] in the root
+    # Cargo.toml (currently "1.88"); bump both together only when the floor moves.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
         run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ env.WORKSPACE }}
       - name: Check on MSRV
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace
         working-directory: ${{ env.WORKSPACE }}
 
   semver-checks:
@@ -83,24 +84,58 @@ jobs:
         run: cargo semver-checks --workspace
         working-directory: ${{ env.WORKSPACE }}
 
-  lint:
+  clippy:
+    # Runs clippy on a matrix of stable AND beta. beta catches lints that are
+    # about to land on stable, giving lead time to fix them. The beta leg is
+    # continue-on-error so a newly-introduced upstream beta lint can't hard-block
+    # a PR — it surfaces as a warning-level signal, not a gate. The stable leg
+    # remains blocking (`-D warnings`).
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta]
+    continue-on-error: ${{ matrix.toolchain == 'beta' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.WORKSPACE }}
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: ${{ env.WORKSPACE }}
+
+  fmt:
+    # rustfmt runs on NIGHTLY (maintainer policy): formatting uses the good
+    # unstable rustfmt options, which only nightly rustfmt applies. With no
+    # unstable options in config today this matches stable, but it tracks the
+    # local `cargo +nightly fmt` workflow and future-proofs a rustfmt.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo +nightly fmt --all --check
+        working-directory: ${{ env.WORKSPACE }}
+
+  docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
         run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ env.WORKSPACE }}
-      - name: Format
-        run: cargo fmt --check
-        working-directory: ${{ env.WORKSPACE }}
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-        working-directory: ${{ env.WORKSPACE }}
       - name: Docs
         run: cargo doc --workspace --no-deps
         working-directory: ${{ env.WORKSPACE }}

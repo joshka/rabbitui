@@ -12,7 +12,9 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+# true MSRV (moves only when needed); policy ceiling is stable-minus-one (currently 1.95).
+# Binding feature: stabilized let-chains (Rust 1.88), used in rabbitui-agent/src/app.rs et al.
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/joshka/rabbitui"
 
