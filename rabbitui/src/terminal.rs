@@ -148,16 +148,14 @@ impl Terminal {
             }));
         });
 
-        // Resolve the controlling terminal's real device path instead of the
-        // `/dev/tty` alias: on macOS, kqueue (and therefore tokio's AsyncFd)
-        // rejects the alias device with EINVAL, while the underlying pty path
-        // (`/dev/ttysNNN`) registers fine. Filed upstream in the qwertty
-        // requirements handover; until qwertty resolves it internally, this
-        // seam does. Falls back to the alias where no std stream is a tty.
-        let session = match controlling_tty_path() {
-            Some(path) => TokioTerminalSession::open_path(path)?,
-            None => TokioTerminalSession::open()?,
-        };
+        // Open through qwertty's own controlling-terminal acquisition. It dups the
+        // inherited read-write stdin — the descriptor kqueue accepts on macOS —
+        // falling back to the resolved device path, then the `/dev/tty` alias
+        // (`session.acquisition()` reports which branch won). This resolves the
+        // macOS EINVAL that once forced our hand-rolled `ttyname → open_path`
+        // workaround here (qwertty substrate-status; requirements doc "Resolution
+        // — qwertty sync" #3), so the seam no longer resolves the device itself.
+        let session = TokioTerminalSession::open()?;
         Ok(Self {
             session: Some(session),
         })
@@ -245,6 +243,13 @@ impl Terminal {
     /// the invariant "RESTORE always leaves the alt screen" holds regardless of
     /// mode — then leaves raw mode.
     ///
+    /// This byte backstop is **kept** even though qwertty's session leave/drop
+    /// replays its own mode ledger: rabbitui enters the alternate screen by
+    /// writing raw bytes through the *engine* (ADR 0013's pure-engine split), not
+    /// through qwertty's ledger API, so qwertty's ledger never recorded — and so
+    /// never undoes — our alt-screen entry. Its restore is therefore not
+    /// equivalent to ours; the belt-and-suspenders leave-alt-screen stays.
+    ///
     /// # Errors
     ///
     /// Returns an error if restoration writes fail; the terminal state is
@@ -281,23 +286,6 @@ impl Drop for Terminal {
             restore_directly();
         }
     }
-}
-
-/// The real path of the controlling terminal (e.g. `/dev/ttys003`), resolved
-/// via `ttyname` on the first standard stream that is a terminal.
-fn controlling_tty_path() -> Option<std::path::PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let stderr = std::io::stderr();
-    let fds: [&dyn std::os::fd::AsFd; 3] = [&stdin, &stdout, &stderr];
-    for fd in fds {
-        if let Ok(name) = rustix::termios::ttyname(fd, Vec::new()) {
-            let bytes = name.into_bytes();
-            return Some(std::ffi::OsString::from_vec(bytes).into());
-        }
-    }
-    None
 }
 
 /// The panic-hook decision: run `restore` only for a genuine panic, never for a

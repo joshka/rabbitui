@@ -295,6 +295,8 @@ pub enum Key {
     PageUp,
     /// Page Down.
     PageDown,
+    /// Insert.
+    Insert,
     /// Delete (forward delete).
     Delete,
 }

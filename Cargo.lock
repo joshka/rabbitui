@@ -1078,7 +1078,6 @@ dependencies = [
  "rabbitui-core",
  "rabbitui-testing",
  "rabbitui-widgets",
- "rustix",
  "tokio",
  "toml",
  "tracing",
