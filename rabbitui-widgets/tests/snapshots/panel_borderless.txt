@@ -19,16 +19,16 @@
 (14,0) " " = fg=#cdd6f4 bg=#1e1e2e
 (15,0) " " = fg=#cdd6f4 bg=#1e1e2e
 (0,1) " " = fg=#cdd6f4 bg=#1e1e2e
-(1,1) "b" = fg=#cdd6f4
-(2,1) "o" = fg=#cdd6f4
-(3,1) "r" = fg=#cdd6f4
-(4,1) "d" = fg=#cdd6f4
-(5,1) "e" = fg=#cdd6f4
-(6,1) "r" = fg=#cdd6f4
-(7,1) "l" = fg=#cdd6f4
-(8,1) "e" = fg=#cdd6f4
-(9,1) "s" = fg=#cdd6f4
-(10,1) "s" = fg=#cdd6f4
+(1,1) "b" = fg=#cdd6f4 bg=#1e1e2e
+(2,1) "o" = fg=#cdd6f4 bg=#1e1e2e
+(3,1) "r" = fg=#cdd6f4 bg=#1e1e2e
+(4,1) "d" = fg=#cdd6f4 bg=#1e1e2e
+(5,1) "e" = fg=#cdd6f4 bg=#1e1e2e
+(6,1) "r" = fg=#cdd6f4 bg=#1e1e2e
+(7,1) "l" = fg=#cdd6f4 bg=#1e1e2e
+(8,1) "e" = fg=#cdd6f4 bg=#1e1e2e
+(9,1) "s" = fg=#cdd6f4 bg=#1e1e2e
+(10,1) "s" = fg=#cdd6f4 bg=#1e1e2e
 (11,1) " " = fg=#cdd6f4 bg=#1e1e2e
 (12,1) " " = fg=#cdd6f4 bg=#1e1e2e
 (13,1) " " = fg=#cdd6f4 bg=#1e1e2e
