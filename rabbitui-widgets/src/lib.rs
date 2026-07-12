@@ -22,6 +22,11 @@
 //!   [`ListSource`], emitting
 //!   [`Outcome::Selected`](rabbitui_core::outcome::Outcome::Selected) and
 //!   [`Outcome::Activated`](rabbitui_core::outcome::Outcome::Activated).
+//! - [`Table`] — a virtualized, index-selected table of cells over a
+//!   [`TableSource`] (the virtualization seam: cells are fetched only for the
+//!   painted window), with a pinned header and per-column width constraints,
+//!   emitting [`Outcome::Selected`](rabbitui_core::outcome::Outcome::Selected)
+//!   and [`Outcome::Activated`](rabbitui_core::outcome::Outcome::Activated).
 //! - [`Collapsible`] — a header + body disclosure cell whose collapsed state is
 //!   retained by identity; Enter or a header click toggles it, emitting
 //!   [`Outcome::Toggled`](rabbitui_core::outcome::Outcome::Toggled). The
@@ -76,6 +81,7 @@ pub mod help_overlay;
 pub mod log_overlay;
 pub mod panel;
 pub mod selection_list;
+pub mod table;
 pub mod text;
 pub mod text_input;
 
@@ -89,5 +95,8 @@ pub use help_overlay::HelpOverlay;
 pub use log_overlay::LogOverlay;
 pub use panel::Panel;
 pub use selection_list::{FromFn, ListSource, SelectionList, from_fn, rows_with};
+pub use table::{
+    Column, Table, TableFromFn, TableSource, TableState, table_from_fn, table_rows_with,
+};
 pub use text::{Content, Text};
 pub use text_input::TextInput;
