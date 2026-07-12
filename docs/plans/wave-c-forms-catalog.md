@@ -98,3 +98,14 @@ Do C3 after B2 lands; item 1 (markdown) is independent and can go anytime.
 - C1: after Wave A. One lane, small.
 - C2: after C1 + one real consumer. Own spec pass first.
 - C3.1 (markdown): anytime. C3.2/C3.3: after B2.
+
+## What good looks like (beyond the acceptance gates)
+
+- The rewritten `examples/form.rs` diff is the proof: label alignment, error lines, and
+  focus order code DELETED from the app, not moved around.
+- A form with five fields reads top-to-bottom as a description of the form, one line per
+  field — no layout arithmetic visible.
+- Validation stays visibly app-land (the example validates in `update` on outcomes) —
+  if the example smuggles validation into the widget layer, the contract eroded.
+- Error display honors the theme (Role::Error) and the looks-good bar under all four
+  presets.

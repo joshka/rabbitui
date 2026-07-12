@@ -110,3 +110,15 @@ Determinism rules from the existing suite apply: never a bare sleep — always
   `contents()` — mixing them up makes test 2 flaky.
 - If the replay backend needs real time to emit turns, prefer a fixture that emits
   immediately; the pump's 2ms tick is wall-clock.
+
+## What good looks like (beyond the acceptance gates)
+
+- Each test reads as a user story (open help, approve a tool, toggle modes) — a reader
+  can tell what regressed from the test name + failure message alone, without opening
+  the harness.
+- No sleeps, no magic byte strings without a named const citing the keymap chord.
+- The bug-reintroduction spot-check (step 3 of acceptance) is recorded IN this plan with
+  the revert tried and the failure message observed.
+- The promoted harness module doc keeps the "why a pump, not a spawn" explanation and a
+  copy-pasteable example — the next crate to adopt it (rabbitui-agent was first) should
+  need zero archaeology.

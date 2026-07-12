@@ -86,6 +86,31 @@ flag** — check substrate-status.md before starting it.
   sections that fill in depth, with detail pushed to appendices or plan files. A doc that
   grew by accretion gets restructured, not appended to.
 
+## Definition of done (global; wave plans add specifics)
+
+"Done" is not "compiles and the listed tests pass." Every wave item meets ALL of:
+
+1. **Gates**: `cargo test --workspace` (+ standalone crates), clippy zero warnings,
+   `cargo +nightly fmt --all --check`, markdownlint on touched docs. Non-negotiable.
+2. **Proven at the right layer**: framework behavior gets a harness-level test (TestApp /
+   VtScreen / FakeDevice pump), not only unit tests — this repo's bug history (help-panic,
+   tool-freeze) is the reason. Anything visual/interactive is flagged for coordinator
+   betamax; say so explicitly in the handoff rather than claiming it verified.
+3. **Consumed once**: new API is not done until one real consumer uses it (an example,
+   the dogfood app, or the flagship) and any friction found is written into
+   `docs/design/dogfood-findings.md` as a numbered entry.
+4. **Documented where users look**: rustdoc on every public item (with an example for
+   entry points), and the relevant design/plan doc updated with dated corrections —
+   never silently diverging from the plan.
+5. **Reads well**: the code a user would imitate (examples, doc examples) follows the
+   §2 canonical shapes, wins on succinctness WITHOUT losing obviousness — if a fresh
+   reader can't answer "where does focus go on Tab?" from the example, it is not done.
+6. **Looks good** (standing rule): if the change touches anything visible, the example
+   showing it meets the Arc 2A bar.
+
+"Good," beyond done, is each plan's "What good looks like" block — read it before
+starting, self-review against it before committing.
+
 ## Author decision queue (do not decide these yourself)
 
 - ADR 0014: ship as `rabbitui` vs a ratatui-* name (author holds the reservations) — blocks 0.1.

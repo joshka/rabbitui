@@ -67,3 +67,14 @@ becomes testable; add an Esc-close assertion to the flagship help-overlay e2e th
 Workspace + comparisons suites, clippy, nightly fmt; e2e 5×; a registry-only build job
 green; suspend/resume + $EDITOR verified by the coordinator on a real TTY (betamax).
 Update ROADMAP Arc 4 rows (suspend ⬜ → status) and this file with dated corrections.
+
+## What good looks like (beyond the acceptance gates)
+
+- After D3, the `Event` docs' "polled, not pushed" caveat is DELETED (the docs promised
+  this change; leaving a stale caveat is the failure mode).
+- Suspend/resume leaves zero trace on screen after `fg`: full repaint, correct size,
+  mode restored — verified by the coordinator on a real TTY and recorded here dated.
+- The registry-only CI job proves a fresh `cargo add rabbitui`-shaped consumer builds —
+  no path deps, no git deps.
+- Each adopted qwertty feature deletes interim rabbitui code (decode shims, poll loops,
+  backstops) — adoption that only ADDS code is wiring, not adoption; note net diffstat.

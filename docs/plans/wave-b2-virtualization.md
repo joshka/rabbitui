@@ -170,3 +170,16 @@ numbered findings, same format).
   on the top/bottom rows misroutes — test 2 covers this; don't weaken it.
 - `Cow<'_, str>` on `cell()` keeps zero-copy for stored strings while allowing formatted
   cells; resist `String` (allocates per painted cell per frame).
+
+## What good looks like (beyond the acceptance gates)
+
+- The virtualization property is asserted structurally (measure-callback counts, facts
+  counts), never by wall-clock — a slow CI machine cannot flake these tests.
+- A 1M-row `from_fn` source scrolls in the demo without any app-side caching — the app
+  author writes zero virtualization code; that is the whole point.
+- The top-partial slice test asserts exact row text (the render-space wrong-slice bug
+  cannot re-enter).
+- `Table`'s API surface reads like `SelectionList`'s (same naming, same state shape,
+  same outcome vocabulary) — a user who knows one knows the other.
+- The measured-cache invalidation rules are documented on the type with a "when to call
+  invalidate" example, because that is the first support question this feature will get.

@@ -362,6 +362,11 @@ ROADMAP.md's tracker; this list is forward-only.)
   block-level early commit, cargo-semver-checks + release automation, **the naming
   decision** (incl. crates.io availability check — see "What rabbitui is"), concept
   docs, `examples/simple.rs` + size budgets (appendix B).
+- **Wave G — archetype showcase** (`wave-g-archetype-showcase.md`): faked-out archetype
+  pairs (picker, form, dashboard, inline streamer) built identically in rabbitui and
+  honest idiomatic ratatui, with a metrics script (LoC, plumbing, framework-ownable
+  state) and a fresh-judge eval protocol (comprehension / modification / bug-hunt /
+  state-audit questions). The proof artifacts for the pillars; after Wave A.
 
 By archetype (what unblocks whom): agent CLI + log follower want B2 most (virtualized
 transcript/tail); dashboards want B2's `Table`; forms/wizards want C1; pickers and

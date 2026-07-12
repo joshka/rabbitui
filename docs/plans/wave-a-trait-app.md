@@ -254,3 +254,15 @@ cleaner after Step 6's flagship migration — sequence it after if only one lane
 - Doc-tests count as call sites; `cargo test --workspace` runs them — don't skip.
 - Trait-method resolution: if a migrated app also has an inherent method named `update`,
   the inherent wins at call sites — rename the inherent (this bit nobody yet; watch for it).
+
+## What good looks like (beyond the acceptance gates)
+
+- A newcomer can read `impl App for Counter` in `examples/counter.rs` and answer "where
+  does state live, where do keys arrive, how do I quit" without opening the framework.
+- Every migrated example is SHORTER or equal, and none needed a comment explaining the
+  trait mechanics — if one did, the trait docs (not the example) were the fix.
+- `from_fn` hello is still a screenful; the trait examples read as the idiom being
+  taught, not a second dialect.
+- `global`/`init` in the flagship and log-follower deleted real code (the hoisted Ctrl-C
+  block, the Started match) — net-negative diffstat outside the facade is the smell test.
+- The ADR 0001 amendment quotes the three growth failures as evidence, not opinion.
