@@ -138,6 +138,8 @@ dependencies = [
 [[package]]
 name = "qwertty"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "310db21ad6388db6c1c093db259c15d88f9faa09c5024a70ff71432aaa0e2dbe"
 dependencies = [
  "rustix",
  "tokio",

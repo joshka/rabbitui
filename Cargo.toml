@@ -23,15 +23,16 @@ rabbitui-core = { path = "rabbitui-core", version = "0.1.0" }
 rabbitui = { path = "rabbitui", version = "0.1.0" }
 rabbitui-widgets = { path = "rabbitui-widgets", version = "0.1.0" }
 rabbitui-testing = { path = "rabbitui-testing", version = "0.1.0" }
-# Path dependency during development; switches to a git (then crates.io) dependency
-# when qwertty publishes. See docs/adr/0012-terminal-substrate.md.
+# qwertty published to crates.io (0.1.2), so the default build now pulls it from
+# the registry — reproducible on CI without a local checkout (Wave D1; the path-dep
+# era the comment below anticipated is over). See docs/adr/0012-terminal-substrate.md
+# and docs/plans/wave-d-qwertty-adoption.md.
 #
-# Points at qwertty's `work/default` jj workspace — the tree qwertty keeps pinned
-# to its last *sealed, green* change — not the bare checkout (its actively-churning
-# dev working tree, which is often mid-slice and may not compile). This is the
-# intended downstream consumption path during qwertty's active development, and it
-# is what keeps our build stable against their churn (their 2026-07-07 guidance).
-qwertty = { path = "../../../qwertty/work/default", features = ["tokio"] }
+# Local development against qwertty's HEAD is an *optional*, uncommitted
+# `[patch.crates-io] qwertty = { path = "../../../qwertty/work/default" }` (or a CI
+# "patched-HEAD" job) — author decision 2026-07-11 wanted both a registry build and
+# a patched build; this file is the registry baseline, the patch layers over it.
+qwertty = { version = "0.1.2", features = ["tokio"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
 futures-core = { version = "0.3", default-features = false }
 # The flagship agent client (rabbitui-agent) adapts the backend's event stream
