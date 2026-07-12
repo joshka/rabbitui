@@ -42,7 +42,7 @@ pub enum Constraint {
 /// cumulative shares, so the bands always tile the remainder exactly.
 #[must_use]
 pub fn split_rows<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
-    let heights = split_lengths(area.size.height, &constraints);
+    let heights = split_lengths_array(area.size.height, &constraints);
     let mut y = area.origin.y;
     heights.map(|height| {
         let rect = Rect::new(
@@ -59,7 +59,7 @@ pub fn split_rows<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [
 /// Identical rules to [`split_rows`], applied to columns.
 #[must_use]
 pub fn split_columns<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
-    let widths = split_lengths(area.size.width, &constraints);
+    let widths = split_lengths_array(area.size.width, &constraints);
     let mut x = area.origin.x;
     widths.map(|width| {
         let rect = Rect::new(
@@ -148,13 +148,54 @@ pub fn inset(area: Rect, margin: u16) -> Rect {
     Rect::new(Position::new(x, y), Size::new(width, height))
 }
 
-/// Resolves constraint lengths along one axis of `total` cells.
-fn split_lengths<const N: usize>(total: u16, constraints: &[Constraint; N]) -> [u16; N] {
+/// Resolves per-band lengths for a runtime-length list of constraints along an
+/// axis of `total` cells.
+///
+/// The slice sibling of [`split_rows`]/[`split_columns`] for callers whose band
+/// count is not known at compile time — a [`Table`](https://docs.rs/rabbitui-widgets/latest/rabbitui_widgets/struct.Table.html)'s
+/// columns, say. Same rules and same exact cumulative-share arithmetic, returning
+/// a `Vec` one entry per constraint: [`Constraint::Length`] bands take their fixed
+/// width first (clipped in order as space runs out), then [`Constraint::Fill`]
+/// bands divide the remainder by weight with no gap and no overflow.
+///
+/// The fixed-count [`split_rows`]/[`split_columns`] path does not allocate; reach
+/// for those when `N` is a constant and this one only when it is dynamic.
+///
+/// # Examples
+///
+/// ```
+/// use rabbitui_core::layout::{Constraint, split_lengths};
+///
+/// let widths = split_lengths(20, &[Constraint::Length(4), Constraint::Fill(1)]);
+/// assert_eq!(widths, vec![4, 16]);
+/// ```
+#[must_use]
+pub fn split_lengths(total: u16, constraints: &[Constraint]) -> Vec<u16> {
+    let mut lengths = vec![0u16; constraints.len()];
+    fill_lengths(total, constraints, &mut lengths);
+    lengths
+}
+
+/// The fixed-count array form of [`split_lengths`], allocation-free — the hot
+/// path behind [`split_rows`]/[`split_columns`].
+fn split_lengths_array<const N: usize>(total: u16, constraints: &[Constraint; N]) -> [u16; N] {
     let mut lengths = [0u16; N];
+    fill_lengths(total, constraints, &mut lengths);
+    lengths
+}
+
+/// Writes one resolved length per constraint into `out` (`out.len()` must equal
+/// `constraints.len()`), along an axis of `total` cells — the single copy of the
+/// constraint-resolution arithmetic shared by the array and slice entry points,
+/// filling in place so neither allocates beyond its own output.
+fn fill_lengths(total: u16, constraints: &[Constraint], out: &mut [u16]) {
+    // Every entry is set below except a zero-weight fill on the total_weight == 0
+    // early return, so start from zero.
+    out.fill(0);
     let mut remaining = total;
 
     // Pass 1: fixed lengths, clipped in order as space runs out.
-    for (length, constraint) in lengths.iter_mut().zip(constraints) {
+    for (length, constraint) in out.iter_mut().zip(constraints) {
         if let Constraint::Length(want) = constraint {
             *length = (*want).min(remaining);
             remaining -= *length;
@@ -175,11 +216,11 @@ fn split_lengths<const N: usize>(total: u16, constraints: &[Constraint; N]) -> [
         })
         .sum();
     if total_weight == 0 {
-        return lengths;
+        return;
     }
     let mut cum_weight: u32 = 0;
     let mut previous_boundary: u16 = 0;
-    for (length, constraint) in lengths.iter_mut().zip(constraints) {
+    for (length, constraint) in out.iter_mut().zip(constraints) {
         if let Constraint::Fill(weight) = constraint {
             cum_weight += u32::from(*weight);
             let boundary = ((u32::from(remaining) * cum_weight + total_weight / 2) / total_weight)
@@ -188,7 +229,6 @@ fn split_lengths<const N: usize>(total: u16, constraints: &[Constraint; N]) -> [
             previous_boundary = boundary;
         }
     }
-    lengths
 }
 
 #[cfg(test)]
@@ -246,6 +286,33 @@ mod tests {
             ],
         );
         assert_eq!((a.size.height, b.size.height, c.size.height), (3, 1, 0));
+    }
+
+    #[test]
+    fn split_lengths_slice_matches_the_array_path() {
+        // The dynamic-count entry point resolves the same lengths the fixed-count
+        // split_columns does: Length first, then exact-share Fill.
+        let constraints = [
+            Constraint::Length(20),
+            Constraint::Fill(1),
+            Constraint::Fill(2),
+        ];
+        let widths = split_lengths(90, &constraints);
+        assert_eq!(widths, vec![20, 23, 47]); // 20 fixed, then 70 split 1:2 (23+47)
+        let [a, b, c] = split_columns(Rect::from_size(Size::new(90, 5)), constraints);
+        assert_eq!(
+            widths,
+            vec![a.size.width, b.size.width, c.size.width],
+            "slice and array paths agree"
+        );
+    }
+
+    #[test]
+    fn split_lengths_zero_weight_fills_stay_zero() {
+        // A Fill(0) contributes no weight; with only zero-weight fills the
+        // remainder is unassigned and every fill band is zero.
+        let widths = split_lengths(10, &[Constraint::Length(4), Constraint::Fill(0)]);
+        assert_eq!(widths, vec![4, 0]);
     }
 
     #[test]
