@@ -47,8 +47,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y valgrind
       - uses: dtolnay/rust-toolchain@stable
       - name: Install iai-callgrind-runner
-        # The runner binary must match the bench crate's iai-callgrind version.
-        run: cargo install iai-callgrind-runner --version 0.14 --locked
+        # The runner binary must match the bench crate's iai-callgrind version
+        # (rabbitui/Cargo.toml pins `iai-callgrind = "0.14"`). A bare `0.14` is not
+        # a valid `--version` requirement for current cargo, so use a caret req that
+        # resolves to the same 0.14.x line.
+        run: cargo install iai-callgrind-runner --version '^0.14' --locked
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ env.WORKSPACE }}
