@@ -9,7 +9,9 @@ understandable and obvious — succinctness must not get in the way of readabili
 **The honesty rule is load-bearing.** The author is a ratatui maintainer; a strawman
 ratatui version is worthless and embarrassing. Each ratatui pair is written as a
 competent ratatui developer would (idiomatic, informed by the ratatui examples repo and
-templates), reviewed against that bar before any numbers are published. If ratatui wins
+templates), reviewed against that bar before any numbers are published. **Decided
+(author, 2026-07-11): the author personally reviews every ratatui version; eval grading
+is done by a strong model with author spot-checks.** If ratatui wins
 an axis somewhere, that is a finding, not a failure — record it in
 `docs/design/dogfood-findings.md` and fix the framework, not the benchmark.
 

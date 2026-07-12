@@ -11,9 +11,11 @@ noted; ordering below is by leverage.
 
 - Switch the workspace `qwertty` dep from the path to the published version
   (`qwertty = { version = "0.1", features = ["tokio"] }`), keeping a
-  `[patch.crates-io]` entry pointing at the local path while both trees co-develop —
-  ask the author which mode CI should build (pure-registry proves the release; patched
-  proves HEAD). Default: registry in CI, patch locally.
+  `[patch.crates-io]` entry pointing at the local path for local co-development.
+- **CI mode decided (author, 2026-07-11): both jobs, both blocking** — a registry job
+  (proves the release is sufficient, what an outside user builds) and a patched-HEAD job
+  (early warning while the two libraries move in tandem). Accepted as necessary pain;
+  demote the patched job to advisory only if it proves flaky, with a dated note here.
 - Unblock the Arc 5 CI items gated "when qwertty publishes": the betamax tape job and a
   plain `cargo build` job with **no** path deps (proves the release is sufficient).
 

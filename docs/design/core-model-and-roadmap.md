@@ -15,14 +15,10 @@ outcomes, effects, theming, and a real catalog — while staying interoperable w
 ratatui ecosystem rather than replacing it. It runs on the qwertty terminal substrate but
 is deliberately substrate-agnostic at the core (ADR 0012/0014).
 
-**Naming (open; author's call).** Candidates: `ratatui-framework`, `qwertty-tui`, or
-`rabbitui` (likely). Considerations on file: the brand-independence decision (ADR 0014
-amendment — the core is substrate-free, which cuts against `qwertty-tui`); the name
-`rabbitui` is now semi-public (teased on r/rust, 2026-07-10) and needs a crates.io
-availability check (an abandoned `maxmindlin/rabbitui` repo exists); `ratatui-framework`
-states the sibling relationship plainly and is plausible from a maintainer, at the cost
-of implying an org-official blessing. Not decided here — recorded so the decision has
-its inputs in one place.
+**Naming: decided — `rabbitui`** (author, 2026-07-11; ADR 0014 § Resolution). The
+sibling positioning lives in prose, not the crate name; brand stays independent of both
+the ratatui org and the qwertty substrate; crates.io names are reserved; reservations
+stay `0.0.0` until 0.1. Still open: the flagship binary name.
 
 ### The pillars (what the framework must be)
 

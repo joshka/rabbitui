@@ -148,19 +148,20 @@ starting, self-review against it before committing.
 
 ## Author decision queue (do not decide these yourself)
 
-In deadline order (updated 2026-07-11; briefing with tradeoffs delivered in-session):
+All five 2026-07-11 decisions are RESOLVED (author):
 
-1. **Before Wave A starts**: trait config shape — one `fn config() -> Config` struct (as
-   specced) vs individual `fn mode()/theme()/…` methods. Small; specced as Config.
-2. **Before spinning threads**: execution mode — serial / Mode 1 (one session,
-   subagents) / Mode 2 (workspace per session), and how many lanes (token-budget aware).
-3. **Before Wave D1**: qwertty dependency mode in CI — registry-only vs patched-HEAD vs
-   both jobs.
-4. **Before Wave G publishes numbers**: who performs the ratatui-version honesty review
-   and eval grading (author vs strong-model + author spot-check).
-5. **Before 0.1, cheaper sooner**: ADR 0014 name (`rabbitui` / `ratatui-framework` /
-   `qwertty-tui`) + publish cadence rider (reservation-only vs rolling 0.0.x pre-releases).
-   Flagship binary name (`rabbit` placeholder) rides with it.
+1. Trait config shape: **one `fn config() -> Config` struct**, as specced in Wave A.
+2. Execution mode: **Mode 2 with two sessions** (Wave A + Wave B2), Mode 1 subagents
+   inside each for their internal fan-outs; coordinator session lands lanes.
+3. qwertty CI dependency: **both jobs** (registry + patched-HEAD), both blocking —
+   accepted as necessary pain while the two libraries move in tandem (Wave D1).
+4. Wave G: **author reviews the ratatui versions**; eval grading by a strong model with
+   author spot-check.
+5. Name: **rabbitui** (ADR 0014 § Resolution); reservations stay `0.0.0` until 0.1.
+
+Still open:
+
+- Flagship binary name (`rabbit` is the placeholder in ROADMAP).
 
 Standing author-only chores:
 

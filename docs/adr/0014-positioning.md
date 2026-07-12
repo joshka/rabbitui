@@ -179,6 +179,18 @@ facts for the eventual decision, recorded without deciding:
 The decision itself remains in the author queue (`docs/plans/00-execution-playbook.md`), blocking
 0.1.
 
+## Resolution (2026-07-11): the name is rabbitui
+
+The author decided: **`rabbitui`**. Grounds, as briefed: independence from both the ratatui org and
+the qwertty substrate is preserved (the 2026-07-08 amendment stands unweakened); the name is already
+semi-public with a warm reception; the crates.io reservations are live; and `ratatui-framework` was
+declined because an org-implying name spends shared maintainer reputation on a personal project
+without org consensus — the sibling positioning ("ratatui's big framework brother") lives in the
+README prose instead, where it costs nothing. The near-homophone caveat is accepted with eyes open.
+
+Publish cadence rider: reservations stay at `0.0.0` until 0.1 (no rolling pre-releases). Still
+open: the flagship binary name (`rabbit` placeholder).
+
 ## Consequences
 
 ### Positive
