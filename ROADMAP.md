@@ -145,11 +145,20 @@ word.
 - **Wave B2 — virtualization + `Table`** ✅: anchor-based variable-height scrolling with a
   measure cache (O(window), verified structurally at 1M rows), the `hidden_top` render mask
   (partial-item wrong-slice bug fixed), and a virtualized `Table` widget.
-- Both certified green together (workspace + comparisons suites, clippy, nightly fmt,
-  e2e 5×, markdownlint). **Pending follow-ups**: coordinator betamax visual pass (flagship
-  launch moved; scrollbar geometry + partial items changed); B2 Part 3 = log-follower
-  adopts `Table` + a 1M-row demo (Table's "consumed once" proof — deferred at landing
-  because Wave A owned `comparisons/rabbitui`).
+- **B2 Part 3** ✅ (landed on trunk): the log-follower adopts `Table` (columnar
+  seq/level/target/message over a lazy `table_rows_with` source, zero per-frame alloc) and
+  ships `comparisons/rabbitui/examples/scale.rs` — a 1,000,000-row `Table` with no app-side
+  storage (End jumps to row 999,999, nothing materialized between). Surfaced dogfood
+  findings 9–11 (unnameable lazy-source type for widget commands; no per-row styling;
+  `SemanticRole::Table` absent). All three waves + Part 3 certified green together; the two
+  wave jj workspaces are retired.
+- **Open follow-up (visual)**: the betamax `agent` tape fails — the example builds and runs
+  fine (inline chrome renders, no panic), but its composer is focused at startup so the
+  `TextInput` placeholder ("…type a prompt…") the tape waits for is hidden. Undetermined
+  whether the startup-focus is a Wave A migration change or pre-existing (the on-disk gif is
+  stale from Jul 7). Resolve by checking pre-Wave-A focus, then either fix the focus code or
+  update the placeholder wording + the tape's wait-string. Gallery/scroll visual pass is
+  clean.
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
