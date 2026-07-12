@@ -10,8 +10,9 @@ the second real rabbitui app (beside the flagship `rabbitui-agent`), built to
 ## What it does
 
 A simulated log source pushes a new line every ~700ms into a bounded live window.
-You filter the visible lines by typing, Tab between the filter and the list, and
-press Enter on a line to open a modal showing its full detail.
+The lines show in a columnar `Table` (seq / level / target / message) with a
+pinned header. You filter the visible lines by typing, Tab between the filter and
+the table, and press Enter on a line to open a modal showing its full detail.
 
 It deliberately exercises the four things the field report says differentiate TUI
 frameworks:
@@ -25,6 +26,9 @@ frameworks:
   runtime drives this on unconsumed Tab); the focused region's panel highlights.
 - **A detail modal** — Enter (or a click) opens a `Frame::layer` modal with a
   focusable Close button; Esc or Ctrl-D closes it.
+- **A virtualized table** — the log lines render in a `Table` over a
+  `table_rows_with` lazy source on the app's filtered `visible()` slice, so no
+  per-frame `Vec<Vec<String>>` is built and only the painted cells are formatted.
 
 ### Inline vs. alt-screen
 
@@ -49,7 +53,9 @@ Controls:
 | ------------------ | --------------------------------------------- |
 | `Tab` / `Shift-Tab`| move focus between the filter and the list    |
 | type (filter)      | narrow the visible lines                      |
-| `↑` / `↓`          | move the list selection (list focused)        |
+| `↑` / `↓`          | move the table selection (table focused)      |
+| `PageUp`/`PageDown`| scroll the table by a page                    |
+| `Home` / `End`     | jump to the first / last row                  |
 | `Enter`            | open the detail modal for the selected line   |
 | `Esc` / `Ctrl-D`   | close the modal                               |
 | `Ctrl-P`           | pause / resume the log source                 |
@@ -62,11 +68,30 @@ Controls:
 > `init` deleted that workaround, so the spawn is now one line with nowhere to
 > misfire. Lines flow immediately — no key press needed.
 
+### One-million-row scale demo
+
+The `Table` is virtualized: it asks its source for a cell only when it paints
+that cell. To make that visible, a dedicated example points the same widget at a
+1,000,000-row synthetic source with **zero app-side caching** — the entire "data
+model" is a closure:
+
+```sh
+cd comparisons/rabbitui
+cargo run --example scale
+```
+
+Scroll with ↑/↓, PageUp/PageDown, Home/End, or the wheel; `End` jumps to row
+999,999 instantly because nothing between here and there is ever materialized.
+The app struct is empty — selection and scroll live in framework-owned widget
+state — so this is an honest proof that the app author writes no virtualization
+code. (Its runtime feel is the coordinator's betamax pass; the structural O(window)
+property is asserted in `rabbitui-widgets`' table tests at 10k and 1M rows.)
+
 Verification is green with:
 
 ```sh
 cargo test
-cargo clippy -- -D warnings
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
@@ -79,7 +104,7 @@ cover the pure filter/selection/state logic only.
 - `Cargo.toml` — a **standalone crate** (an empty `[workspace]` table detaches it
   from the root workspace, mirroring `conformance/`). Path deps on `rabbitui`,
   `rabbitui-core`, `rabbitui-widgets`.
-- `src/main.rs` — the whole app (~680 lines incl. docs and tests): domain types,
+- `src/main.rs` — the whole app (~690 lines incl. docs and tests): domain types,
   the `LogFollower` state and its `impl App` (`config` / `init` / `global` /
   `update` / `view`), the modal, a small `CloseButton` widget, the `LogSource`
   stream, and unit tests over the filter/`visible` logic. It started as an
@@ -87,7 +112,12 @@ cover the pure filter/selection/state logic only.
   functions plus the launch spawn and the always-on Ctrl-C into one `impl` — the
   `Event::Started` spawn moved to `init`, and the quit chord that used to sit
   hoisted at the top of `update` moved to `global`, where no early `return` can
-  strand it.
+  strand it. The log lines render in a columnar `Table` (they were a
+  `SelectionList` of pre-formatted rows until the Wave B2 `Table` landed); the
+  adoption friction is written up in `docs/design/dogfood-findings.md` (findings
+  9–11).
+- `examples/scale.rs` — the one-million-row `Table` scale demo (above): a minimal
+  `impl App` over a `table_from_fn` source, no app-side row storage.
 
 ## Wiring into the workspace later
 

@@ -2,10 +2,10 @@
 //! comparison (`docs/plans/arc5-field.md` item 3).
 //!
 //! A simulated log source pushes lines over time; a filter [`TextInput`] narrows
-//! the visible list; Tab moves focus between the filter and the list; and
-//! selecting a line opens a detail modal on a [`Frame::layer`] showing its full
-//! record. It exercises the four things the field report says differentiate TUI
-//! frameworks:
+//! a columnar [`Table`] (seq / level / target / message) with a pinned header;
+//! Tab moves focus between the filter and the table; and selecting a line opens a
+//! detail modal on a [`Frame::layer`] showing its full record. It exercises the
+//! four things the field report says differentiate TUI frameworks:
 //!
 //! - **Streaming** — a [`Command::stream`] timer (like the flagship's spinner) emits
 //!   a new [`LogEntry`] every ~700ms, appended to the app's owned log.
@@ -48,7 +48,7 @@ use rabbitui_core::input::Key;
 use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_widgets::{Panel, SelectionList, Text, TextInput};
+use rabbitui_widgets::{Column, Panel, Table, Text, TextInput, table_rows_with};
 
 /// The most log entries the app retains. A follower keeps a bounded live window,
 /// not an unbounded history — the source runs forever, so an unbounded `Vec`
@@ -100,15 +100,18 @@ struct LogEntry {
 }
 
 impl LogEntry {
-    /// The one-line list rendering: `#seq LEVEL target  message`.
-    fn row(&self) -> String {
-        format!(
-            "#{:<4} {} {:<9} {}",
-            self.seq,
-            self.level.label(),
-            self.target,
-            self.message
-        )
+    /// The text of table column `col`: 0 = seq, 1 = level, 2 = target, 3 =
+    /// message. The [`Table`] calls this only for the cells it paints (the
+    /// visible window × the declared columns), so a filtered million-row source
+    /// still formats one screenful — the virtualization the widget promises,
+    /// preserved through the app's own cell formatting.
+    fn cell(&self, col: usize) -> String {
+        match col {
+            0 => format!("#{}", self.seq),
+            1 => self.level.label().trim().to_string(),
+            2 => self.target.to_string(),
+            _ => self.message.clone(),
+        }
     }
 
     /// Whether this entry matches a lowercased filter needle (empty ⇒ matches
@@ -252,11 +255,13 @@ impl App<Message> for LogFollower {
         // Track the filter draft on every edit.
         if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("filter")]) {
             self.filter = value.clone();
-            // Reset the list's own selection to the top so a narrower filter never
-            // strands the highlight past the new end. The list keeps its `key("list")`
+            // Reset the table's own selection to the top so a narrower filter never
+            // strands the highlight past the new end. The table keeps its `key("list")`
             // id even with zero matches (built-in empty state), so this command
             // always lands — no is-empty guard needed (finding-#4 footgun is gone).
-            update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
+            // The type parameter only keys the retained `TableState` (all `Table<S>`
+            // share it), so any concrete source stands in — dogfood finding #9.
+            update.widget::<Table<Vec<Vec<String>>>>(&[key("list")], |state| state.select(0));
         }
 
         if self.detail.is_some() {
@@ -288,7 +293,7 @@ impl App<Message> for LogFollower {
         // modal; the index comes straight from the list's own state (finding #2).
         if update.outcome_for(&[key("list")]) == Some(&Outcome::Activated) {
             let selected = update
-                .widget_state::<SelectionList<Vec<String>>>(&[key("list")])
+                .widget_state::<Table<Vec<Vec<String>>>>(&[key("list")])
                 .map_or(0, |state| state.selected());
             if let Some(entry) = self.visible().into_iter().nth(selected) {
                 self.detail = Some(entry.seq);
@@ -358,19 +363,27 @@ impl App<Message> for LogFollower {
         frame.widget(key("list_panel"), list_area, &panel);
         let inner = Panel::inner(list_area, &panel);
 
-        // The list uses a lazy source over `visible` (no per-frame `Vec<String>`)
-        // and renders its own built-in empty state, so it stays declared under
-        // `key("list")` even with zero matches — the deferred `select(0)` never misses.
+        // The table uses a lazy source over `visible` (no per-frame
+        // `Vec<Vec<String>>`) and renders its own built-in empty state, so it
+        // stays declared under `key("list")` even with zero matches — the deferred
+        // `select(0)` never misses. `cell()` runs only for painted cells, so the
+        // filtered view stays O(window) even as `entries` grows.
         let empty = if self.entries.is_empty() {
             "waiting for logs…"
         } else {
             "no lines match the filter"
         };
-        let source = rabbitui_widgets::rows_with(&visible, |entry| entry.row());
+        let source = table_rows_with(&visible, |entry, col| entry.cell(col));
+        let columns = vec![
+            Column::new("#", Constraint::Length(6)),
+            Column::new("level", Constraint::Length(6)),
+            Column::new("target", Constraint::Length(9)),
+            Column::new("message", Constraint::Fill(1)),
+        ];
         frame.widget(
             key("list"),
             inner,
-            &SelectionList::new(source).empty_text(empty),
+            &Table::new(source, columns).empty_text(empty),
         );
 
         // Status line: the source state and selection, in a role reading state.
@@ -664,9 +677,12 @@ mod tests {
     }
 
     #[test]
-    fn row_format_is_stable() {
+    fn cell_format_is_stable() {
         let e = entry(7, Level::Warn, "http", "slow");
-        assert_eq!(e.row(), "#7    WARN  http      slow");
+        assert_eq!(e.cell(0), "#7");
+        assert_eq!(e.cell(1), "WARN");
+        assert_eq!(e.cell(2), "http");
+        assert_eq!(e.cell(3), "slow");
     }
 
     #[test]
