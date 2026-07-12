@@ -126,7 +126,10 @@ integration mechanism — the coordinator's rebase-and-regate is.
 "Done" is not "compiles and the listed tests pass." Every wave item meets ALL of:
 
 1. **Gates**: `cargo test --workspace` (+ standalone crates), clippy zero warnings,
-   `cargo +nightly fmt --all --check`, markdownlint on touched docs. Non-negotiable.
+   `cargo +nightly fmt --all --check`, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+   --no-deps` (the CI docs job — broken intra-doc links pass every other gate; this was
+   missed and shipped a red main on 2026-07-12), markdownlint on touched docs.
+   Non-negotiable.
 2. **Proven at the right layer**: framework behavior gets a harness-level test (TestApp /
    VtScreen / FakeDevice pump), not only unit tests — this repo's bug history (help-panic,
    tool-freeze) is the reason. Anything visual/interactive is flagged for coordinator
