@@ -81,6 +81,10 @@ flag** — check substrate-status.md before starting it.
   inline-mode spec) never mention rabbitui or qwertty by name. Never read
   `docs/research/tui-framework-field-report-2026.md` (the author's GPT5.5 report — context poison).
 - Each slice ends with an honest "what this revealed" design note in `docs/design/`.
+- **Progressive disclosure** (author-mandated 2026-07-11): write documents in _explaining
+  order_, not discovery order — a clear overview up top (what it is, the priorities), then
+  sections that fill in depth, with detail pushed to appendices or plan files. A doc that
+  grew by accretion gets restructured, not appended to.
 
 ## Author decision queue (do not decide these yourself)
 

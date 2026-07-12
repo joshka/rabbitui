@@ -162,6 +162,22 @@ not encode the substrate.** The working name `rabbitui` already satisfies this; 
 name stays deferred to ~0.1. The naming-agnostic invariant in Decision §3 is hereby read to include
 substrate-agnostic: no public API or crate name may encode the qwertty substrate either.
 
+## Note (2026-07-11): candidate set restated by the author; positioning sharpened
+
+The author restated the live candidates as **`ratatui-framework`, `qwertty-tui`, or `rabbitui`
+(likely)**, under the sharpened positioning "**rabbitui is ratatui's big framework brother**." Two
+facts for the eventual decision, recorded without deciding:
+
+- `qwertty-tui` re-entering the list is in tension with the 2026-07-08 amendment above; choosing it
+  would supersede that amendment and its three rationale points, which should be argued against
+  explicitly rather than silently dropped.
+- The name `rabbitui` became semi-public on 2026-07-10 (author's r/rust comment), which raises the
+  cost of a later rename and adds a pre-publish task: a crates.io availability/collision check
+  (an abandoned `maxmindlin/rabbitui` GitHub repo exists).
+
+The decision itself remains in the author queue (`docs/plans/00-execution-playbook.md`), blocking
+0.1.
+
 ## Consequences
 
 ### Positive
