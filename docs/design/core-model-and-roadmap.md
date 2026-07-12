@@ -48,30 +48,28 @@ config as builder methods (`theme`/`mode`/`mouse`/`tracing`/`log_handle`). It wo
 
 Each is a one-line default method on a trait. The closure API cannot take them gracefully.
 
-### The shape
+### The shape (final — resolved in Fable review, 2026-07-11)
 
 ```rust
-pub trait App<M = ()>: Sized {
+pub trait App<M = ()>: Sized
+where
+    M: Send + 'static,
+{
     // The two required methods — the declared-frame contract, unchanged.
     fn update(&mut self, cx: Update<'_, M>) -> ControlFlow<()>;
     fn view(&self, frame: &mut Frame<'_>);
 
-    // Lifecycle hooks — all defaulted. This is the extensibility win.
+    // Lifecycle hooks — defaulted. This is the extensibility win.
     fn init(&mut self) -> Cmd<M> { Cmd::none() }                    // finding #1
     fn global(&mut self, _cx: &Update<'_, M>) -> ControlFlow<()> {  // finding #7
         ControlFlow::Continue(())
     }
-    fn on_suspend(&mut self) {}                                     // qwertty M6
-    fn on_resume(&mut self) {}
-    fn on_error(&mut self, _err: &EffectError) {}                  // general error hook
 
-    // Startup config — defaulted methods replace the builder soup.
-    fn mode(&self) -> Mode { Mode::AltScreen }
-    fn mouse(&self) -> Option<bool> { None }
-    fn theme(&self) -> Theme { Theme::default() }
+    // Startup config — ONE method returning a struct, not N methods.
+    fn config(&self) -> Config { Config::default() }
 
-    // Provided run entries (async-fn-in-trait is stable ≥1.75; MSRV is 1.88).
-    async fn run(self) -> Result<()> where Self: 'static { /* run_loop(Terminal::open()…) */ }
+    // Provided run entries (AFIT; MSRV 1.88 ≥ 1.75). Not dyn-compatible — fine.
+    async fn run(self) -> Result<()> { /* Terminal::open() → run_on */ }
     async fn run_over_device<D: qwertty::TerminalDevice>(self, device: D) -> Result<()> { /* … */ }
 }
 ```
@@ -80,6 +78,37 @@ pub trait App<M = ()>: Sized {
 And the read/mutate split becomes **compiler-enforced** (`fn view(&self)` vs
 `fn update(&mut self)`) instead of a convention two separate closures only happen to honor —
 so the trait is _more_ faithful to the declared-frame goal, not less.
+
+### Resolved design decisions (the holes the first sketch left open)
+
+1. **Name collision.** The trait takes the `App` name. The existing `struct App<S,U,V,M>`
+   becomes `FnApp<S,U,V,M>` — the closure adapter returned by `rabbitui::from_fn` (the std
+   `iter::FromFn` naming). Its config builders become `with_theme`/`with_mode`/… so they
+   cannot shadow trait methods. Free `run(state, update, view)` stays as
+   `from_fn(…).run()`.
+2. **Where `M` lives: generic param, not associated type.** `type Message = ();` needs
+   associated-type defaults (unstable); a defaulted generic param (`App<M = ()>`) gives the
+   no-effects case zero ceremony today. A type _could_ implement both `App<A>` and `App<B>`;
+   harmless, documented.
+3. **Config: one `fn config(&self) -> Config`, not six methods.** A `#[non_exhaustive]`
+   `Config { theme, theme_file, mode, mouse, tracing, log_handle }` with builder methods
+   grows without touching the trait, keeps the trait surface tight, and gives `FnApp` one
+   field to store. Runtime switching (`update.set_mode`/`set_theme`) is unchanged — `Config`
+   is startup-only.
+4. **`init` vs `Event::Started`: both, deliberately.** `Event::Started` stays as the loop
+   truth — `from_fn` apps cannot override trait hooks, so the event is their only init path.
+   The loop calls `self.init()` once, spawns the returned `Cmd`, _then_ delivers `Started`
+   through `global`/`update`. Trait apps use `init()`; closure apps match on `Started`; no
+   conflict. Requires `Cmd::none()` (new; a `Kind::None` the spawn path skips).
+5. **`global` semantics pinned** (the questions finding #7 deferred): runs before `update`
+   for _every_ event (Started/Input/Resize/Message/EffectFailed), receiving `&Update` —
+   all `Update` methods take `&self`, so `global` can spawn/commit/focus. Routing has
+   already run, so `cx.consumed()` and `cx.action(&KEYMAP)` (with the printable-chord
+   guard) work. `Break` exits the loop without calling `update`; pending effects still
+   drain.
+6. **Cut from v1: `on_error`, `on_suspend`/`on_resume`.** `Event::EffectFailed` already
+   serves errors; suspend waits on qwertty M6. Defaulted methods are non-breaking to add
+   later — dead hooks now buy nothing (YAGNI).
 
 ### Keep the one-liner (the std pattern)
 
@@ -107,6 +136,9 @@ closure form is a strict _subset_ expressible as a trait impl. Nothing is lost.
   Elm-style and Xilem-style shells were always meant to sit _above_ core. Low architectural
   risk; high teaching + extensibility payoff. **Recommend doing this first, as an ADR 0001
   amendment, before more catalog work accretes against the closure signature.**
+- Full step-by-step implementation spec (for any-model execution):
+  `docs/plans/wave-a-trait-app.md`. Wave B specs: `wave-b1-flagship-e2e.md`,
+  `wave-b2-virtualization.md`. Wave C: `wave-c-forms-catalog.md`.
 
 ## 2. The fundamental library — capability tiers and current status
 
@@ -145,8 +177,9 @@ Each line: capability _(consensus, home)_ — current status.
   roles/labels recorded into facts, **not consumed**; no export.
 - **Devtools** _(Textual-strong; testing)_ — **Have-ish**: `FactsInspector`, `facts::dump`.
 
-Missing **hooks** (all trivial once #1's trait lands): `global` (finding #7), `on_suspend`/
-`on_resume` (qwertty M6), general `on_error`. `init` exists as `Event::Started`.
+Missing **hooks**: `global` lands with the §1 trait; `on_suspend`/`on_resume` follow as
+defaulted methods when qwertty M6 ships (non-breaking); `on_error` is cut —
+`Event::EffectFailed` already serves it. `init` = trait hook + `Event::Started` (§1 №4).
 
 The boundary is already crisp in the ADRs and should stay that way:
 
