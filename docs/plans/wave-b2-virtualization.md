@@ -202,6 +202,24 @@ numbered findings, same format).
   declared through `Frame::scroll(area, …)`, not a widget render, so the offset+mask
   context does not flow through it. Its content is itself scroll-positioned, so the
   wrong-slice bug this plan pins concerns widget items only.
+- The plan pass _fresh-measures the window range every frame_ (`[anchor − 1,
+  anchor + viewport + 2]`, plus any pending-delta extension) and the cache serves only
+  distant walks (End clamp, reveal targets, backward normalization), 2026-07-11. A
+  cache-hit window would freeze layout when a visible item's height changes (a
+  `Collapsible` toggling) — today's behavior re-measures visible items each frame, and
+  O(window) fresh measures per frame is exactly the bound this plan promises.
+  Consequence: `MeasureCache` drops `estimate()`/`measured_sum`/`measured_count` — the
+  settle loop re-measures on a cache miss instead of estimating, so the estimate had no
+  consumer left.
+- `ensure_visible` gains an oscillation guard for items taller than the viewport,
+  2026-07-11: the spec's "equal to the anchor with offset > 0 → anchor = (i, 0)" rule
+  applies only when the item fits the viewport; a taller item keeps (or gains) its
+  bottom-anchored view. Without the guard, an every-frame `request_visibility` (the
+  existing `Reveal` probe pattern) alternates top/bottom slices forever.
+- Backward walks bound themselves at viewport + 32 items against pathological
+  zero-height runs, 2026-07-11: a source with more consecutive zero-height items at a
+  walk boundary anchors conservatively (a strictly larger window), keeping every
+  per-frame walk O(window).
 - `split_columns` is const-generic (`[Constraint; N]`); `Table` computes runtime column
   widths with a slice-based equivalent local to `table.rs` (same cumulative exact-share
   math), 2026-07-11. Lifting a slice variant into `layout.rs` is a coordinator

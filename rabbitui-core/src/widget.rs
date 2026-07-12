@@ -105,9 +105,9 @@ pub trait Widget {
     /// has no [`RenderContext`], only `state` and `width`.
     ///
     /// The default is one row: a label, a button, a single-line field. Widgets
-    /// whose height depends on content or state override it — [`Text`] returns its
-    /// line count (wrapped, when wrap is on), a disclosure cell returns 1 collapsed
-    /// and 1 + body when expanded.
+    /// whose height depends on content or state override it — the catalog's `Text`
+    /// returns its line count (wrapped, when wrap is on), a disclosure cell returns
+    /// 1 collapsed and 1 + body when expanded.
     ///
     /// `state` is lent read-only through [`StateStore::peek`](crate::store::StateStore::peek),
     /// so measuring never marks the widget declared. When the widget has no
@@ -167,6 +167,16 @@ pub enum Phase {
 /// Positions passed to paint methods are relative to the widget's own area;
 /// painting outside the area is clipped, never an error.
 ///
+/// # Partial visibility (the offset+mask model)
+///
+/// A scroll container can show only the *bottom* rows of an item whose top has
+/// scrolled above the viewport. The context expresses this with a hidden-top
+/// mask ([`with_hidden_top`](Self::with_hidden_top), set by the container —
+/// `docs/design/render-space.md`): the widget's logical space stays
+/// `0..size().height` and it renders its whole self; the context drops writes
+/// to the hidden rows and translates the rest onto the visible area. A widget
+/// never needs to know it is clipped, and coordinates stay local `u16`s.
+///
 /// A widget marks itself focusable with [`focusable`](Self::focusable) and reads
 /// its own focus state with [`is_focused`](Self::is_focused) to paint focus
 /// styles. Both feed the frame facts the framework routes input through.
@@ -179,8 +189,15 @@ pub enum Phase {
 #[derive(Debug)]
 pub struct RenderContext<'a> {
     buffer: &'a mut Buffer,
-    /// The widget's area in buffer coordinates, already clipped to the buffer.
+    /// The widget's *visible* area in buffer coordinates, already clipped to
+    /// the buffer.
     area: Rect,
+    /// Rows of the widget's logical extent scrolled above the visible area
+    /// (`docs/design/render-space.md`, the offset+mask model). The widget's
+    /// logical height is `hidden_top + area.size.height`; writes to logical
+    /// rows below `hidden_top` are dropped, the rest translate down by
+    /// `hidden_top` onto `area`. Zero for a fully-visible widget.
+    hidden_top: u16,
     /// The active theme, for resolving roles to styles.
     theme: &'a Theme,
     /// Whether the framework reports this widget as currently focused.
@@ -242,6 +259,7 @@ impl<'a> RenderContext<'a> {
         Self {
             buffer,
             area,
+            hidden_top: 0,
             theme,
             focused,
             focusable: false,
@@ -251,17 +269,56 @@ impl<'a> RenderContext<'a> {
         }
     }
 
-    /// The widget's area size (relative coordinates run from the origin to
-    /// this size).
+    /// Masks the top `rows` of the widget's logical extent as scrolled out of
+    /// view (the offset+mask model, `docs/design/render-space.md`).
+    ///
+    /// The context's logical height grows to `rows + visible height`: the
+    /// widget renders its whole self in `0..size().height` local coordinates,
+    /// writes to the first `rows` logical rows are dropped, and the remainder
+    /// translate onto the visible area. Scroll containers use this to show the
+    /// *bottom* slice of a top-clipped item — shrinking the area instead would
+    /// show the wrong (top) slice. Widgets themselves never call this.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui_core::buffer::Buffer;
+    /// use rabbitui_core::geometry::{Position, Rect, Size};
+    /// use rabbitui_core::style::Style;
+    /// use rabbitui_core::widget::RenderContext;
+    ///
+    /// let mut buffer = Buffer::new(Size::new(4, 1));
+    /// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false)
+    ///     .with_hidden_top(2);
+    /// // Logical height 3, but rows 0 and 1 are hidden; only row 2 paints.
+    /// assert_eq!(ctx.size().height, 3);
+    /// ctx.set_string(Position::new(0, 0), "hidden", Style::new());
+    /// ctx.set_string(Position::new(0, 2), "shown", Style::new());
+    /// assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "s");
+    /// ```
     #[must_use]
-    pub fn area(&self) -> Rect {
-        Rect::from_size(self.area.size)
+    pub fn with_hidden_top(mut self, rows: u16) -> Self {
+        self.hidden_top = rows;
+        self
     }
 
-    /// The widget's area size — the shorthand for "how much room do I have".
+    /// The widget's logical area (relative coordinates run from the origin to
+    /// this size). Includes any hidden-top rows, so a partially-scrolled
+    /// widget still sees its full extent.
+    #[must_use]
+    pub fn area(&self) -> Rect {
+        Rect::from_size(self.size())
+    }
+
+    /// The widget's logical size — the shorthand for "how much room do I
+    /// have". Includes any hidden-top rows (see
+    /// [`with_hidden_top`](Self::with_hidden_top)).
     #[must_use]
     pub fn size(&self) -> crate::geometry::Size {
-        self.area.size
+        Size::new(
+            self.area.size.width,
+            self.area.size.height.saturating_add(self.hidden_top),
+        )
     }
 
     /// Declares whether this widget can hold keyboard focus this frame.
@@ -328,11 +385,20 @@ impl<'a> RenderContext<'a> {
     #[must_use]
     pub fn requested_visibility(&self) -> Option<Rect> {
         self.visibility.map(|relative| {
+            // Logical rows above the hidden-top mask clamp to the visible top;
+            // the rect's *bottom* edge stays correct either way, which is what
+            // the scroll container's reveal math consumes.
+            let (y, height) = if relative.origin.y >= self.hidden_top {
+                (relative.origin.y - self.hidden_top, relative.size.height)
+            } else {
+                let hidden = self.hidden_top - relative.origin.y;
+                (0, relative.size.height.saturating_sub(hidden))
+            };
             let origin = Position::new(
                 self.area.origin.x.saturating_add(relative.origin.x),
-                self.area.origin.y.saturating_add(relative.origin.y),
+                self.area.origin.y.saturating_add(y),
             );
-            Rect::new(origin, Size::new(relative.size.width, relative.size.height))
+            Rect::new(origin, Size::new(relative.size.width, height))
         })
     }
 
@@ -419,16 +485,20 @@ impl<'a> RenderContext<'a> {
         self.theme
     }
 
-    /// Writes `text` at `position` (relative to the widget's area) in
-    /// `style`, clipped to the area's right edge.
+    /// Writes `text` at `position` (relative to the widget's logical area) in
+    /// `style`, clipped to the area's right edge. Rows masked by
+    /// [`with_hidden_top`](Self::with_hidden_top) are dropped whole — the mask
+    /// slices rows, never columns, so it can never bisect a wide grapheme (the
+    /// right-edge clip goes through the buffer's shared width oracle).
     pub fn set_string(&mut self, position: Position, text: &str, style: Style) {
-        if position.y >= self.area.size.height || position.x >= self.area.size.width {
+        // Logical row → visible row: rows above the mask are dropped.
+        let Some(y) = position.y.checked_sub(self.hidden_top) else {
+            return;
+        };
+        if y >= self.area.size.height || position.x >= self.area.size.width {
             return;
         }
-        let absolute = Position::new(
-            self.area.origin.x + position.x,
-            self.area.origin.y + position.y,
-        );
+        let absolute = Position::new(self.area.origin.x + position.x, self.area.origin.y + y);
         let max_width = usize::from(self.area.size.width - position.x);
         self.buffer.set_stringn(absolute, text, style, max_width);
     }
@@ -537,6 +607,56 @@ mod tests {
         let mut ctx = RenderContext::new(&mut buffer, area, false);
         ctx.set_string(Position::new(0, 5), "nope", Style::new());
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().symbol, " ");
+    }
+
+    #[test]
+    fn hidden_top_drops_masked_rows_and_translates_the_rest() {
+        // A 5-row-tall widget with its top 2 rows scrolled out, 2 rows visible:
+        // logical rows 0..2 drop, logical rows 2..4 land on visible rows 0..1,
+        // and logical row 4 falls past the visible bottom (bottom truncation).
+        let mut buffer = Buffer::new(Size::new(6, 3));
+        let area = Rect::new(Position::new(0, 1), Size::new(6, 2));
+        let mut ctx = RenderContext::new(&mut buffer, area, false).with_hidden_top(2);
+        assert_eq!(ctx.size(), Size::new(6, 4));
+        assert_eq!(ctx.area(), Rect::from_size(Size::new(6, 4)));
+        for (row, label) in ["r0", "r1", "r2", "r3", "r4"].iter().enumerate() {
+            ctx.set_string(Position::new(0, row as u16), label, Style::new());
+        }
+        // The buffer row above the area is untouched; the visible rows show the
+        // widget's *bottom* slice (rows 2 and 3), not its top.
+        assert_eq!(buffer.get(Position::new(0, 0)).unwrap().symbol, " ");
+        assert_eq!(buffer.get(Position::new(1, 1)).unwrap().symbol, "2");
+        assert_eq!(buffer.get(Position::new(1, 2)).unwrap().symbol, "3");
+    }
+
+    #[test]
+    fn hidden_top_zero_is_the_plain_context() {
+        let mut buffer = Buffer::new(Size::new(4, 2));
+        let area = Rect::from_size(Size::new(4, 2));
+        let mut ctx = RenderContext::new(&mut buffer, area, false).with_hidden_top(0);
+        assert_eq!(ctx.size(), Size::new(4, 2));
+        ctx.set_string(Position::ORIGIN, "x", Style::new());
+        assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "x");
+    }
+
+    #[test]
+    fn hidden_top_visibility_request_keeps_the_bottom_edge() {
+        // A widget 4 rows tall with 2 hidden asks for its whole logical extent:
+        // the resolved rect clamps its top to the visible area but its bottom
+        // stays at the true bottom row — the edge the reveal math consumes.
+        let mut buffer = Buffer::new(Size::new(4, 4));
+        let area = Rect::new(Position::new(0, 1), Size::new(4, 2));
+        let mut ctx = RenderContext::new(&mut buffer, area, false).with_hidden_top(2);
+        ctx.request_visibility(Rect::new(Position::ORIGIN, Size::new(4, 4)));
+        let resolved = ctx.requested_visibility().unwrap();
+        assert_eq!(resolved.origin, Position::new(0, 1));
+        assert_eq!(resolved.size.height, 2);
+        assert_eq!(resolved.bottom(), 3);
+        // A request wholly below the mask translates without clamping.
+        ctx.request_visibility(Rect::new(Position::new(0, 3), Size::new(4, 1)));
+        let resolved = ctx.requested_visibility().unwrap();
+        assert_eq!(resolved.origin, Position::new(0, 2));
+        assert_eq!(resolved.size.height, 1);
     }
 
     #[test]

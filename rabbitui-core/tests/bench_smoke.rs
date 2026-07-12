@@ -6,12 +6,20 @@
 //! `cargo test --workspace` proves every bench body still compiles and executes.
 //! They mirror `benches/core.rs`; keep them in step.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use rabbitui_core::buffer::Buffer;
+use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::{Position, Rect, Size};
 use rabbitui_core::id::{WidgetId, key};
+use rabbitui_core::input::{InputEvent, Key};
 use rabbitui_core::layout::{Constraint, split_columns, split_rows};
+use rabbitui_core::routing::{Focus, route};
+use rabbitui_core::scroll::ScrollState;
 use rabbitui_core::store::StateStore;
 use rabbitui_core::style::{Color, Style};
+use rabbitui_core::widget::{RenderContext, Widget};
 
 const BENCH_SIZE: Size = Size::new(240, 70);
 
@@ -64,6 +72,81 @@ fn layout_split_body_runs() {
     );
     let total_w: u16 = cols.iter().map(|r| r.size.width).sum();
     assert_eq!(total_w, BENCH_SIZE.width);
+}
+
+/// Mirrors `benches/core.rs`'s `MeasuredRow`: a one-row scroll item counting
+/// `desired_height` calls, so the virtualization property is asserted
+/// structurally — by measure-callback count, never by wall-clock.
+struct MeasuredRow {
+    measures: Rc<Cell<usize>>,
+}
+
+impl Widget for MeasuredRow {
+    type State = ();
+    fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
+        ctx.set_string(Position::ORIGIN, "row", Style::new());
+    }
+    fn desired_height(&self, _state: &(), _width: u16) -> u16 {
+        self.measures.set(self.measures.get() + 1);
+        1
+    }
+}
+
+/// Mirrors the scroll bench body: one frame of a million-item scroll plus one
+/// routed Down key (the scroll step).
+fn scroll_million_frame(store: &mut StateStore, measures: &Rc<Cell<usize>>) {
+    const MILLION: usize = 1_000_000;
+    let mut buffer = Buffer::new(Size::new(80, 24));
+    store.begin_frame();
+    let mut frame = Frame::new(&mut buffer, store);
+    let area = frame.area();
+    frame.scroll(key("feed"), area, |scroll| {
+        for i in 0..MILLION {
+            scroll.item(
+                key("row").index(i),
+                &MeasuredRow {
+                    measures: Rc::clone(measures),
+                },
+            );
+        }
+    });
+    let (facts, handlers) = frame.into_parts();
+    store.end_frame();
+    let mut focus = Focus::new();
+    focus.set(Some(WidgetId::ROOT.child(key("feed"))));
+    route(
+        &facts,
+        &handlers,
+        &mut focus,
+        store,
+        &InputEvent::key(Key::Down),
+    );
+}
+
+#[test]
+fn scroll_million_body_runs_and_measures_o_window() {
+    let measures = Rc::new(Cell::new(0usize));
+    let mut store = StateStore::new();
+    scroll_million_frame(&mut store, &measures);
+    assert!(
+        measures.get() <= 64,
+        "first frame measured {} items",
+        measures.get()
+    );
+    measures.set(0);
+    scroll_million_frame(&mut store, &measures);
+    assert!(
+        measures.get() <= 64,
+        "steady frame measured {} items",
+        measures.get()
+    );
+    assert!(measures.get() > 0, "the fresh window is still re-measured");
+    let scroll_id = WidgetId::ROOT.child(key("feed"));
+    assert_eq!(
+        store.peek::<ScrollState>(scroll_id).unwrap().anchor(),
+        (1, 0),
+        "the routed scroll step moved the anchor"
+    );
 }
 
 #[derive(Default)]

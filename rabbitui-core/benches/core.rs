@@ -13,12 +13,16 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rabbitui_core::buffer::Buffer;
+use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::{Position, Rect, Size};
 use rabbitui_core::id::{WidgetId, key};
 use rabbitui_core::layout::{Constraint, split_columns, split_rows};
 use rabbitui_core::store::StateStore;
 use rabbitui_core::style::{Color, Style};
+use rabbitui_core::widget::{RenderContext, Widget};
+use std::cell::Cell;
 use std::hint::black_box;
+use std::rc::Rc;
 
 /// A representative large terminal for the buffer benches: 240 columns × 70 rows
 /// (a wide, tall window — the stress size the design note names).
@@ -129,5 +133,103 @@ fn bench_store_churn(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_buffer, bench_layout, bench_store_churn);
+/// A one-row scroll item whose `desired_height` increments a shared counter,
+/// so the bench can assert the virtualization property *structurally*: measure
+/// callbacks per frame stay O(window) regardless of source size. Wall-clock is
+/// what criterion reports; correctness is never asserted by timing.
+struct MeasuredRow {
+    measures: Rc<Cell<usize>>,
+}
+
+impl Widget for MeasuredRow {
+    type State = ();
+    fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
+        ctx.set_string(Position::ORIGIN, "row", Style::new());
+    }
+    fn desired_height(&self, _state: &(), _width: u16) -> u16 {
+        self.measures.set(self.measures.get() + 1);
+        1
+    }
+}
+
+/// One frame of a million-item scroll: declares and renders, then routes one
+/// Down key to the scroll (the `scroll_by` step), so successive frames walk
+/// the anchor forward. Returns nothing; heights measured are tallied through
+/// the shared counter.
+fn scroll_million_frame(store: &mut StateStore, measures: &Rc<Cell<usize>>) {
+    use rabbitui_core::input::{InputEvent, Key};
+    use rabbitui_core::routing::{Focus, route};
+    const MILLION: usize = 1_000_000;
+    let mut buffer = Buffer::new(Size::new(80, 24));
+    store.begin_frame();
+    let mut frame = Frame::new(&mut buffer, store);
+    let area = frame.area();
+    frame.scroll(key("feed"), area, |scroll| {
+        for i in 0..MILLION {
+            scroll.item(
+                key("row").index(i),
+                &MeasuredRow {
+                    measures: Rc::clone(measures),
+                },
+            );
+        }
+    });
+    let (facts, handlers) = frame.into_parts();
+    store.end_frame();
+    // One scroll step per frame, routed like real input.
+    let mut focus = Focus::new();
+    focus.set(Some(WidgetId::ROOT.child(key("feed"))));
+    route(
+        &facts,
+        &handlers,
+        &mut focus,
+        store,
+        &InputEvent::key(Key::Down),
+    );
+}
+
+/// The Wave B2 anchor-virtualization bench: a million-item source, one frame
+/// render plus one scroll step per iteration. The virtualization property is
+/// asserted *structurally* up front — measure callbacks ≤ 64 per frame for a
+/// 24-row viewport — so a regression fails loudly before any timing happens;
+/// wall-clock is only what criterion reports.
+fn bench_scroll(c: &mut Criterion) {
+    let measures = Rc::new(Cell::new(0usize));
+    let mut store = StateStore::new();
+    // Frame 1 settles the scrollbar verdict; frame 2 is the steady state.
+    scroll_million_frame(&mut store, &measures);
+    assert!(
+        measures.get() <= 64,
+        "first frame measured {} items (> 64: virtualization broke)",
+        measures.get()
+    );
+    measures.set(0);
+    scroll_million_frame(&mut store, &measures);
+    assert!(
+        measures.get() <= 64,
+        "steady frame measured {} items (> 64: virtualization broke)",
+        measures.get()
+    );
+    let scroll_id = WidgetId::ROOT.child(key("feed"));
+    let anchor = store
+        .peek::<rabbitui_core::scroll::ScrollState>(scroll_id)
+        .unwrap()
+        .anchor();
+    assert_eq!(anchor, (1, 0), "the routed scroll step moved the anchor");
+
+    c.bench_function("scroll/render_1m_items_and_scroll", |b| {
+        b.iter(|| {
+            scroll_million_frame(&mut store, &measures);
+            black_box(measures.get());
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_buffer,
+    bench_layout,
+    bench_store_churn,
+    bench_scroll
+);
 criterion_main!(benches);

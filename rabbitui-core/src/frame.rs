@@ -323,6 +323,24 @@ impl<'a> Frame<'a> {
     /// parent, lends it its retained state, renders it into `area`, and records
     /// its facts and handler.
     pub fn widget<W: Widget>(&mut self, key: Key, area: Rect, widget: &W) {
+        self.widget_masked(key, area, 0, widget);
+    }
+
+    /// Declares a widget whose top `hidden_top` logical rows are scrolled out
+    /// of view: `area` is the *visible* slice, and the widget's [`RenderContext`]
+    /// carries the hidden-top mask so it renders its full logical extent and
+    /// the right (bottom) rows land in `area` — the offset+mask model
+    /// (`docs/design/render-space.md`). The recorded fact carries the clipped
+    /// visible `area`, so hit-testing and focus act on what is on screen. The
+    /// scroll container's window-fill pass is the caller; `hidden_top == 0` is
+    /// exactly [`widget`](Self::widget).
+    pub(crate) fn widget_masked<W: Widget>(
+        &mut self,
+        key: Key,
+        area: Rect,
+        hidden_top: u16,
+        widget: &W,
+    ) {
         let id = self.parent.child(key);
         let focused = self.focus == Some(id);
         let bounds = Rect::from_size(self.buffer.size());
@@ -330,7 +348,8 @@ impl<'a> Frame<'a> {
 
         let (focusable, visibility, role, label) = {
             let state = self.store.get_or_default::<W::State>(id);
-            let mut ctx = RenderContext::new_themed(self.buffer, area, focused, self.theme);
+            let mut ctx = RenderContext::new_themed(self.buffer, area, focused, self.theme)
+                .with_hidden_top(hidden_top);
             widget.render(state, &mut ctx);
             (
                 ctx.is_focusable(),
