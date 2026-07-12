@@ -309,7 +309,7 @@ impl Pending {
     /// strict and others best-effort in the same update issues them through the
     /// two different apply calls (the facade layers `command`→[`apply`](Self::apply)
     /// and `try_command`→`apply_guarded` on top of this). This keeps the buffered
-    /// [`WidgetCommand`] a plain closure with no extra per-entry flag to thread,
+    /// `WidgetCommand` a plain closure with no extra per-entry flag to thread,
     /// and lets one [`ApplyReport`] name every skip in one pass.
     ///
     /// Unlike [`apply_deferred`](Self::apply_deferred) there is no carry-forward

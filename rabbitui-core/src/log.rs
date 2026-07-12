@@ -88,13 +88,12 @@ impl Level {
 /// One formatted log event: its level, target, message, and a monotonic
 /// sequence number.
 ///
-/// The [`Collector`] formats a `tracing` event into this plain record at capture
+/// The `Collector` formats a `tracing` event into this plain record at capture
 /// time — the widget never re-derives anything from a live event. `seq` is a
 /// per-handle counter (a "frame counter"-style stamp, per the design note's
 /// "timestamp from a frame counter or Instant"): it orders records and lets a UI
 /// tell new lines from old without pulling in a clock.
 ///
-/// [`Collector`]: https://docs.rs/rabbitui/latest/rabbitui/log/struct.Collector.html
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogRecord {
     /// The event's severity.
@@ -125,7 +124,7 @@ impl LogRecord {
 /// A bounded, shareable ring buffer of [`LogRecord`]s.
 ///
 /// Cloning is cheap (an `Arc` bump) and every clone views the same ring, so the
-/// runtime holds one clone for the [`Collector`] to write through while the view
+/// runtime holds one clone for the [`Collector`](https://docs.rs/rabbitui/latest/rabbitui/log/struct.Collector.html) to write through while the view
 /// holds another to paint the overlay. A push past the capacity evicts the
 /// oldest record.
 ///
