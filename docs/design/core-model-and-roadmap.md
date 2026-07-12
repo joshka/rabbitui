@@ -42,11 +42,25 @@ Priority-ordered by the author (2026-07-11); each expands in its numbered sectio
    (also the trust mechanism for AI-authored apps) — §6.
 7. **Looks good by default** — the author's standing rule: examples and apps must look
    good, and achieving that must be easy — §7.
+8. **Terminal-native** — inline and alt-screen as peer modes; cooperate with the
+   terminal (scrollback, copy, search) rather than owning the viewport — §8.
+9. **Dependably boring** — stability policy, honest versioning, and a flagship kept
+   alive as the acceptance test; survive longer than one person's attention span — §9.
 
-Pillars 6–7 are the additions this synthesis argues for: 6 because the field report names
+Pillars 6–9 are the additions this synthesis argues for: 6 because the field report names
 the runnable harness a scarce good and every only-showed-on-hardware bug this project hit
 proves it; 7 because it is already the repo's standing non-functional rule (ROADMAP Arc
-2A) and belongs in the same list the other priorities live in.
+2A); 8 because the era's sharpest demand (agent CLIs) and a whole ADR (0013) were in no
+pillar; 9 because the field report's closing verdict — "the boring, correct,
+well-documented middle" — is a promise adopters choose frameworks on, and the named
+failures (ratatui's 74 breaking changes, Textual's 8 majors in 18 months) are exactly
+what it protects against.
+
+Considered and deliberately **folded, not added**: accessibility (a differentiation
+_bet_, Wave E — not yet a property the framework has); docs/teachability (inside §2 —
+the developer model _is_ the teaching surface); AI-agent legibility (inside §6 — the
+harness is the trust mechanism); panic-safety/never-wreck-the-terminal (inside §1 —
+already shipped: restore-on-panic, contained effect panics).
 
 ## 1. Solid structure for apps — `trait App`
 
@@ -285,6 +299,47 @@ out, well themed — and achieving that must be easy. Structurally delivered by 
 (Panel, spacing tokens, four presets, gallery-as-regression, screenshot pipeline); the
 rule remains an acceptance bar on every wave: a feature is not done if the example
 showing it looks bad.
+
+## 8. Terminal-native — inline and alt-screen as peer modes
+
+The era's sharpest demand (agent CLIs) and the deepest lesson (codex tui2: owning the
+viewport "priced in production and retired"). rabbitui's position, already decided and
+shipped (ADR 0013, `docs/inline-mode-spec.md`):
+
+- **Two peer modes**, runtime-switchable (`Update::set_mode`): inline (bounded live
+  tail plus append-once scrollback commits — finalized content becomes the _terminal's_,
+  so native scrollback, selection, copy, and Cmd-F all work and output survives exit) and
+  alt-screen (the browse canvas).
+- **Cooperate-with-the-terminal is the default**; the app-owned viewport (faithful copy
+  across reflow, per-cell interaction) stays a documented, deliberately unbuilt opt-in
+  with tui2's shapes on file — justified only when the workload genuinely demands it.
+- Enforced invariants, not conventions: commits flush before alt-screen entry; committed
+  lines are never repainted; the live tail is bounded. The inline-mode spec doubles as an
+  Arc 5 field-leadership artifact (a discipline others can implement).
+
+Remaining work rides existing waves: block-level early commit (Wave F), push-based
+resize (Wave D), styled-span soft-wrap for commit fidelity (Wave F).
+
+## 9. Dependably boring
+
+The field report's closing verdict is a positioning statement: what is missing "is not
+another architecture — it is someone willing to build the boring, correct,
+well-documented, thoroughly-tested middle, and to keep a real application alive on top
+of it for longer than one person's attention span." The named failures are versioning
+failures as much as technical ones: ratatui's 74 breaking changes, Textual's eight
+majors in eighteen months post-1.0, every dead framework dying with its author's app.
+
+What this pillar means in practice — mostly already institutionalized:
+
+- **The flagship is the acceptance test, permanently** (the survival law, inverted:
+  the framework lives as long as a real app needs it — so keep one alive on purpose).
+- **Versioning discipline**: `BREAKING-CHANGES.md` from day one, cargo-semver-checks +
+  release automation (Wave F), the one-widget-contract-in-core rule so third-party
+  widgets don't fragment on version skew (ratatui's `WidgetRef` lesson).
+- **MSRV policy** stable-minus-one, true floor moving only when needed; clippy on
+  stable + beta in CI so breakage is seen a release early.
+- **Naming is forever** (ADR 0015) — the rename sweep happened pre-0.1 precisely because
+  this pillar makes it impossible later.
 
 ## Roadmap — the waves
 
