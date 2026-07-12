@@ -7,7 +7,7 @@
 //! (scroll, cursor, focus) lives in the framework's state store and is lent to
 //! the widget as `&mut` during render.
 //!
-//! Widgets paint through a [`RenderCtx`], which owns clipping to the widget's
+//! Widgets paint through a [`RenderContext`], which owns clipping to the widget's
 //! area and (from slice 3) collects frame facts: whether the widget is
 //! focusable, and — for painting focus styles — whether it currently holds
 //! focus.
@@ -29,14 +29,14 @@
 //! ```
 //! use rabbitui_core::geometry::Position;
 //! use rabbitui_core::style::Style;
-//! use rabbitui_core::widget::{RenderCtx, Widget};
+//! use rabbitui_core::widget::{RenderContext, Widget};
 //!
 //! struct Label<'a>(&'a str);
 //!
 //! impl Widget for Label<'_> {
 //!     type State = ();
 //!
-//!     fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
 //!         ctx.set_string(Position::ORIGIN, self.0, Style::new());
 //!     }
 //! }
@@ -47,18 +47,18 @@
 //! ```
 //! use rabbitui_core::input::{InputEvent, Key};
 //! use rabbitui_core::outcome::Outcome;
-//! use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+//! use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 //!
 //! struct Trigger;
 //!
 //! impl Widget for Trigger {
 //!     type State = ();
 //!
-//!     fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
 //!         ctx.focusable(true);
 //!     }
 //!
-//!     fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+//!     fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
 //!         if matches!(event.as_key().map(|k| k.key), Some(Key::Enter)) {
 //!             ctx.emit(Outcome::Activated);
 //!             return Handled::Yes;
@@ -75,7 +75,7 @@ use crate::outcome::Outcome;
 use crate::style::Style;
 use crate::theme::{Role, Theme};
 
-/// The theme a [`RenderCtx::new`] carries when no theme is supplied — the
+/// The theme a [`RenderContext::new`] carries when no theme is supplied — the
 /// restrained dark default. A `const` so the reference is `'static` and every
 /// default context borrows the same value.
 const DEFAULT_THEME: &Theme = &Theme::dark();
@@ -92,7 +92,7 @@ pub trait Widget {
     type State: Default + 'static;
 
     /// Paints the widget into its area and updates retained state.
-    fn render(&self, state: &mut Self::State, ctx: &mut RenderCtx<'_>);
+    fn render(&self, state: &mut Self::State, ctx: &mut RenderContext<'_>);
 
     /// The height this widget wants at `width`, given its retained `state`.
     ///
@@ -102,7 +102,7 @@ pub trait Widget {
     /// outside the viewport is measured (to advance the stacking cursor and size
     /// the scrollbar) but never painted. It must be **cheap** (called per frame
     /// per candidate item, including off-screen ones) and must **not paint** — it
-    /// has no [`RenderCtx`], only `state` and `width`.
+    /// has no [`RenderContext`], only `state` and `width`.
     ///
     /// The default is one row: a label, a button, a single-line field. Widgets
     /// whose height depends on content or state override it — [`Text`] returns its
@@ -128,7 +128,7 @@ pub trait Widget {
     ///
     /// Return [`Handled::Yes`] to consume the event and stop propagation; the
     /// default ignores everything and returns [`Handled::No`].
-    fn handle(state: &mut Self::State, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(state: &mut Self::State, event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
         let _ = (state, event, ctx);
         Handled::No
     }
@@ -177,7 +177,7 @@ pub enum Phase {
 /// the [`Theme::default`]; [`new_themed`](Self::new_themed) supplies a specific
 /// theme (the [`Frame`](crate::frame::Frame) uses it to thread its theme in).
 #[derive(Debug)]
-pub struct RenderCtx<'a> {
+pub struct RenderContext<'a> {
     buffer: &'a mut Buffer,
     /// The widget's area in buffer coordinates, already clipped to the buffer.
     area: Rect,
@@ -195,14 +195,14 @@ pub struct RenderCtx<'a> {
     visibility: Option<Rect>,
     /// The accessibility role the widget declared this frame (ADR arc4 §5),
     /// read back by the frame onto the widget's fact. Defaults to
-    /// [`SemanticRole::None`](crate::a11y::SemanticRole::None).
-    role: crate::a11y::SemanticRole,
+    /// [`SemanticRole::None`](crate::accessibility::SemanticRole::None).
+    role: crate::accessibility::SemanticRole,
     /// The accessible label the widget declared this frame, read back by the frame
     /// into the facts' label side table. `None` until a widget sets one.
     label: Option<String>,
 }
 
-impl<'a> RenderCtx<'a> {
+impl<'a> RenderContext<'a> {
     /// Creates a context painting into `area` of `buffer`, using the
     /// [`Theme::default`].
     ///
@@ -228,11 +228,11 @@ impl<'a> RenderCtx<'a> {
     /// use rabbitui_core::buffer::Buffer;
     /// use rabbitui_core::geometry::{Rect, Size};
     /// use rabbitui_core::theme::{Role, Theme};
-    /// use rabbitui_core::widget::RenderCtx;
+    /// use rabbitui_core::widget::RenderContext;
     ///
     /// let mut buffer = Buffer::new(Size::new(4, 1));
     /// let theme = Theme::catppuccin_mocha();
-    /// let ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+    /// let ctx = RenderContext::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
     /// assert_eq!(ctx.style(Role::Accent), theme.style(Role::Accent));
     /// ```
     #[must_use]
@@ -246,7 +246,7 @@ impl<'a> RenderCtx<'a> {
             focused,
             focusable: false,
             visibility: None,
-            role: crate::a11y::SemanticRole::None,
+            role: crate::accessibility::SemanticRole::None,
             label: None,
         }
     }
@@ -308,10 +308,10 @@ impl<'a> RenderCtx<'a> {
     /// ```
     /// use rabbitui_core::buffer::Buffer;
     /// use rabbitui_core::geometry::{Position, Rect, Size};
-    /// use rabbitui_core::widget::RenderCtx;
+    /// use rabbitui_core::widget::RenderContext;
     ///
     /// let mut buffer = Buffer::new(Size::new(8, 4));
-    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, 4)), false);
+    /// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(8, 4)), false);
     /// ctx.request_visibility(Rect::new(Position::new(0, 2), Size::new(8, 1)));
     /// ```
     pub fn request_visibility(&mut self, area: Rect) {
@@ -343,22 +343,22 @@ impl<'a> RenderCtx<'a> {
     /// future assistive-technology exporter; nothing consumes it yet. Calling more
     /// than once keeps the last role. The catalog widgets set an appropriate role;
     /// a purely-decorative widget leaves it at the
-    /// [`SemanticRole::None`](crate::a11y::SemanticRole::None) default.
+    /// [`SemanticRole::None`](crate::accessibility::SemanticRole::None) default.
     ///
     /// # Examples
     ///
     /// ```
-    /// use rabbitui_core::a11y::SemanticRole;
+    /// use rabbitui_core::accessibility::SemanticRole;
     /// use rabbitui_core::buffer::Buffer;
     /// use rabbitui_core::geometry::{Rect, Size};
-    /// use rabbitui_core::widget::RenderCtx;
+    /// use rabbitui_core::widget::RenderContext;
     ///
     /// let mut buffer = Buffer::new(Size::new(6, 1));
-    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(6, 1)), false);
+    /// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(6, 1)), false);
     /// ctx.semantic_role(SemanticRole::Button);
     /// ctx.label("Save");
     /// ```
-    pub fn semantic_role(&mut self, role: crate::a11y::SemanticRole) {
+    pub fn semantic_role(&mut self, role: crate::accessibility::SemanticRole) {
         self.role = role;
     }
 
@@ -377,7 +377,7 @@ impl<'a> RenderCtx<'a> {
     /// [`Frame`](crate::frame::Frame) onto the fact. Not typically called by
     /// widgets.
     #[must_use]
-    pub fn declared_role(&self) -> crate::a11y::SemanticRole {
+    pub fn declared_role(&self) -> crate::accessibility::SemanticRole {
         self.role
     }
 
@@ -401,10 +401,10 @@ impl<'a> RenderCtx<'a> {
     /// use rabbitui_core::buffer::Buffer;
     /// use rabbitui_core::geometry::{Position, Rect, Size};
     /// use rabbitui_core::theme::Role;
-    /// use rabbitui_core::widget::RenderCtx;
+    /// use rabbitui_core::widget::RenderContext;
     ///
     /// let mut buffer = Buffer::new(Size::new(5, 1));
-    /// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
+    /// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
     /// let text_style = ctx.style(Role::Text);
     /// ctx.set_string(Position::ORIGIN, "hi", text_style);
     /// ```
@@ -444,14 +444,14 @@ impl<'a> RenderCtx<'a> {
 /// [`request_focus`](Self::request_focus) to ask the framework to focus this
 /// widget next.
 #[derive(Debug)]
-pub struct HandleCtx<'a> {
+pub struct HandleContext<'a> {
     phase: Phase,
     area: Rect,
     outcomes: &'a mut Vec<Outcome>,
     request_focus: &'a mut bool,
 }
 
-impl<'a> HandleCtx<'a> {
+impl<'a> HandleContext<'a> {
     /// Creates a handler context for one handler invocation.
     ///
     /// `outcomes` collects everything this handler emits, and `request_focus` is
@@ -512,7 +512,7 @@ mod tests {
     fn paints_relative_to_area() {
         let mut buffer = Buffer::new(Size::new(10, 3));
         let area = Rect::new(Position::new(2, 1), Size::new(5, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         ctx.set_string(Position::new(1, 0), "hi", Style::new());
         assert_eq!(buffer.get(Position::new(3, 1)).unwrap().symbol, "h");
         assert_eq!(buffer.get(Position::new(4, 1)).unwrap().symbol, "i");
@@ -522,7 +522,7 @@ mod tests {
     fn clips_to_area_not_buffer() {
         let mut buffer = Buffer::new(Size::new(10, 3));
         let area = Rect::new(Position::new(2, 1), Size::new(3, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         ctx.set_string(Position::ORIGIN, "abcdef", Style::new());
         // "abc" fits the 3-wide area; "def" is clipped even though the buffer
         // continues.
@@ -534,7 +534,7 @@ mod tests {
     fn out_of_area_positions_are_no_ops() {
         let mut buffer = Buffer::new(Size::new(4, 2));
         let area = Rect::new(Position::ORIGIN, Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         ctx.set_string(Position::new(0, 5), "nope", Style::new());
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().symbol, " ");
     }
@@ -543,7 +543,7 @@ mod tests {
     fn area_outside_buffer_is_empty() {
         let mut buffer = Buffer::new(Size::new(4, 2));
         let area = Rect::new(Position::new(10, 10), Size::new(5, 5));
-        let ctx = RenderCtx::new(&mut buffer, area, false);
+        let ctx = RenderContext::new(&mut buffer, area, false);
         assert!(ctx.area().is_empty());
     }
 
@@ -552,7 +552,7 @@ mod tests {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let area = Rect::from_size(Size::new(4, 1));
         // A default context resolves against Theme::default().
-        let ctx = RenderCtx::new(&mut buffer, area, false);
+        let ctx = RenderContext::new(&mut buffer, area, false);
         assert_eq!(
             ctx.style(Role::Accent),
             Theme::default().style(Role::Accent)
@@ -560,7 +560,7 @@ mod tests {
         let _ = ctx;
         // A themed context resolves against the supplied theme.
         let theme = Theme::catppuccin_mocha();
-        let ctx = RenderCtx::new_themed(&mut buffer, area, false, &theme);
+        let ctx = RenderContext::new_themed(&mut buffer, area, false, &theme);
         assert_eq!(ctx.style(Role::Accent), theme.style(Role::Accent));
     }
 
@@ -568,7 +568,7 @@ mod tests {
     fn focus_flags_default_off_and_are_settable() {
         let mut buffer = Buffer::new(Size::new(4, 1));
         let area = Rect::from_size(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, true);
+        let mut ctx = RenderContext::new(&mut buffer, area, true);
         assert!(ctx.is_focused());
         assert!(!ctx.is_focusable());
         ctx.focusable(true);
@@ -579,7 +579,7 @@ mod tests {
     fn request_visibility_records_area_relative_rect_in_absolute_coords() {
         let mut buffer = Buffer::new(Size::new(10, 5));
         let area = Rect::new(Position::new(2, 1), Size::new(6, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         assert!(ctx.requested_visibility().is_none());
         // Request row 1 (relative) of the widget; the frame resolves it to
         // absolute row 2 (area origin y=1 + relative y=1).
@@ -591,10 +591,10 @@ mod tests {
 
     #[test]
     fn a11y_role_and_label_default_off_and_are_settable() {
-        use crate::a11y::SemanticRole;
+        use crate::accessibility::SemanticRole;
         let mut buffer = Buffer::new(Size::new(6, 1));
         let area = Rect::from_size(Size::new(6, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         // Defaults: no role, no label.
         assert_eq!(ctx.declared_role(), SemanticRole::None);
         assert_eq!(ctx.declared_label(), None);
@@ -611,7 +611,7 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         {
-            let mut ctx = HandleCtx::new(
+            let mut ctx = HandleContext::new(
                 Phase::Bubble,
                 Rect::from_size(Size::new(4, 1)),
                 &mut outcomes,
@@ -632,12 +632,12 @@ mod tests {
         struct Ignorer;
         impl Widget for Ignorer {
             type State = ();
-            fn render(&self, _state: &mut (), _ctx: &mut RenderCtx<'_>) {}
+            fn render(&self, _state: &mut (), _ctx: &mut RenderContext<'_>) {}
         }
 
         let mut outcomes = Vec::new();
         let mut request_focus = false;
-        let mut ctx = HandleCtx::new(
+        let mut ctx = HandleContext::new(
             Phase::Bubble,
             Rect::default(),
             &mut outcomes,

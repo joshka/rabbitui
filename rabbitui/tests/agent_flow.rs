@@ -25,7 +25,7 @@ use rabbitui_core::geometry::{Position, Rect, Size};
 use rabbitui_core::id::{Key as WidgetKey, WidgetId, key};
 use rabbitui_core::input::Key as InputKey;
 use rabbitui_core::layout::Constraint;
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 use rabbitui_core::text::Span;
 use rabbitui_testing::TestApp;
 use rabbitui_testing::vt::{VtColor, VtScreen};
@@ -128,7 +128,7 @@ fn markdown_to_commit_lines(source: &str) -> Vec<CommitLine> {
 struct MarkdownRender {
     lines: Vec<Vec<Span>>,
     current: Vec<Span>,
-    attrs: Attrs,
+    attrs: Attributes,
     fg: Option<Color>,
     in_code_block: bool,
     bullet_pending: bool,
@@ -155,11 +155,11 @@ impl MarkdownRender {
     fn start(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Heading { .. } => {
-                self.attrs |= Attrs::BOLD;
+                self.attrs |= Attributes::BOLD;
                 self.fg = Some(Color::CYAN);
             }
-            Tag::Emphasis => self.attrs |= Attrs::ITALIC,
-            Tag::Strong => self.attrs |= Attrs::BOLD,
+            Tag::Emphasis => self.attrs |= Attributes::ITALIC,
+            Tag::Strong => self.attrs |= Attributes::BOLD,
             Tag::CodeBlock(CodeBlockKind::Fenced(_) | CodeBlockKind::Indented) => {
                 self.break_line();
                 self.in_code_block = true;
@@ -173,12 +173,12 @@ impl MarkdownRender {
     fn end(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Heading(_) => {
-                self.attrs = Attrs::NONE;
+                self.attrs = Attributes::NONE;
                 self.fg = None;
                 self.break_line();
             }
-            TagEnd::Emphasis => self.attrs = remove(self.attrs, Attrs::ITALIC),
-            TagEnd::Strong => self.attrs = remove(self.attrs, Attrs::BOLD),
+            TagEnd::Emphasis => self.attrs = remove(self.attrs, Attributes::ITALIC),
+            TagEnd::Strong => self.attrs = remove(self.attrs, Attributes::BOLD),
             TagEnd::CodeBlock => {
                 self.break_line();
                 self.in_code_block = false;
@@ -241,14 +241,14 @@ impl MarkdownRender {
     }
 }
 
-fn remove(attrs: Attrs, remove: Attrs) -> Attrs {
-    let mut result = Attrs::NONE;
+fn remove(attrs: Attributes, remove: Attributes) -> Attributes {
+    let mut result = Attributes::NONE;
     for flag in [
-        Attrs::BOLD,
-        Attrs::DIM,
-        Attrs::ITALIC,
-        Attrs::UNDERLINE,
-        Attrs::REVERSED,
+        Attributes::BOLD,
+        Attributes::DIM,
+        Attributes::ITALIC,
+        Attributes::UNDERLINE,
+        Attributes::REVERSED,
     ] {
         if attrs.contains(flag) && !remove.contains(flag) {
             result |= flag;
@@ -633,7 +633,7 @@ fn markdown_renders_heading_bullets_and_inline_code_with_styles() {
         heading
             .spans()
             .iter()
-            .any(|s| s.style.attrs.contains(Attrs::BOLD) && s.style.fg == Some(Color::CYAN)),
+            .any(|s| s.style.attrs.contains(Attributes::BOLD) && s.style.fg == Some(Color::CYAN)),
         "heading span is bold cyan: {:?}",
         heading.spans(),
     );
@@ -642,7 +642,7 @@ fn markdown_renders_heading_bullets_and_inline_code_with_styles() {
         lines.iter().any(|line| line
             .spans()
             .iter()
-            .any(|s| s.text == "bold" && s.style.attrs.contains(Attrs::BOLD))),
+            .any(|s| s.text == "bold" && s.style.attrs.contains(Attributes::BOLD))),
         "the word 'bold' is its own bold span",
     );
     // The inline code span is dim.
@@ -650,7 +650,7 @@ fn markdown_renders_heading_bullets_and_inline_code_with_styles() {
         lines.iter().any(|line| line
             .spans()
             .iter()
-            .any(|s| s.text == "code" && s.style.attrs.contains(Attrs::DIM))),
+            .any(|s| s.text == "code" && s.style.attrs.contains(Attributes::DIM))),
         "inline code is a dim span",
     );
 }

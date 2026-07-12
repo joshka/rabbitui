@@ -16,9 +16,9 @@
 //!
 //! The status line shows the mode, the agent state, and a spinner while
 //! streaming. The composer is a [`TextInput`]; Enter sends a prompt and spawns a
-//! deterministic simulated agent response (a `Cmd::stream` of chunked markdown,
+//! deterministic simulated agent response (a `Command::stream` of chunked markdown,
 //! a tool-call interlude, then completion). `Ctrl-X` (or `Esc`, once the substrate flushes lone escapes) cancels a streaming response
-//! via `Cmd::cancel_group("agent")` — which also covers re-prompting mid-stream.
+//! via `Command::cancel_group("agent")` — which also covers re-prompting mid-stream.
 //! `q`/Ctrl-C quit.
 //!
 //! Markdown → spans lives here, in app-land, over `pulldown-cmark` (a
@@ -42,7 +42,7 @@ use futures_core::Stream;
 use pulldown_cmark::{CodeBlockKind, Event as MdEvent, Parser, Tag, TagEnd};
 use rabbitui::App;
 use rabbitui::app::{Event, Update};
-use rabbitui::effect::Cmd;
+use rabbitui::effect::Command;
 use rabbitui_core::commit::CommitLine;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::{Key as WidgetKey, key};
@@ -50,7 +50,7 @@ use rabbitui_core::input::Key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::mode::Mode;
 use rabbitui_core::outcome::Outcome;
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 use rabbitui_core::text::Span;
 use rabbitui_core::theme::Role;
 use rabbitui_widgets::{Collapsible, Panel, Text, TextInput};
@@ -60,7 +60,7 @@ use rabbitui_widgets::{Collapsible, Panel, Text, TextInput};
 const TAIL_HEIGHT: u16 = 8;
 
 /// The cancel-previous group every simulated agent run is spawned into, so a new
-/// prompt (or `Esc`) aborts the running stream (`Cmd::cancel_group("agent")`).
+/// prompt (or `Esc`) aborts the running stream (`Command::cancel_group("agent")`).
 const AGENT_GROUP: &str = "agent";
 
 /// The spinner frames cycled while the agent is streaming.
@@ -110,7 +110,7 @@ struct Streaming {
 
 /// A message the simulated agent stream (or the spinner ticker) delivers.
 #[derive(Debug, Clone)]
-enum Msg {
+enum Message {
     /// A chunk of assistant prose (markdown source) to append to the live tail.
     Chunk(String),
     /// A tool call started; carries the tool's name.
@@ -187,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Folds one update into the app: send prompts, absorb the stream, toggle mode,
 /// scroll, cancel, quit.
-fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
+fn update(app: &mut Agent, update: Update<'_, Message>) -> ControlFlow<()> {
     // Track the composer draft; a submit sends a prompt and spawns the agent.
     if let Some(Outcome::Changed(value)) = update.outcome_for(&[composer_key(app)]) {
         app.draft = value.clone();
@@ -261,7 +261,7 @@ fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
 /// The prompt cell is pushed (and committed in inline mode); the agent stream is
 /// spawned into the cancel-previous `agent` group, so sending again mid-stream
 /// aborts the previous run. The spinner ticker starts alongside it.
-fn submit_prompt(app: &mut Agent, update: &Update<'_, Msg>) {
+fn submit_prompt(app: &mut Agent, update: &Update<'_, Message>) {
     let prompt = app.draft.trim().to_string();
     // Clear the composer regardless (re-key), and reset the tracked draft.
     app.input_generation += 1;
@@ -276,18 +276,18 @@ fn submit_prompt(app: &mut Agent, update: &Update<'_, Msg>) {
     // alt-screen scroll pins to the bottom on new content via a scroll-into-view
     // request from the newest cell, so no app-side offset is tracked.
     app.streaming = Some(Streaming::default());
-    update.spawn(Cmd::stream(agent_stream(&prompt)).group(AGENT_GROUP));
+    update.spawn(Command::stream(agent_stream(&prompt)).group(AGENT_GROUP));
 
     // Start the spinner ticker (its own group so it is independently cancellable).
     if !app.ticking {
         app.ticking = true;
-        update.spawn(Cmd::stream(SpinnerTicker::new()).group("spinner"));
+        update.spawn(Command::stream(SpinnerTicker::new()).group("spinner"));
     }
 }
 
 /// Aborts the running agent stream and drops the in-flight turn.
-fn cancel_agent(app: &mut Agent, update: &Update<'_, Msg>) {
-    update.spawn(Cmd::<Msg>::cancel_group(AGENT_GROUP));
+fn cancel_agent(app: &mut Agent, update: &Update<'_, Message>) {
+    update.spawn(Command::<Message>::cancel_group(AGENT_GROUP));
     // Any prose streamed so far is discarded (a cancelled turn commits nothing) —
     // the append-once rule holds: only completion commits.
     if let Some(streaming) = app.streaming.take() {
@@ -310,19 +310,19 @@ fn cancel_agent(app: &mut Agent, update: &Update<'_, Msg>) {
 }
 
 /// Folds one stream (or ticker) message into the app.
-fn handle_message(app: &mut Agent, update: &Update<'_, Msg>, message: Msg) {
+fn handle_message(app: &mut Agent, update: &Update<'_, Message>, message: Message) {
     match message {
-        Msg::Chunk(chunk) => {
+        Message::Chunk(chunk) => {
             if let Some(streaming) = app.streaming.as_mut() {
                 streaming.source.push_str(&chunk);
             }
         }
-        Msg::ToolStarted(name) => {
+        Message::ToolStarted(name) => {
             if let Some(streaming) = app.streaming.as_mut() {
                 streaming.running_tool = Some(name);
             }
         }
-        Msg::ToolFinished {
+        Message::ToolFinished {
             name,
             summary,
             output,
@@ -345,12 +345,12 @@ fn handle_message(app: &mut Agent, update: &Update<'_, Msg>, message: Msg) {
                 },
             );
         }
-        Msg::Complete => {
+        Message::Complete => {
             flush_prose(app, update);
             app.streaming = None;
             stop_spinner(app, update);
         }
-        Msg::Tick => {
+        Message::Tick => {
             app.spinner = (app.spinner + 1) % SPINNER.len();
         }
     }
@@ -358,7 +358,7 @@ fn handle_message(app: &mut Agent, update: &Update<'_, Msg>, message: Msg) {
 
 /// Commits the streaming turn's accumulated prose as an assistant cell, if any,
 /// and clears the accumulator (leaving the turn open for post-tool prose).
-fn flush_prose(app: &mut Agent, update: &Update<'_, Msg>) {
+fn flush_prose(app: &mut Agent, update: &Update<'_, Message>) {
     let source = match app.streaming.as_mut() {
         Some(streaming) if !streaming.source.trim().is_empty() => {
             std::mem::take(&mut streaming.source)
@@ -369,10 +369,10 @@ fn flush_prose(app: &mut Agent, update: &Update<'_, Msg>) {
 }
 
 /// Stops the spinner ticker stream (for good) when the agent goes idle.
-fn stop_spinner(app: &mut Agent, update: &Update<'_, Msg>) {
+fn stop_spinner(app: &mut Agent, update: &Update<'_, Message>) {
     if app.ticking {
         app.ticking = false;
-        update.spawn(Cmd::<Msg>::cancel_group("spinner"));
+        update.spawn(Command::<Message>::cancel_group("spinner"));
     }
 }
 
@@ -383,7 +383,7 @@ fn stop_spinner(app: &mut Agent, update: &Update<'_, Msg>) {
 /// This is the one place the two modes diverge: alt-screen keeps the cell only in
 /// `cells` (it re-renders the whole column each frame), while inline additionally
 /// commits it once, append-only, exactly as ADR 0013 requires.
-fn push_cell(app: &mut Agent, update: &Update<'_, Msg>, cell: TranscriptCell) {
+fn push_cell(app: &mut Agent, update: &Update<'_, Message>, cell: TranscriptCell) {
     if app.inline {
         for line in commit_lines_for(&cell) {
             update.commit(line);
@@ -626,7 +626,7 @@ struct MarkdownRender {
     /// The line under construction.
     current: Vec<Span>,
     /// The active inline attributes (bold/italic), nested via a stack.
-    attrs: Attrs,
+    attrs: Attributes,
     /// The active foreground override for headings/code, if any.
     fg: Option<Color>,
     /// Whether we are inside a fenced code block (each line is a dim code line).
@@ -654,11 +654,11 @@ impl MarkdownRender {
         match tag {
             Tag::Heading { .. } => {
                 self.in_heading = true;
-                self.attrs |= Attrs::BOLD;
+                self.attrs |= Attributes::BOLD;
                 self.fg = Some(Color::CYAN);
             }
-            Tag::Emphasis => self.attrs |= Attrs::ITALIC,
-            Tag::Strong => self.attrs |= Attrs::BOLD,
+            Tag::Emphasis => self.attrs |= Attributes::ITALIC,
+            Tag::Strong => self.attrs |= Attributes::BOLD,
             Tag::CodeBlock(CodeBlockKind::Fenced(_) | CodeBlockKind::Indented) => {
                 self.break_line();
                 self.in_code_block = true;
@@ -673,12 +673,12 @@ impl MarkdownRender {
         match tag {
             TagEnd::Heading(_) => {
                 self.in_heading = false;
-                self.attrs = Attrs::NONE;
+                self.attrs = Attributes::NONE;
                 self.fg = None;
                 self.break_line();
             }
-            TagEnd::Emphasis => self.attrs = self.attrs.remove(Attrs::ITALIC),
-            TagEnd::Strong => self.attrs = self.attrs.remove(Attrs::BOLD),
+            TagEnd::Emphasis => self.attrs = self.attrs.remove(Attributes::ITALIC),
+            TagEnd::Strong => self.attrs = self.attrs.remove(Attributes::BOLD),
             TagEnd::CodeBlock => {
                 self.break_line();
                 self.in_code_block = false;
@@ -821,7 +821,7 @@ enum Step {
     Complete,
 }
 
-/// The scripted agent stream: yields one [`Msg`] per non-sleep step, pacing each
+/// The scripted agent stream: yields one [`Message`] per non-sleep step, pacing each
 /// with a short inter-chunk delay so the live tail visibly fills.
 struct AgentStream {
     steps: VecDeque<Step>,
@@ -830,9 +830,9 @@ struct AgentStream {
 }
 
 impl Stream for AgentStream {
-    type Item = Msg;
+    type Item = Message;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Msg>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Message>> {
         let this = self.get_mut();
         loop {
             // Wait out any armed inter-step delay first.
@@ -853,11 +853,11 @@ impl Stream for AgentStream {
                 }
                 Step::Chunk(text) => {
                     this.arm_default_delay();
-                    return Poll::Ready(Some(Msg::Chunk(text)));
+                    return Poll::Ready(Some(Message::Chunk(text)));
                 }
                 Step::ToolStart(name) => {
                     this.arm_default_delay();
-                    return Poll::Ready(Some(Msg::ToolStarted(name)));
+                    return Poll::Ready(Some(Message::ToolStarted(name)));
                 }
                 Step::ToolFinish {
                     name,
@@ -866,14 +866,14 @@ impl Stream for AgentStream {
                     status,
                 } => {
                     this.arm_default_delay();
-                    return Poll::Ready(Some(Msg::ToolFinished {
+                    return Poll::Ready(Some(Message::ToolFinished {
                         name,
                         summary,
                         output,
                         status,
                     }));
                 }
-                Step::Complete => return Poll::Ready(Some(Msg::Complete)),
+                Step::Complete => return Poll::Ready(Some(Message::Complete)),
             }
         }
     }
@@ -886,7 +886,7 @@ impl AgentStream {
     }
 }
 
-/// A ticker driving the streaming spinner, one [`Msg::Tick`] every ~120ms.
+/// A ticker driving the streaming spinner, one [`Message::Tick`] every ~120ms.
 struct SpinnerTicker {
     interval: tokio::time::Interval,
 }
@@ -900,12 +900,12 @@ impl SpinnerTicker {
 }
 
 impl Stream for SpinnerTicker {
-    type Item = Msg;
+    type Item = Message;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Msg>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Message>> {
         let this = self.get_mut();
         match this.interval.poll_tick(cx) {
-            Poll::Ready(_) => Poll::Ready(Some(Msg::Tick)),
+            Poll::Ready(_) => Poll::Ready(Some(Message::Tick)),
             Poll::Pending => Poll::Pending,
         }
     }

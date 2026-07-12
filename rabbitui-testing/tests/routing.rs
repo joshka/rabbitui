@@ -208,7 +208,7 @@ fn click_to_focus_moves_focus_to_an_unconsumed_focusable_target() {
     struct Panel;
     impl rabbitui_core::widget::Widget for Panel {
         type State = ();
-        fn render(&self, _s: &mut (), ctx: &mut rabbitui_core::widget::RenderCtx<'_>) {
+        fn render(&self, _s: &mut (), ctx: &mut rabbitui_core::widget::RenderContext<'_>) {
             ctx.focusable(true);
         }
         // Default handle: ignores the click, so it is unconsumed.

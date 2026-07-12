@@ -37,7 +37,7 @@
 //!   track with a [`Role::Muted`](crate::theme::Role::Muted) thumb sized and
 //!   positioned to the offset.
 //! - **Scroll-into-view.** A child's
-//!   [`request_visibility`](crate::widget::RenderCtx::request_visibility) is
+//!   [`request_visibility`](crate::widget::RenderContext::request_visibility) is
 //!   recorded as a fact this frame; the scope stashes the target row into its
 //!   retained state and adjusts `offset` **next frame** to reveal it — closing the
 //!   loop plumbed as facts in slice 7.
@@ -47,7 +47,7 @@ use crate::geometry::{Position, Rect, Size};
 use crate::id::{Key, WidgetId};
 use crate::input::{InputEvent, Key as InputKey, MouseKind};
 use crate::theme::Role;
-use crate::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use crate::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// The retained state of a scroll scope: the scroll offset and the geometry the
 /// handler needs to clamp it between frames.
@@ -121,11 +121,11 @@ struct ScrollView;
 impl Widget for ScrollView {
     type State = ScrollState;
 
-    fn render(&self, _state: &mut ScrollState, ctx: &mut RenderCtx<'_>) {
+    fn render(&self, _state: &mut ScrollState, ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
     }
 
-    fn handle(state: &mut ScrollState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(state: &mut ScrollState, event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
         // Only act on the bubble leg, so a nested (inner) scroll — the routing
         // target — handles the event before an enclosing (outer) scroll sees it on
         // the way down. Capture would let the outer swallow it first.
@@ -327,12 +327,12 @@ impl<'f> Frame<'f> {
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::store::StateStore;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     ///
     /// struct Row(&'static str);
     /// impl Widget for Row {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
     ///     }
     /// }
@@ -545,7 +545,7 @@ mod tests {
 
     impl Widget for Probe {
         type State = RenderCount;
-        fn render(&self, state: &mut RenderCount, ctx: &mut RenderCtx<'_>) {
+        fn render(&self, state: &mut RenderCount, ctx: &mut RenderContext<'_>) {
             state.0 += 1;
             ctx.set_string(Position::ORIGIN, self.label, Style::new());
         }
@@ -659,7 +659,7 @@ mod tests {
     fn dispatch(state: &mut ScrollState, event: InputEvent) -> Handled {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
-        let mut ctx = HandleCtx::new(
+        let mut ctx = HandleContext::new(
             crate::widget::Phase::Bubble,
             Rect::default(),
             &mut outcomes,
@@ -761,7 +761,7 @@ mod tests {
     }
     impl Widget for Reveal {
         type State = ();
-        fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
             ctx.request_visibility(Rect::new(Position::ORIGIN, Size::new(1, self.height)));
         }

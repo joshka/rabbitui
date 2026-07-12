@@ -67,7 +67,7 @@ use rabbitui_core::store::StateStore;
 use rabbitui_core::theme::Theme;
 use rabbitui_core::widget::Widget;
 
-use crate::effect::{Cmd, EffectError, Effects, Outbox};
+use crate::effect::{Command, EffectError, Effects, Outbox};
 use crate::engine::{AltEngine, InlineEngine};
 use crate::terminal::Terminal;
 
@@ -108,7 +108,7 @@ pub use crate::terminal::{Error, Result};
 pub enum Event<M = ()> {
     /// Delivered exactly once, before the first input or effect, after the
     /// initial frame has drawn. Lets a self-starting app spawn its opening
-    /// `Cmd` (e.g. begin a stream) or seed state at launch instead of waiting
+    /// `Command` (e.g. begin a stream) or seed state at launch instead of waiting
     /// for the first keypress (dogfood finding #1). The store, focus, and facts
     /// reflect the frame already on screen; `update.spawn(cmd)` and
     /// `update.widget(...)` work as in any other update.
@@ -134,7 +134,7 @@ pub enum Event<M = ()> {
 /// Per the slice-5 design note, committing and mode switching are *update-time*
 /// actions (event-driven, naturally once), never view-time ones — a view re-runs
 /// every frame and would double-emit. Slice 6 adds three more update-time actions
-/// on the same buffering principle: [`Update::spawn`] queues a [`Cmd`] the runtime
+/// on the same buffering principle: [`Update::spawn`] queues a [`Command`] the runtime
 /// hands to its [`Effects`] runtime, and [`Update::widget`] / [`Update::focus`]
 /// record into a [`core::pending`](rabbitui_core::pending) set the runtime applies
 /// between frames through the *same* function [`TestApp`] uses.
@@ -152,7 +152,7 @@ pub struct Pending<M = ()> {
     /// The last theme requested this update, if any (later calls win).
     set_theme: Option<Theme>,
     /// Effects to spawn after `update` returns, in call order.
-    effects: Vec<Cmd<M>>,
+    effects: Vec<Command<M>>,
     /// Between-frames widget commands and a deferred focus request, applied by the
     /// shared [`core::pending`](rabbitui_core::pending) function.
     widget: WidgetPending,
@@ -387,7 +387,7 @@ impl<'a, M> Update<'a, M> {
     ///
     /// Buffered like [`set_mode`](Self::set_mode) — calling twice keeps the last
     /// theme — and applied by replacing the active theme threaded into every
-    /// widget's [`RenderCtx`](rabbitui_core::widget::RenderCtx). This is how an app
+    /// widget's [`RenderContext`](rabbitui_core::widget::RenderContext). This is how an app
     /// offers a live theme picker. If a theme file is also configured
     /// ([`theme_file`](App::theme_file)), it is last-writer-wins: a later file
     /// change (debug hot-reload) overrides a runtime switch, and vice versa.
@@ -606,15 +606,15 @@ impl<M: Send + 'static> Update<'_, M> {
     /// use std::cell::RefCell;
     ///
     /// use rabbitui::app::{Event, Update};
-    /// use rabbitui::effect::Cmd;
+    /// use rabbitui::effect::Command;
     /// use rabbitui_core::input::{InputEvent, Key};
     ///
     /// let pending = RefCell::new(Default::default());
     /// let update: Update<'_, u32> =
     ///     Update::new(Event::Input(InputEvent::key(Key::Enter)), &[], &pending);
-    /// update.spawn(Cmd::future(async { 42 }));
+    /// update.spawn(Command::future(async { 42 }));
     /// ```
-    pub fn spawn(&self, cmd: Cmd<M>) {
+    pub fn spawn(&self, cmd: Command<M>) {
         self.pending.borrow_mut().effects.push(cmd);
     }
 }
@@ -1444,7 +1444,7 @@ fn install_tracing(
 /// deadline, or a spurious idle (a defensively-handled closed mailbox).
 enum Wake<M> {
     /// The one-shot startup tick: deliver [`Event::Started`] before the first
-    /// real wake so a self-starting app can spawn its initial `Cmd`.
+    /// real wake so a self-starting app can spawn its initial `Command`.
     Started,
     /// A raw substrate input event from the terminal (boxed: qwertty's event is
     /// larger than the other small variants, so this keeps `Wake` compact).

@@ -12,7 +12,7 @@ use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::key;
 use rabbitui_core::layout::Constraint;
 use rabbitui_core::style::Style;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 use rabbitui_testing::{TestApp, assert_snapshot};
 
 /// A stateless label, painting borrowed text from the origin of its area.
@@ -20,7 +20,7 @@ struct Label<'a>(&'a str);
 
 impl Widget for Label<'_> {
     type State = ();
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         ctx.set_string(Position::ORIGIN, self.0, Style::new());
     }
 }
@@ -34,7 +34,7 @@ struct Probe;
 
 impl Widget for Probe {
     type State = Renders;
-    fn render(&self, state: &mut Renders, ctx: &mut RenderCtx<'_>) {
+    fn render(&self, state: &mut Renders, ctx: &mut RenderContext<'_>) {
         state.0 += 1;
         ctx.set_string(Position::ORIGIN, &state.0.to_string(), Style::new());
     }

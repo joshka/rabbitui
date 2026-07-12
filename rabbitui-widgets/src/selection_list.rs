@@ -2,12 +2,12 @@
 
 use std::borrow::Cow;
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// A lazy, index-addressable source of list rows.
 ///
@@ -366,7 +366,7 @@ impl SelectionListState {
 impl<S: ListSource> Widget for SelectionList<S> {
     type State = SelectionListState;
 
-    fn render(&self, state: &mut SelectionListState, ctx: &mut RenderCtx<'_>) {
+    fn render(&self, state: &mut SelectionListState, ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
         // A11y groundwork (ADR arc4 §5): a selectable list.
         ctx.semantic_role(SemanticRole::List);
@@ -429,7 +429,7 @@ impl<S: ListSource> Widget for SelectionList<S> {
     fn handle(
         state: &mut SelectionListState,
         event: &InputEvent,
-        ctx: &mut HandleCtx<'_>,
+        ctx: &mut HandleContext<'_>,
     ) -> Handled {
         // Mouse: a left press on a visible row selects it; the wheel moves the
         // selection one row per notch (the natural list gestures). The row is the
@@ -472,7 +472,7 @@ impl<S: ListSource> Widget for SelectionList<S> {
 /// ignored (not handled), so it can fall through to the app.
 fn handle_mouse(
     state: &mut SelectionListState,
-    ctx: &mut HandleCtx<'_>,
+    ctx: &mut HandleContext<'_>,
     mouse: &rabbitui_core::input::MouseEvent,
 ) -> Handled {
     match mouse.kind {
@@ -528,7 +528,7 @@ enum Movement {
 /// tracks selection through the state, not the outcome payload.
 fn move_selection(
     state: &mut SelectionListState,
-    ctx: &mut HandleCtx<'_>,
+    ctx: &mut HandleContext<'_>,
     movement: Movement,
 ) -> Handled {
     let before = state.selected;
@@ -552,7 +552,7 @@ mod tests {
     use rabbitui_core::input::{InputEvent, Key};
     use rabbitui_core::outcome::Outcome;
     use rabbitui_core::theme::{Role, Theme};
-    use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
+    use rabbitui_core::widget::{HandleContext, Handled, Phase, RenderContext, Widget};
 
     use super::{ListSource, SelectionList, SelectionListState};
 
@@ -564,7 +564,7 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(
+            let mut ctx = HandleContext::new(
                 Phase::Bubble,
                 Rect::default(),
                 &mut outcomes,
@@ -584,7 +584,8 @@ mod tests {
         focused: bool,
     ) -> Buffer {
         let mut buffer = Buffer::new(Size::new(8, height));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, height)), focused);
+        let mut ctx =
+            RenderContext::new(&mut buffer, Rect::from_size(Size::new(8, height)), focused);
         list.render(state, &mut ctx);
         buffer
     }
@@ -678,7 +679,8 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(Phase::Bubble, area, &mut outcomes, &mut request_focus);
+            let mut ctx =
+                HandleContext::new(Phase::Bubble, area, &mut outcomes, &mut request_focus);
             <SelectionList<Vec<String>>>::handle(state, &event, &mut ctx)
         };
         (handled, outcomes)
@@ -883,7 +885,7 @@ mod tests {
 
         // And it renders through the widget like any other source.
         let mut buffer = Buffer::new(Size::new(16, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(16, 3)), true);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(16, 3)), true);
         let mut state = SelectionListState::default();
         list.render(&mut state, &mut ctx);
         let read = |y: u16| {
@@ -935,7 +937,7 @@ mod tests {
         let list = SelectionList::new(Vec::<String>::new()).empty_text("no matches");
         // Focusable so focus does not fall away when the last row is filtered out.
         let mut buffer = Buffer::new(Size::new(16, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(16, 2)), true);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(16, 2)), true);
         let mut state = SelectionListState::default();
         list.render(&mut state, &mut ctx);
         assert!(ctx.is_focusable());

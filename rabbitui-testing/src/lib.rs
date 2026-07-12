@@ -50,13 +50,13 @@
 //! use rabbitui_core::geometry::Size;
 //! use rabbitui_core::id::key;
 //! use rabbitui_core::style::Style;
-//! use rabbitui_core::widget::{RenderCtx, Widget};
+//! use rabbitui_core::widget::{RenderContext, Widget};
 //! use rabbitui_testing::TestApp;
 //!
 //! struct Label<'a>(&'a str);
 //! impl Widget for Label<'_> {
 //!     type State = ();
-//!     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
 //!         use rabbitui_core::geometry::Position;
 //!         ctx.set_string(Position::ORIGIN, self.0, Style::new());
 //!     }
@@ -253,13 +253,13 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// struct Dot;
     /// impl Widget for Dot {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, "x", Style::new());
     ///     }
     /// }
@@ -305,13 +305,13 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// struct Label<'a>(&'a str);
     /// impl Widget for Label<'_> {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
     ///     }
     /// }
@@ -446,13 +446,13 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// struct Label<'a>(&'a str);
     /// impl Widget for Label<'_> {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
     ///     }
     /// }
@@ -494,7 +494,7 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::{WidgetId, key};
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// #[derive(Default)]
@@ -504,7 +504,7 @@ impl<S> TestApp<S> {
     /// struct Input;
     /// impl Widget for Input {
     ///     type State = Field;
-    ///     fn render(&self, state: &mut Field, ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, state: &mut Field, ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, &state.value, Style::new());
     ///     }
     /// }
@@ -547,13 +547,13 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// struct Hi;
     /// impl Widget for Hi {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, "hi", Style::new());
     ///     }
     /// }
@@ -587,13 +587,13 @@ impl<S> TestApp<S> {
     /// use rabbitui_core::geometry::{Position, Size};
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     /// use rabbitui_testing::TestApp;
     ///
     /// struct Two;
     /// impl Widget for Two {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::new(0, 0), "a", Style::new());
     ///         ctx.set_string(Position::new(0, 1), "b", Style::new());
     ///     }
@@ -667,7 +667,7 @@ mod tests {
     use rabbitui_core::geometry::{Position, Size};
     use rabbitui_core::id::key;
     use rabbitui_core::style::Style;
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::TestApp;
 
@@ -675,7 +675,7 @@ mod tests {
     struct Label<'a>(&'a str);
     impl Widget for Label<'_> {
         type State = ();
-        fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
             ctx.set_string(Position::ORIGIN, self.0, Style::new());
         }
     }
@@ -689,7 +689,7 @@ mod tests {
     struct Probe;
     impl Widget for Probe {
         type State = RenderCount;
-        fn render(&self, state: &mut RenderCount, ctx: &mut RenderCtx<'_>) {
+        fn render(&self, state: &mut RenderCount, ctx: &mut RenderContext<'_>) {
             state.renders += 1;
             ctx.set_string(Position::ORIGIN, &state.renders.to_string(), Style::new());
         }
@@ -769,7 +769,7 @@ mod tests {
     struct Field;
     impl Widget for Field {
         type State = FieldState;
-        fn render(&self, state: &mut FieldState, ctx: &mut RenderCtx<'_>) {
+        fn render(&self, state: &mut FieldState, ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
             ctx.set_string(Position::ORIGIN, &state.value, Style::new());
         }

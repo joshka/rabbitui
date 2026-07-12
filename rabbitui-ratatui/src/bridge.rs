@@ -4,7 +4,7 @@
 //! render-into-`Buffer`-and-copy-cells. [`render_ratatui`] and
 //! [`render_ratatui_stateful`] allocate a ratatui [`Buffer`](ratatui::buffer::Buffer) the size of the
 //! target area, invoke the widget's paint step into it, then copy every cell —
-//! grapheme plus converted style — into the rabbitui [`RenderCtx`] at the same
+//! grapheme plus converted style — into the rabbitui [`RenderContext`] at the same
 //! coordinate. No ratatui `Terminal`, backend, or draw loop is involved.
 //!
 //! # What crosses the bridge
@@ -22,12 +22,12 @@
 //! continuation by storing no symbol (its `Cell::symbol()` then reads as a
 //! space); rabbitui marks it with an empty symbol. The copy bridges the two by
 //! *width*: when a lead cell holds a width-2 grapheme, rabbitui's
-//! [`RenderCtx::set_string`] writes both the lead and its continuation, and the
+//! [`RenderContext::set_string`] writes both the lead and its continuation, and the
 //! bridge skips the ratatui continuation cell so it does not paint a stray space
 //! over the right half of the glyph.
 
 use rabbitui_core::geometry::Position;
-use rabbitui_core::widget::RenderCtx;
+use rabbitui_core::widget::RenderContext;
 use ratatui::buffer::Buffer as RatBuffer;
 use ratatui::layout::Rect as RatRect;
 use ratatui::widgets::{StatefulWidget, Widget};
@@ -52,16 +52,16 @@ use crate::style::convert_style;
 /// ```
 /// use rabbitui_core::buffer::Buffer;
 /// use rabbitui_core::geometry::{Position, Rect, Size};
-/// use rabbitui_core::widget::RenderCtx;
+/// use rabbitui_core::widget::RenderContext;
 /// use rabbitui_ratatui::render_ratatui;
 /// use ratatui::widgets::Paragraph;
 ///
 /// let mut buffer = Buffer::new(Size::new(5, 1));
-/// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
+/// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
 /// render_ratatui(Paragraph::new("hi"), &mut ctx);
 /// assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "h");
 /// ```
-pub fn render_ratatui<W: Widget>(widget: W, ctx: &mut RenderCtx<'_>) {
+pub fn render_ratatui<W: Widget>(widget: W, ctx: &mut RenderContext<'_>) {
     let Some(mut rat_buffer) = area_buffer(ctx) else {
         return;
     };
@@ -84,12 +84,12 @@ pub fn render_ratatui<W: Widget>(widget: W, ctx: &mut RenderCtx<'_>) {
 /// ```
 /// use rabbitui_core::buffer::Buffer;
 /// use rabbitui_core::geometry::{Rect, Size};
-/// use rabbitui_core::widget::RenderCtx;
+/// use rabbitui_core::widget::RenderContext;
 /// use rabbitui_ratatui::render_ratatui_stateful;
 /// use ratatui::widgets::{List, ListState};
 ///
 /// let mut buffer = Buffer::new(Size::new(8, 3));
-/// let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(8, 3)), false);
+/// let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(8, 3)), false);
 /// let mut state = ListState::default();
 /// state.select(Some(1));
 /// let list = List::new(["a", "b", "c"]);
@@ -98,7 +98,7 @@ pub fn render_ratatui<W: Widget>(widget: W, ctx: &mut RenderCtx<'_>) {
 pub fn render_ratatui_stateful<W: StatefulWidget>(
     widget: W,
     state: &mut W::State,
-    ctx: &mut RenderCtx<'_>,
+    ctx: &mut RenderContext<'_>,
 ) {
     let Some(mut rat_buffer) = area_buffer(ctx) else {
         return;
@@ -113,8 +113,8 @@ pub fn render_ratatui_stateful<W: StatefulWidget>(
 ///
 /// The buffer's own [`Rect`](ratatui::layout::Rect) starts at the origin — the
 /// widget paints in area-relative coordinates, matching how [`copy_cells`] reads
-/// them back and how [`RenderCtx::set_string`] expects relative positions.
-fn area_buffer(ctx: &RenderCtx<'_>) -> Option<RatBuffer> {
+/// them back and how [`RenderContext::set_string`] expects relative positions.
+fn area_buffer(ctx: &RenderContext<'_>) -> Option<RatBuffer> {
     let size = ctx.size();
     if size.width == 0 || size.height == 0 {
         return None;
@@ -131,11 +131,11 @@ fn area_buffer(ctx: &RenderCtx<'_>) -> Option<RatBuffer> {
 /// the shared wide-grapheme skip-cell convention.
 ///
 /// Each row is walked left to right. A cell's grapheme and converted style are
-/// written through [`RenderCtx::set_string`]; when that grapheme is wide
+/// written through [`RenderContext::set_string`]; when that grapheme is wide
 /// (advances two columns), `set_string` also writes rabbitui's continuation
 /// cell, so the following ratatui cell — ratatui's own continuation — is skipped
 /// rather than painted as a stray space over the glyph's right half.
-fn copy_cells(rat_buffer: &RatBuffer, ctx: &mut RenderCtx<'_>) {
+fn copy_cells(rat_buffer: &RatBuffer, ctx: &mut RenderContext<'_>) {
     let area = *rat_buffer.area();
     for y in 0..area.height {
         let mut x = 0;
@@ -158,8 +158,8 @@ fn copy_cells(rat_buffer: &RatBuffer, ctx: &mut RenderCtx<'_>) {
 mod tests {
     use rabbitui_core::buffer::Buffer;
     use rabbitui_core::geometry::{Position, Rect, Size};
-    use rabbitui_core::style::{Attrs, Color};
-    use rabbitui_core::widget::RenderCtx;
+    use rabbitui_core::style::{Attributes, Color};
+    use rabbitui_core::widget::RenderContext;
     use ratatui::style::{Color as RatColor, Modifier, Style as RatStyle};
     use ratatui::text::{Line, Span};
     use ratatui::widgets::{Block, Paragraph};
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn copies_plain_text_grapheme_for_grapheme() {
         let mut buffer = Buffer::new(Size::new(5, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
         render_ratatui(Paragraph::new("hi!"), &mut ctx);
         assert_eq!(symbol(&buffer, 0, 0), "h");
         assert_eq!(symbol(&buffer, 1, 0), "i");
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn copies_fg_bg_and_attributes() {
         let mut buffer = Buffer::new(Size::new(3, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
         let style = RatStyle::default()
             .fg(RatColor::Green)
             .bg(RatColor::Blue)
@@ -196,13 +196,17 @@ mod tests {
         assert_eq!(cell.symbol, "o");
         assert_eq!(cell.style.fg, Some(Color::Ansi(2)));
         assert_eq!(cell.style.bg, Some(Color::Ansi(4)));
-        assert!(cell.style.attrs.contains(Attrs::BOLD | Attrs::ITALIC));
+        assert!(
+            cell.style
+                .attrs
+                .contains(Attributes::BOLD | Attributes::ITALIC)
+        );
     }
 
     #[test]
     fn wide_grapheme_becomes_lead_plus_continuation() {
         let mut buffer = Buffer::new(Size::new(6, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(6, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(6, 1)), false);
         // A CJK lead (width 2) followed by a narrow grapheme.
         render_ratatui(Paragraph::new("世x"), &mut ctx);
         assert_eq!(symbol(&buffer, 0, 0), "世");
@@ -217,7 +221,7 @@ mod tests {
     #[test]
     fn bordered_block_paints_corners_and_edges() {
         let mut buffer = Buffer::new(Size::new(4, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 3)), false);
         render_ratatui(Block::bordered(), &mut ctx);
         assert_eq!(symbol(&buffer, 0, 0), "┌");
         assert_eq!(symbol(&buffer, 3, 0), "┐");
@@ -231,7 +235,7 @@ mod tests {
     fn empty_area_paints_nothing() {
         let mut buffer = Buffer::new(Size::new(4, 2));
         // A zero-size area: the context clips everything to nothing.
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(0, 0)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(0, 0)), false);
         render_ratatui(Paragraph::new("nope"), &mut ctx);
         // The buffer is untouched — still all blank.
         assert_eq!(symbol(&buffer, 0, 0), " ");
@@ -241,7 +245,7 @@ mod tests {
     fn paints_relative_to_a_shifted_area() {
         let mut buffer = Buffer::new(Size::new(8, 3));
         let area = Rect::new(Position::new(2, 1), Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, area, false);
+        let mut ctx = RenderContext::new(&mut buffer, area, false);
         render_ratatui(Paragraph::new("ab"), &mut ctx);
         // Painting is offset by the area origin, exactly like a native widget.
         assert_eq!(symbol(&buffer, 2, 1), "a");
@@ -254,7 +258,7 @@ mod tests {
         use ratatui::widgets::{List, ListState};
 
         let mut buffer = Buffer::new(Size::new(6, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(6, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(6, 3)), false);
         let mut state = ListState::default();
         state.select(Some(1));
         let list = List::new(["a", "b", "c"])
@@ -271,7 +275,7 @@ mod tests {
                 .unwrap()
                 .style
                 .attrs
-                .contains(Attrs::REVERSED)
+                .contains(Attributes::REVERSED)
         );
     }
 }

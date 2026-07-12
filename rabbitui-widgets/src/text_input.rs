@@ -1,12 +1,12 @@
 //! A single-line, uncontrolled text input with grapheme-correct editing.
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -283,7 +283,7 @@ impl TextInputState {
 impl Widget for TextInput<'_> {
     type State = TextInputState;
 
-    fn render(&self, state: &mut TextInputState, ctx: &mut RenderCtx<'_>) {
+    fn render(&self, state: &mut TextInputState, ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
         // A11y groundwork (ADR arc4 §5): a text field, labelled by its placeholder
         // (its purpose) — the value itself may be empty or sensitive.
@@ -329,7 +329,11 @@ impl Widget for TextInput<'_> {
         }
     }
 
-    fn handle(state: &mut TextInputState, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(
+        state: &mut TextInputState,
+        event: &InputEvent,
+        ctx: &mut HandleContext<'_>,
+    ) -> Handled {
         // A mouse press over the field is left *unconsumed* so the router's
         // click-to-focus focuses this focusable field (slice-7 design note:
         // "TextInput Down → focus"). Placing the cursor at the clicked column is a
@@ -372,7 +376,7 @@ impl Widget for TextInput<'_> {
 /// to the app as a raw event while the field is focused.
 fn edit(
     state: &mut TextInputState,
-    ctx: &mut HandleCtx<'_>,
+    ctx: &mut HandleContext<'_>,
     op: fn(&mut TextInputState) -> bool,
 ) -> Handled {
     if op(state) {
@@ -390,7 +394,7 @@ fn move_cursor(state: &mut TextInputState, op: fn(&mut TextInputState) -> bool) 
 
 /// Paints `value` into the context's row, shifted left by `scroll` cells, so the
 /// visible window starts at display column `scroll`.
-fn paint_scrolled(ctx: &mut RenderCtx<'_>, value: &str, scroll: u16, style: Style) {
+fn paint_scrolled(ctx: &mut RenderContext<'_>, value: &str, scroll: u16, style: Style) {
     let mut column: u16 = 0;
     for grapheme in value.graphemes(true) {
         let advance = u16::try_from(UnicodeWidthStr::width(grapheme))
@@ -428,8 +432,8 @@ mod tests {
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::input::{InputEvent, Key, KeyEvent, Modifiers};
     use rabbitui_core::outcome::Outcome;
-    use rabbitui_core::style::Attrs;
-    use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
+    use rabbitui_core::style::Attributes;
+    use rabbitui_core::widget::{HandleContext, Handled, Phase, RenderContext, Widget};
 
     use super::{TextInput, TextInputState};
 
@@ -438,7 +442,7 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(
+            let mut ctx = HandleContext::new(
                 Phase::Bubble,
                 Rect::default(),
                 &mut outcomes,
@@ -590,7 +594,8 @@ mod tests {
     /// Renders a state into a fresh buffer of `width` and returns it.
     fn render_state(state: &mut TextInputState, width: u16, focused: bool) -> Buffer {
         let mut buffer = Buffer::new(Size::new(width, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(width, 1)), focused);
+        let mut ctx =
+            RenderContext::new(&mut buffer, Rect::from_size(Size::new(width, 1)), focused);
         TextInput::new().render(state, &mut ctx);
         buffer
     }
@@ -616,7 +621,7 @@ mod tests {
                 .unwrap()
                 .style
                 .attrs
-                .contains(Attrs::REVERSED)
+                .contains(Attributes::REVERSED)
         );
         // A non-cursor cell is not reversed.
         assert!(
@@ -625,7 +630,7 @@ mod tests {
                 .unwrap()
                 .style
                 .attrs
-                .contains(Attrs::REVERSED)
+                .contains(Attributes::REVERSED)
         );
     }
 
@@ -641,7 +646,7 @@ mod tests {
                     .unwrap()
                     .style
                     .attrs
-                    .contains(Attrs::REVERSED)
+                    .contains(Attributes::REVERSED)
             );
         }
     }
@@ -650,7 +655,7 @@ mod tests {
     fn placeholder_shows_only_when_empty_and_unfocused() {
         let mut empty = TextInputState::default();
         let mut buffer = Buffer::new(Size::new(10, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
         TextInput::new()
             .placeholder("type…")
             .render(&mut empty, &mut ctx);

@@ -2,12 +2,12 @@
 
 use std::borrow::Cow;
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::style::Style;
 use rabbitui_core::text::Span;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -114,7 +114,7 @@ impl From<Span> for Content<'_> {
 /// `Text` is the simplest conforming widget: stateless (`State = ()`), holding
 /// borrowed or owned [`Content`] and an optional [`Role`] override. It splits its
 /// content on `'\n'` and paints each line on its own row from the top of its
-/// area; lines and rows past the area are clipped by the [`RenderCtx`], never
+/// area; lines and rows past the area are clipped by the [`RenderContext`], never
 /// wrapped unless [`wrap`](Self::wrap) is on.
 ///
 /// # Plain and styled content
@@ -347,7 +347,7 @@ impl<'a> Text<'a> {
 
     /// The resolved default style: the literal override, or the role resolved
     /// against `ctx`'s theme. Spans layer over this.
-    fn base_style(&self, ctx: &RenderCtx<'_>) -> Style {
+    fn base_style(&self, ctx: &RenderContext<'_>) -> Style {
         match self.style {
             Appearance::Role(role) => ctx.style(role),
             Appearance::Style(style) => style,
@@ -409,7 +409,7 @@ impl StyledGrapheme<'_> {
 impl Widget for Text<'_> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // A11y groundwork (ADR arc4 §5): a static label announced by its text.
         ctx.semantic_role(SemanticRole::Label);
         ctx.label(self.content.to_plain_string());
@@ -463,7 +463,7 @@ impl Widget for Text<'_> {
 /// Paints one display row of styled graphemes at `y`, advancing the column by
 /// each grapheme's display width (so a wide grapheme's continuation cell is left
 /// to the buffer, exactly as `set_string` handles it).
-fn paint_row(ctx: &mut RenderCtx<'_>, y: u16, row: &[StyledGrapheme<'_>]) {
+fn paint_row(ctx: &mut RenderContext<'_>, y: u16, row: &[StyledGrapheme<'_>]) {
     let mut x: u16 = 0;
     let width = ctx.area().size.width;
     for cell in row {
@@ -544,9 +544,9 @@ fn wrap_line<'a>(line: &[StyledGrapheme<'a>], width: u16) -> Vec<Vec<StyledGraph
 mod tests {
     use rabbitui_core::buffer::Buffer;
     use rabbitui_core::geometry::{Position, Rect, Size};
-    use rabbitui_core::style::{Attrs, Color, Style};
+    use rabbitui_core::style::{Attributes, Color, Style};
     use rabbitui_core::text::Span;
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::{Content, Text};
 
@@ -585,7 +585,7 @@ mod tests {
         // A default Text has no literal override; it resolves Role::Text.
         assert_eq!(Text::new("x").get_style(), None);
         let mut buffer = Buffer::new(Size::new(2, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(2, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(2, 1)), false);
         Text::new("x").render(&mut (), &mut ctx);
         assert_eq!(
             buffer.get(Position::ORIGIN).unwrap().style,
@@ -599,7 +599,7 @@ mod tests {
         let theme = Theme::catppuccin_mocha();
         let mut buffer = Buffer::new(Size::new(3, 1));
         let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(3, 1)), false, &theme);
+            RenderContext::new_themed(&mut buffer, Rect::from_size(Size::new(3, 1)), false, &theme);
         Text::new("hi").role(Role::Danger).render(&mut (), &mut ctx);
         assert_eq!(
             buffer.get(Position::ORIGIN).unwrap().style,
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn renders_a_single_line_from_the_origin() {
         let mut buffer = Buffer::new(Size::new(10, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
         Text::new("hello").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "hello");
     }
@@ -618,7 +618,7 @@ mod tests {
     #[test]
     fn splits_on_newline_one_row_per_line() {
         let mut buffer = Buffer::new(Size::new(10, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two");
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn lines_past_the_bottom_are_clipped() {
         let mut buffer = Buffer::new(Size::new(10, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new("one\ntwo\nthree").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "one");
         assert_eq!(row(&buffer, 1), "two");
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn anchor_bottom_keeps_the_last_rows_when_content_overflows() {
         let mut buffer = Buffer::new(Size::new(10, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new("one\ntwo\nthree")
             .anchor_bottom(true)
             .render(&mut (), &mut ctx);
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn anchor_bottom_is_a_no_op_when_content_fits() {
         let mut buffer = Buffer::new(Size::new(10, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 3)), false);
         Text::new("one\ntwo")
             .anchor_bottom(true)
             .render(&mut (), &mut ctx);
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn long_lines_clip_at_the_right_edge() {
         let mut buffer = Buffer::new(Size::new(3, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(3, 1)), false);
         Text::new("abcdef").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "abc");
     }
@@ -668,7 +668,7 @@ mod tests {
     fn style_applies_to_every_painted_cell() {
         let mut buffer = Buffer::new(Size::new(5, 1));
         let style = Style::new().fg(Color::GREEN);
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(5, 1)), false);
         Text::new("ab").style(style).render(&mut (), &mut ctx);
         assert_eq!(buffer.get(Position::new(0, 0)).unwrap().style, style);
         assert_eq!(buffer.get(Position::new(1, 0)).unwrap().style, style);
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn empty_content_paints_one_blank_line() {
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Text::new("").render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "");
     }
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn spans_paint_each_run_in_its_own_style() {
         let mut buffer = Buffer::new(Size::new(10, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 1)), false);
         Text::new(vec![
             Span::styled("ok", Style::new().fg(Color::GREEN).bold()),
             Span::styled(" no", Style::new().fg(Color::RED)),
@@ -697,7 +697,7 @@ mod tests {
         // "ok" is green+bold; " no" is red.
         let ok = buffer.get(Position::new(0, 0)).unwrap();
         assert_eq!(ok.style.fg, Some(Color::GREEN));
-        assert!(ok.style.attrs.contains(Attrs::BOLD));
+        assert!(ok.style.attrs.contains(Attributes::BOLD));
         assert_eq!(
             buffer.get(Position::new(3, 0)).unwrap().style.fg,
             Some(Color::RED)
@@ -712,7 +712,7 @@ mod tests {
         let theme = Theme::catppuccin_mocha();
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+            RenderContext::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
         Text::new(vec![Span::raw("err")])
             .role(Role::Danger)
             .render(&mut (), &mut ctx);
@@ -729,19 +729,19 @@ mod tests {
         let theme = Theme::catppuccin_mocha();
         let mut buffer = Buffer::new(Size::new(4, 1));
         let mut ctx =
-            RenderCtx::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
+            RenderContext::new_themed(&mut buffer, Rect::from_size(Size::new(4, 1)), false, &theme);
         Text::new(vec![Span::styled("hi", Style::new().bold())])
             .role(Role::Accent)
             .render(&mut (), &mut ctx);
         let cell = buffer.get(Position::ORIGIN).unwrap();
         assert_eq!(cell.style.fg, theme.style(Role::Accent).fg);
-        assert!(cell.style.attrs.contains(Attrs::BOLD));
+        assert!(cell.style.attrs.contains(Attributes::BOLD));
     }
 
     #[test]
     fn spans_split_on_embedded_newlines() {
         let mut buffer = Buffer::new(Size::new(10, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 2)), false);
         Text::new(vec![Span::raw("a\nb"), Span::raw("c")]).render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "a");
         assert_eq!(row(&buffer, 1), "bc");
@@ -758,7 +758,7 @@ mod tests {
     #[test]
     fn wrap_breaks_at_word_boundaries() {
         let mut buffer = Buffer::new(Size::new(10, 4));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(10, 4)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(10, 4)), false);
         Text::new("the quick brown fox")
             .wrap(true)
             .render(&mut (), &mut ctx);
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn wrap_hard_breaks_a_word_longer_than_the_area() {
         let mut buffer = Buffer::new(Size::new(5, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(5, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(5, 3)), false);
         Text::new("abcdefghijkl")
             .wrap(true)
             .render(&mut (), &mut ctx);
@@ -782,7 +782,7 @@ mod tests {
     #[test]
     fn wrap_keeps_wide_graphemes_whole_at_the_boundary() {
         let mut buffer = Buffer::new(Size::new(4, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
         Text::new("世界語").wrap(true).render(&mut (), &mut ctx);
         assert_eq!(row(&buffer, 0), "世界");
         assert_eq!(row(&buffer, 1), "語");
@@ -793,7 +793,7 @@ mod tests {
         // Two spans, each one wide CJK grapheme, then a third: styled content must
         // wrap exactly like plain, never straddling the edge at the span seam.
         let mut buffer = Buffer::new(Size::new(4, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 2)), false);
         Text::new(vec![
             Span::styled("世", Style::new().fg(Color::GREEN)),
             Span::styled("界", Style::new().fg(Color::RED)),
@@ -818,7 +818,7 @@ mod tests {
     #[test]
     fn wrap_preserves_explicit_newlines() {
         let mut buffer = Buffer::new(Size::new(20, 3));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(20, 3)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(20, 3)), false);
         Text::new("one\ntwo three")
             .wrap(true)
             .render(&mut (), &mut ctx);
@@ -831,7 +831,7 @@ mod tests {
         // "aaa bbb" styled: green word, red word. Wrapped at width 3, styling
         // survives on both rows.
         let mut buffer = Buffer::new(Size::new(3, 2));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(3, 2)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(3, 2)), false);
         Text::new(vec![
             Span::styled("aaa ", Style::new().fg(Color::GREEN)),
             Span::styled("bbb", Style::new().fg(Color::RED)),

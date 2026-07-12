@@ -6,7 +6,7 @@
 //! hatch. This module never decodes input (that stays the substrate's job) and
 //! shrinks as qwertty grows equivalent typed commands.
 
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 
 /// Enter the alternate screen buffer (`CSI ? 1049 h`).
 pub const ENTER_ALT_SCREEN: &[u8] = b"\x1b[?1049h";
@@ -98,22 +98,22 @@ pub fn cursor_right(n: u16) -> Vec<u8> {
 /// self-contained (no dependency on the terminal's current attribute state).
 pub fn sgr(style: Style) -> Vec<u8> {
     let mut params = String::from("0");
-    if style.attrs.contains(Attrs::BOLD) {
+    if style.attrs.contains(Attributes::BOLD) {
         params.push_str(";1");
     }
-    if style.attrs.contains(Attrs::DIM) {
+    if style.attrs.contains(Attributes::DIM) {
         params.push_str(";2");
     }
-    if style.attrs.contains(Attrs::ITALIC) {
+    if style.attrs.contains(Attributes::ITALIC) {
         params.push_str(";3");
     }
-    if style.attrs.contains(Attrs::UNDERLINE) {
+    if style.attrs.contains(Attributes::UNDERLINE) {
         params.push_str(";4");
     }
-    if style.attrs.contains(Attrs::REVERSED) {
+    if style.attrs.contains(Attributes::REVERSED) {
         params.push_str(";7");
     }
-    if style.attrs.contains(Attrs::STRIKETHROUGH) {
+    if style.attrs.contains(Attributes::STRIKETHROUGH) {
         params.push_str(";9");
     }
     if let Some(fg) = style.fg {

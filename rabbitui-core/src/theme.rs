@@ -5,7 +5,7 @@
 //! semantic *role tokens* that widgets reference instead of hard-coding colors.
 //! A [`Theme`] maps each [`Role`] to a concrete [`Style`], resolved
 //! framework-side during the paint pass. Widgets ask for a role through
-//! [`RenderCtx::style`](crate::widget::RenderCtx::style); they never name a color
+//! [`RenderContext::style`](crate::widget::RenderContext::style); they never name a color
 //! directly, so re-skinning the whole app is a single theme swap (ADR 0007's
 //! "framework-resolved styling, not per-widget charity").
 //!
@@ -354,7 +354,7 @@ impl Theme {
     ///
     /// let mut theme = Theme::default();
     /// theme.set(Role::Warning, Style::new().fg(Color::Rgb(0xff, 0xaa, 0x00)).bold());
-    /// assert!(theme.style(Role::Warning).attrs.contains(rabbitui_core::style::Attrs::BOLD));
+    /// assert!(theme.style(Role::Warning).attrs.contains(rabbitui_core::style::Attributes::BOLD));
     /// ```
     pub const fn set(&mut self, role: Role, style: Style) {
         self.styles[role_index(role)] = style;
@@ -388,7 +388,7 @@ const fn role_index(role: Role) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::Attrs;
+    use crate::style::Attributes;
 
     #[test]
     fn role_index_matches_all_ordering() {
@@ -424,7 +424,7 @@ mod tests {
         let before_text = theme.style(Role::Text);
         theme.set(Role::Accent, Style::new().fg(Color::RED).bold());
         assert_eq!(theme.style(Role::Accent).fg, Some(Color::RED));
-        assert!(theme.style(Role::Accent).attrs.contains(Attrs::BOLD));
+        assert!(theme.style(Role::Accent).attrs.contains(Attributes::BOLD));
         // A different role is untouched.
         assert_eq!(theme.style(Role::Text), before_text);
     }

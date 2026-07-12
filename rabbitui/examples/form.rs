@@ -330,7 +330,7 @@ struct SubmitButton<'a> {
 impl rabbitui_core::widget::Widget for SubmitButton<'_> {
     type State = ();
 
-    fn render(&self, _state: &mut (), ctx: &mut rabbitui_core::widget::RenderCtx<'_>) {
+    fn render(&self, _state: &mut (), ctx: &mut rabbitui_core::widget::RenderContext<'_>) {
         ctx.focusable(self.enabled);
         let role = if !self.enabled {
             Role::Muted
@@ -346,7 +346,7 @@ impl rabbitui_core::widget::Widget for SubmitButton<'_> {
     fn handle(
         _state: &mut (),
         event: &rabbitui_core::input::InputEvent,
-        ctx: &mut rabbitui_core::widget::HandleCtx<'_>,
+        ctx: &mut rabbitui_core::widget::HandleContext<'_>,
     ) -> rabbitui_core::widget::Handled {
         use rabbitui_core::input::{Key, MouseButton, MouseKind};
         use rabbitui_core::widget::Handled;

@@ -38,7 +38,7 @@ use rabbitui_core::facts::FrameFacts;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::WidgetId;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 
 use crate::Panel;
 
@@ -93,7 +93,7 @@ impl<'a> FactsInspector<'a> {
 impl Widget for FactsInspector<'_> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // A passive readout: never a focus target.
         ctx.focusable(false);
 
@@ -116,7 +116,7 @@ impl Widget for FactsInspector<'_> {
 
         // 2. The lines: the exact `dump_lines` format the log seam uses, so the
         //    overlay and `facts::dump` read identically. One entry per row, clipped
-        //    to the inner height; the RenderCtx clips each line at the right edge.
+        //    to the inner height; the RenderContext clips each line at the right edge.
         let lines = self.facts.dump_lines(self.focus);
         let text = ctx.style(Role::Text);
         let accent = ctx.style(Role::Accent);
@@ -149,7 +149,7 @@ mod tests {
     use rabbitui_core::id::{WidgetId, key};
     use rabbitui_core::store::StateStore;
     use rabbitui_core::theme::{Role, Theme};
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::FactsInspector;
 
@@ -157,14 +157,14 @@ mod tests {
     struct Focusable;
     impl Widget for Focusable {
         type State = ();
-        fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
         }
     }
     struct Passive;
     impl Widget for Passive {
         type State = ();
-        fn render(&self, _s: &mut (), _ctx: &mut RenderCtx<'_>) {}
+        fn render(&self, _s: &mut (), _ctx: &mut RenderContext<'_>) {}
     }
 
     /// Declares a small realistic frame and returns its facts (with devtools names).
@@ -193,7 +193,7 @@ mod tests {
     /// Renders the inspector into a fresh `size` buffer against `theme`.
     fn render(facts: &FrameFacts, focus: Option<WidgetId>, size: Size, theme: &Theme) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
+        let mut ctx = RenderContext::new_themed(&mut buffer, Rect::from_size(size), false, theme);
         FactsInspector::new(facts)
             .focus(focus)
             .render(&mut (), &mut ctx);

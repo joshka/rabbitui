@@ -7,7 +7,7 @@
 //! Inline-mode scrollback commits are not modelled by the test buffer, so the app
 //! renders in alt-screen mode here (`inline = false`).
 
-use rabbitui_agent::app::{self, Agent, Msg, Reaction};
+use rabbitui_agent::app::{self, Agent, Message, Reaction};
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::backend::{BackendError, ChatMessage, Role, StreamEvent};
 use rabbitui_agent::transcript::TranscriptCell;
@@ -30,7 +30,7 @@ fn replay_greeting(app: &mut TestApp<Agent>) {
         let event: StreamEvent = serde_json::from_str(line).expect("fixture parses");
         app.send(
             |state| {
-                app::apply_message(state, Msg::Event(Ok(event.clone())));
+                app::apply_message(state, Message::Event(Ok(event.clone())));
             },
             app::view,
         );
@@ -119,13 +119,13 @@ fn on_submit_sends_the_full_history() {
     // Close the first turn so history carries the assistant reply.
     app::apply_message(
         &mut app,
-        Msg::Event(Ok(StreamEvent::TextDelta {
+        Message::Event(Ok(StreamEvent::TextDelta {
             text: "ok".to_string(),
         })),
     );
     let reaction = app::apply_message(
         &mut app,
-        Msg::Event(Ok(StreamEvent::MessageDone {
+        Message::Event(Ok(StreamEvent::MessageDone {
             stop_reason: rabbitui_agent::backend::StopReason::EndTurn,
             usage: rabbitui_agent::backend::Usage::default(),
         })),
@@ -203,7 +203,7 @@ fn a_backend_error_becomes_an_error_cell() {
 
     let reaction = app::apply_message(
         &mut app,
-        Msg::Event(Err(BackendError::Transport("connection reset".to_string()))),
+        Message::Event(Err(BackendError::Transport("connection reset".to_string()))),
     );
     assert_eq!(reaction, Reaction::TurnComplete);
     assert!(!app.is_streaming(), "an error ends the turn");

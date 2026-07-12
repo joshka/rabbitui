@@ -20,13 +20,13 @@
 //! assert_eq!(banner.message(), "the request timed out");
 //! ```
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// The hint shown in the bottom border.
 const HINT: &str = " Enter: dismiss ";
@@ -106,7 +106,7 @@ impl<'a> ErrorBanner<'a> {
 impl Widget for ErrorBanner<'_> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
         // A11y groundwork (ADR arc4 §5): a modal dialog, labelled by title + message.
         ctx.semantic_role(SemanticRole::Dialog);
@@ -153,7 +153,7 @@ impl Widget for ErrorBanner<'_> {
         lines.saturating_add(2)
     }
 
-    fn handle((): &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle((): &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
         if let Some(mouse) = event.as_mouse() {
             if mouse.button == MouseButton::Left && mouse.kind == MouseKind::Down {
                 ctx.emit(Outcome::Dismissed);
@@ -183,7 +183,7 @@ const HORIZONTAL: &str = "─";
 const VERTICAL: &str = "│";
 
 /// Draws a full box border in `style`.
-fn draw_border(ctx: &mut RenderCtx<'_>, size: Size, style: Style) {
+fn draw_border(ctx: &mut RenderContext<'_>, size: Size, style: Style) {
     let last_x = size.width - 1;
     let last_y = size.height - 1;
     ctx.set_string(Position::new(0, 0), TOP_LEFT, style);
@@ -200,14 +200,14 @@ fn draw_border(ctx: &mut RenderCtx<'_>, size: Size, style: Style) {
 }
 
 /// Writes `label` into the top border after the corner, clipped to fit.
-fn draw_top_label(ctx: &mut RenderCtx<'_>, size: Size, label: &str, style: Style) {
+fn draw_top_label(ctx: &mut RenderContext<'_>, size: Size, label: &str, style: Style) {
     let max = usize::from(size.width.saturating_sub(2));
     let clipped: String = label.chars().take(max).collect();
     ctx.set_string(Position::new(1, 0), &clipped, style);
 }
 
 /// Writes `label` into the bottom border after the corner, clipped to fit.
-fn draw_bottom_label(ctx: &mut RenderCtx<'_>, size: Size, label: &str, style: Style) {
+fn draw_bottom_label(ctx: &mut RenderContext<'_>, size: Size, label: &str, style: Style) {
     let max = usize::from(size.width.saturating_sub(2));
     let clipped: String = label.chars().take(max).collect();
     ctx.set_string(Position::new(1, size.height - 1), &clipped, style);
@@ -219,7 +219,7 @@ mod tests {
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseEvent, MouseKind};
     use rabbitui_core::outcome::Outcome;
-    use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
+    use rabbitui_core::widget::{HandleContext, Handled, Phase, RenderContext, Widget};
 
     use super::ErrorBanner;
 
@@ -236,7 +236,7 @@ mod tests {
 
     fn render(banner: &ErrorBanner<'_>, size: Size) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(size), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(size), false);
         banner.render(&mut (), &mut ctx);
         buffer
     }
@@ -245,7 +245,7 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(
+            let mut ctx = HandleContext::new(
                 Phase::Bubble,
                 Rect::default(),
                 &mut outcomes,

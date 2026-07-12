@@ -496,7 +496,7 @@ fn paint_over(top: Style, under: Style) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::{Attrs, Color};
+    use crate::style::{Attributes, Color};
 
     #[test]
     fn transparent_background_shows_the_backdrop_through_text() {
@@ -538,7 +538,7 @@ mod tests {
         buffer.set_string(Position::ORIGIN, "a", Style::new().fg(Color::WHITE));
         let cell = buffer.get(Position::ORIGIN).unwrap();
         assert!(
-            !cell.style.attrs.contains(Attrs::BOLD),
+            !cell.style.attrs.contains(Attributes::BOLD),
             "attrs do not union"
         );
         // …but the backdrop background still shows through.

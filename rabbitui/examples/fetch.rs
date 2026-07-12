@@ -8,9 +8,9 @@
 //!   (Textual `@work(exclusive=True)`), so **rapid typing completes far fewer
 //!   fetches than keystrokes**; a completed-fetch counter proves it.
 //! - **A stream "subscription".** `t` toggles a clock ticker — a
-//!   [`Cmd::stream`] over a hand-rolled 1-second interval, spawned into the
+//!   [`Command::stream`] over a hand-rolled 1-second interval, spawned into the
 //!   `"clock"` group — whose messages update a live clock line. Toggling it off
-//!   spawns a [`Cmd::cancel_group`] that aborts the stream for good (the
+//!   spawns a [`Command::cancel_group`] that aborts the stream for good (the
 //!   stream-stop primitive, ADR 0005 / slice 7), rather than leaving it running
 //!   with its ticks ignored.
 //! - **A widget command.** `Ctrl-L` clears the input via
@@ -48,7 +48,7 @@ use std::time::Duration;
 use futures_core::Stream;
 use rabbitui::App;
 use rabbitui::app::{Event, Update};
-use rabbitui::effect::Cmd;
+use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
@@ -61,7 +61,7 @@ use rabbitui_widgets::{ErrorBanner, LogOverlay, Panel, SelectionList, Text, Text
 
 /// A message an effect produces, re-entering the loop as [`Event::Message`].
 #[derive(Debug, Clone)]
-enum Msg {
+enum Message {
     /// A search for `query` completed, yielding these result rows.
     Results { query: String, rows: Vec<String> },
     /// The ticker fired; carries a monotonically increasing tick count.
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Folds one update into the app: spawn searches, toggle the ticker, clear the
 /// input, and absorb effect results.
-fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
+fn update(app: &mut Fetch, update: Update<'_, Message>) -> ControlFlow<()> {
     // A keystroke that changed the input spawns a new debounced fetch. The
     // `group("search")` aborts the previous fetch, so only the last-typed query
     // completes — the cancel-previous guarantee.
@@ -127,7 +127,7 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
 
     // Effect results re-enter here as messages.
     match update.event() {
-        Event::Message(Msg::Results { query, rows }) => {
+        Event::Message(Message::Results { query, rows }) => {
             app.completed += 1;
             // Only display results for the query still in the box (belt-and-braces;
             // cancel-previous already makes stale results rare).
@@ -135,7 +135,7 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 app.results = rows.clone();
             }
         }
-        Event::Message(Msg::Tick(n)) => app.ticks = *n,
+        Event::Message(Message::Tick(n)) => app.ticks = *n,
         Event::EffectFailed(error) => {
             tracing::warn!(error = %error, "effect failed");
             app.last_error = Some(error.to_string());
@@ -169,11 +169,13 @@ fn update(app: &mut Fetch, update: Update<'_, Msg>) -> ControlFlow<()> {
                 if app.ticking {
                     // Start the ticker under the "clock" group so it can be
                     // aborted on demand.
-                    update.spawn(Cmd::stream(Ticker::every(Duration::from_secs(1))).group("clock"));
+                    update.spawn(
+                        Command::stream(Ticker::every(Duration::from_secs(1))).group("clock"),
+                    );
                 } else {
                     // Stop it for good: cancel_group aborts the stream task
                     // without replacing it (the stream-stop primitive).
-                    update.spawn(Cmd::cancel_group("clock"));
+                    update.spawn(Command::cancel_group("clock"));
                 }
             }
             // Toggle the debug log overlay. Guarded on `!consumed()` so it does
@@ -281,15 +283,15 @@ fn view(app: &Fetch, frame: &mut Frame<'_>) {
 /// A real app would `await` a network call here; the sleep stands in for it. The
 /// point is the *shape*: an async future producing one message, spawned into the
 /// `search` group so a newer keystroke aborts it mid-flight.
-fn fake_fetch(query: String) -> Cmd<Msg> {
-    Cmd::future(async move {
+fn fake_fetch(query: String) -> Command<Message> {
+    Command::future(async move {
         tokio::time::sleep(Duration::from_millis(300)).await;
         let rows = if query.trim().is_empty() {
             Vec::new()
         } else {
             (1..=5).map(|n| format!("{query} result {n}")).collect()
         };
-        Msg::Results { query, rows }
+        Message::Results { query, rows }
     })
 }
 
@@ -315,14 +317,14 @@ impl Ticker {
 }
 
 impl Stream for Ticker {
-    type Item = Msg;
+    type Item = Message;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Msg>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Message>> {
         let this = self.get_mut();
         match this.interval.poll_tick(cx) {
             Poll::Ready(_) => {
                 this.count += 1;
-                Poll::Ready(Some(Msg::Tick(this.count)))
+                Poll::Ready(Some(Message::Tick(this.count)))
             }
             Poll::Pending => Poll::Pending,
         }

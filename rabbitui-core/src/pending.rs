@@ -39,7 +39,7 @@
 //! use rabbitui_core::pending::Pending;
 //! use rabbitui_core::routing::Focus;
 //! use rabbitui_core::store::StateStore;
-//! use rabbitui_core::widget::{RenderCtx, Widget};
+//! use rabbitui_core::widget::{RenderContext, Widget};
 //!
 //! #[derive(Default)]
 //! struct Field {
@@ -48,7 +48,7 @@
 //! struct Input;
 //! impl Widget for Input {
 //!     type State = Field;
-//!     fn render(&self, state: &mut Field, ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, state: &mut Field, ctx: &mut RenderContext<'_>) {
 //!         ctx.focusable(true);
 //!         let _ = state;
 //!     }
@@ -396,7 +396,7 @@ mod tests {
     use crate::frame::Frame;
     use crate::geometry::Size;
     use crate::id::key;
-    use crate::widget::{RenderCtx, Widget};
+    use crate::widget::{RenderContext, Widget};
 
     #[derive(Default)]
     struct Field {
@@ -406,7 +406,7 @@ mod tests {
     struct Input;
     impl Widget for Input {
         type State = Field;
-        fn render(&self, _state: &mut Field, ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut Field, ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
         }
     }
@@ -415,7 +415,7 @@ mod tests {
     struct Label;
     impl Widget for Label {
         type State = ();
-        fn render(&self, _state: &mut (), _ctx: &mut RenderCtx<'_>) {}
+        fn render(&self, _state: &mut (), _ctx: &mut RenderContext<'_>) {}
     }
 
     /// Declares `input` (focusable) and returns (facts, store) with its state row.

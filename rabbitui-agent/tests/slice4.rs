@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rabbitui_agent::app::{self, Agent, Msg};
+use rabbitui_agent::app::{self, Agent, Message};
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::backend::{ChatMessage, ContentBlock, Role, StreamEvent};
 use rabbitui_agent::transcript::{ToolStatus, TranscriptCell};
@@ -49,7 +49,7 @@ fn feed(app: &mut TestApp<Agent>, events: &[StreamEvent], cursor: usize, count: 
         let event = event.clone();
         app.send(
             move |state| {
-                app::apply_message(state, Msg::Event(Ok(event.clone())));
+                app::apply_message(state, Message::Event(Ok(event.clone())));
             },
             app::view,
         );

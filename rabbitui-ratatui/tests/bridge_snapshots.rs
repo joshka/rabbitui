@@ -13,7 +13,7 @@
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::id::key;
-use rabbitui_core::style::{Attrs, Color};
+use rabbitui_core::style::{Attributes, Color};
 use rabbitui_ratatui::RatatuiWidget;
 use rabbitui_testing::{TestApp, assert_snapshot};
 use ratatui::style::{Color as RatColor, Modifier, Style as RatStyle};
@@ -63,12 +63,12 @@ fn describe(style: &rabbitui_core::style::Style) -> String {
         parts.push(format!("bg={}", color_name(color)));
     }
     for (attr, name) in [
-        (Attrs::BOLD, "bold"),
-        (Attrs::DIM, "dim"),
-        (Attrs::ITALIC, "italic"),
-        (Attrs::UNDERLINE, "underline"),
-        (Attrs::REVERSED, "reversed"),
-        (Attrs::STRIKETHROUGH, "strikethrough"),
+        (Attributes::BOLD, "bold"),
+        (Attributes::DIM, "dim"),
+        (Attributes::ITALIC, "italic"),
+        (Attributes::UNDERLINE, "underline"),
+        (Attributes::REVERSED, "reversed"),
+        (Attributes::STRIKETHROUGH, "strikethrough"),
     ] {
         if style.attrs.contains(attr) {
             parts.push(name.to_string());

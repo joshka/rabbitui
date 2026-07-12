@@ -10,7 +10,7 @@
 
 use pulldown_cmark::{CodeBlockKind, Event as MdEvent, Options, Parser, Tag, TagEnd};
 use rabbitui_core::commit::CommitLine;
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 use rabbitui_core::text::Span;
 
 /// Renders markdown `source` into committed transcript lines (per-span SGR).
@@ -32,7 +32,7 @@ struct MarkdownRender {
     /// The line under construction.
     current: Vec<Span>,
     /// The active inline attributes (bold/italic).
-    attrs: Attrs,
+    attrs: Attributes,
     /// The active foreground override for headings/code, if any.
     fg: Option<Color>,
     /// Whether we are inside a fenced/indented code block.
@@ -62,14 +62,14 @@ impl MarkdownRender {
     fn start(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Heading { .. } => {
-                self.attrs |= Attrs::BOLD;
+                self.attrs |= Attributes::BOLD;
                 self.fg = Some(Color::CYAN);
             }
-            Tag::Emphasis => self.attrs |= Attrs::ITALIC,
-            Tag::Strong => self.attrs |= Attrs::BOLD,
-            Tag::Strikethrough => self.attrs |= Attrs::STRIKETHROUGH,
+            Tag::Emphasis => self.attrs |= Attributes::ITALIC,
+            Tag::Strong => self.attrs |= Attributes::BOLD,
+            Tag::Strikethrough => self.attrs |= Attributes::STRIKETHROUGH,
             Tag::Link { dest_url, .. } => {
-                self.attrs |= Attrs::UNDERLINE;
+                self.attrs |= Attributes::UNDERLINE;
                 self.link_url = Some(dest_url.to_string());
             }
             Tag::CodeBlock(CodeBlockKind::Fenced(_) | CodeBlockKind::Indented) => {
@@ -87,15 +87,15 @@ impl MarkdownRender {
     fn end(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Heading(_) => {
-                self.attrs = Attrs::NONE;
+                self.attrs = Attributes::NONE;
                 self.fg = None;
                 self.break_line();
             }
-            TagEnd::Emphasis => self.attrs = self.attrs.remove(Attrs::ITALIC),
-            TagEnd::Strong => self.attrs = self.attrs.remove(Attrs::BOLD),
-            TagEnd::Strikethrough => self.attrs = self.attrs.remove(Attrs::STRIKETHROUGH),
+            TagEnd::Emphasis => self.attrs = self.attrs.remove(Attributes::ITALIC),
+            TagEnd::Strong => self.attrs = self.attrs.remove(Attributes::BOLD),
+            TagEnd::Strikethrough => self.attrs = self.attrs.remove(Attributes::STRIKETHROUGH),
             TagEnd::Link => {
-                self.attrs = self.attrs.remove(Attrs::UNDERLINE);
+                self.attrs = self.attrs.remove(Attributes::UNDERLINE);
                 // Terminals have no clickable links; keep the URL as trailing text.
                 if let Some(url) = self.link_url.take()
                     && !url.is_empty()
@@ -256,7 +256,7 @@ mod tests {
         assert!(
             style_of("~~gone~~", "gone")
                 .attrs
-                .contains(Attrs::STRIKETHROUGH)
+                .contains(Attributes::STRIKETHROUGH)
         );
     }
 
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn bold_and_italic_still_style() {
-        assert!(style_of("**b**", "b").attrs.contains(Attrs::BOLD));
-        assert!(style_of("*i*", "i").attrs.contains(Attrs::ITALIC));
+        assert!(style_of("**b**", "b").attrs.contains(Attributes::BOLD));
+        assert!(style_of("*i*", "i").attrs.contains(Attributes::ITALIC));
     }
 }

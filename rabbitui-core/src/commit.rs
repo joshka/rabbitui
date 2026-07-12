@@ -81,7 +81,7 @@ impl CommitLine {
     ///
     /// let line = CommitLine::new("done", Style::new().fg(Color::GREEN).bold());
     /// assert_eq!(line.text(), "done");
-    /// assert!(line.style().attrs.contains(rabbitui_core::style::Attrs::BOLD));
+    /// assert!(line.style().attrs.contains(rabbitui_core::style::Attributes::BOLD));
     /// ```
     #[must_use]
     pub fn new(text: impl Into<String>, style: Style) -> Self {
@@ -170,7 +170,7 @@ impl From<Vec<Span>> for CommitLine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::{Attrs, Color};
+    use crate::style::{Attributes, Color};
 
     #[test]
     fn from_str_is_unstyled() {
@@ -192,7 +192,7 @@ mod tests {
         let line = CommitLine::new("done", style);
         assert_eq!(line.text(), "done");
         assert_eq!(line.style(), style);
-        assert!(line.style().attrs.contains(Attrs::BOLD));
+        assert!(line.style().attrs.contains(Attributes::BOLD));
     }
 
     #[test]

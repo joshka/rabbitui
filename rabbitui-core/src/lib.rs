@@ -12,10 +12,10 @@
 //!
 //! let style = Style::new().fg(Color::GREEN).bold();
 //! assert_eq!(style.fg, Some(Color::GREEN));
-//! assert!(style.attrs.contains(rabbitui_core::style::Attrs::BOLD));
+//! assert!(style.attrs.contains(rabbitui_core::style::Attributes::BOLD));
 //! ```
 
-pub mod a11y;
+pub mod accessibility;
 pub mod buffer;
 pub mod commit;
 pub mod facts;

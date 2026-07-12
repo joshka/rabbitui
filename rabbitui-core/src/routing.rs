@@ -24,15 +24,15 @@
 //! use rabbitui_core::outcome::Outcome;
 //! use rabbitui_core::routing::{Focus, route};
 //! use rabbitui_core::store::StateStore;
-//! use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+//! use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 //!
 //! struct Button;
 //! impl Widget for Button {
 //!     type State = ();
-//!     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
 //!         ctx.focusable(true);
 //!     }
-//!     fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+//!     fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
 //!         if matches!(event.as_key().map(|k| k.key), Some(Key::Enter)) {
 //!             ctx.emit(Outcome::Activated);
 //!             return Handled::Yes;
@@ -65,7 +65,7 @@ use crate::id::WidgetId;
 use crate::input::{InputEvent, Key, MouseKind};
 use crate::outcome::Outcome;
 use crate::store::StateStore;
-use crate::widget::{HandleCtx, Handled, Phase};
+use crate::widget::{HandleContext, Handled, Phase};
 
 /// The framework's focus state: which widget holds keyboard input.
 ///
@@ -298,7 +298,7 @@ impl Dispatcher<'_> {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(phase, area, &mut outcomes, &mut request_focus);
+            let mut ctx = HandleContext::new(phase, area, &mut outcomes, &mut request_focus);
             handler(state, self.event, &mut ctx)
         };
 
@@ -354,16 +354,16 @@ mod tests {
     use crate::frame::Frame;
     use crate::geometry::Size;
     use crate::id::key;
-    use crate::widget::{RenderCtx, Widget};
+    use crate::widget::{RenderContext, Widget};
 
     /// A focusable widget that activates on Enter or a left-button press.
     struct Button;
     impl Widget for Button {
         type State = ();
-        fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
         }
-        fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
             if matches!(event.as_key().map(|k| k.key), Some(Key::Enter)) {
                 ctx.emit(Outcome::Activated);
                 return Handled::Yes;
@@ -507,8 +507,8 @@ mod tests {
     struct Trap;
     impl Widget for Trap {
         type State = ();
-        fn render(&self, _s: &mut (), _ctx: &mut RenderCtx<'_>) {}
-        fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        fn render(&self, _s: &mut (), _ctx: &mut RenderContext<'_>) {}
+        fn handle(_s: &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
             if ctx.phase() == Phase::Capture
                 && matches!(event.as_key().map(|k| k.key), Some(Key::Escape))
             {
@@ -579,7 +579,7 @@ mod tests {
         struct ClickTarget;
         impl Widget for ClickTarget {
             type State = ();
-            fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+            fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
                 ctx.focusable(true);
             }
             // Default handle: ignores everything, including the mouse.

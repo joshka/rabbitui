@@ -21,12 +21,12 @@ pub mod sse;
 
 /// A boxed event stream for one request/response turn.
 ///
-/// `Send + 'static` because the app spawns it as an effect ([`Cmd::stream`]) that
+/// `Send + 'static` because the app spawns it as an effect ([`Command::stream`]) that
 /// outlives the `send` call — so [`Backend::send`] returns an owned stream, never
 /// one borrowing the backend. The replay backend clones its scripted turn out;
 /// slice 2's HTTP backend boxes a `reqwest` byte stream (both are `Send`).
 ///
-/// [`Cmd::stream`]: rabbitui::effect::Cmd::stream
+/// [`Command::stream`]: rabbitui::effect::Command::stream
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, BackendError>> + Send>>;
 
 /// The turn a backend is asked to produce: the model and the conversation so far.

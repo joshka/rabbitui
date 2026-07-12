@@ -62,7 +62,7 @@ use rabbitui_core::geometry::{Position, Rect, Size};
 use rabbitui_core::layout::inset;
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -271,7 +271,7 @@ impl Widget for Panel<'_> {
         border.saturating_add(padding).max(1)
     }
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // A panel is chrome: never a focus target.
         ctx.focusable(false);
 
@@ -309,7 +309,7 @@ impl Widget for Panel<'_> {
 }
 
 /// Paints the box-drawing frame around a `size`-cell area in `style`.
-fn draw_border(ctx: &mut RenderCtx<'_>, size: Size, style: Style) {
+fn draw_border(ctx: &mut RenderContext<'_>, size: Size, style: Style) {
     use box_chars::{BOTTOM_LEFT, BOTTOM_RIGHT, HORIZONTAL, TOP_LEFT, TOP_RIGHT, VERTICAL};
     let last_x = size.width - 1;
     let last_y = size.height - 1;
@@ -348,7 +348,7 @@ fn draw_border(ctx: &mut RenderCtx<'_>, size: Size, style: Style) {
 
 /// Writes `title` into the top border, framed by a space on each side, clipped
 /// to the room between the corners.
-fn draw_title(ctx: &mut RenderCtx<'_>, size: Size, title: &str, style: Style) {
+fn draw_title(ctx: &mut RenderContext<'_>, size: Size, title: &str, style: Style) {
     // The room between the two corners: width - 2. Nothing fits below 3 wide.
     if size.width < 3 {
         return;
@@ -391,14 +391,14 @@ mod tests {
     use rabbitui_core::buffer::Buffer;
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::theme::{Role, Theme};
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::Panel;
 
     /// Renders a panel into a fresh `size` buffer against `theme`.
     fn render(panel: &Panel<'_>, size: Size, theme: &Theme) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
+        let mut ctx = RenderContext::new_themed(&mut buffer, Rect::from_size(size), false, theme);
         panel.render(&mut (), &mut ctx);
         buffer
     }

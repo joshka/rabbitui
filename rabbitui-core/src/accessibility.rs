@@ -5,8 +5,8 @@
 //! bridge needs beyond geometry: each widget's **semantic role** (is this a
 //! button, a text field, a dialog?) and its **accessible label** (the human name a
 //! screen reader would announce). A widget declares them through
-//! [`RenderCtx::semantic_role`](crate::widget::RenderCtx::semantic_role) and
-//! [`RenderCtx::label`](crate::widget::RenderCtx::label); the frame records them on
+//! [`RenderContext::semantic_role`](crate::widget::RenderContext::semantic_role) and
+//! [`RenderContext::label`](crate::widget::RenderContext::label); the frame records them on
 //! the widget's [`FactEntry`](crate::facts::FactEntry) next to its area and focus
 //! fact.
 //!

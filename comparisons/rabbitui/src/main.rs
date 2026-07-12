@@ -7,7 +7,7 @@
 //! record. It exercises the four things the field report says differentiate TUI
 //! frameworks:
 //!
-//! - **Streaming** — a [`Cmd::stream`] timer (like the flagship's spinner) emits
+//! - **Streaming** — a [`Command::stream`] timer (like the flagship's spinner) emits
 //!   a new [`LogEntry`] every ~700ms, appended to the app's owned log.
 //! - **A filter input** — a [`TextInput`]; its `Changed` outcome updates the
 //!   filter, and the visible list is recomputed each frame (case-insensitive
@@ -41,7 +41,7 @@ use std::time::Duration;
 use futures_core::Stream;
 use rabbitui::App;
 use rabbitui::app::{Event, Update};
-use rabbitui::effect::Cmd;
+use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
@@ -126,7 +126,7 @@ impl LogEntry {
 
 /// A message an effect produces, re-entering the loop as [`Event::Message`].
 #[derive(Debug, Clone)]
-enum Msg {
+enum Message {
     /// The log source emitted a new entry.
     Line(LogEntry),
 }
@@ -198,11 +198,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Folds one update into the app.
-fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
+fn update(app: &mut App_, update: Update<'_, Message>) -> ControlFlow<()> {
     // Start the log source at launch via the one-shot `Event::Started` hook
     // (dogfood finding #1) — no lazy `started` flag, no "press a key to begin".
     if matches!(update.event(), Event::Started) {
-        update.spawn(Cmd::stream(LogSource::new()).group("source"));
+        update.spawn(Command::stream(LogSource::new()).group("source"));
     }
 
     // Global chords, checked FIRST so an early `return` in a later branch (the
@@ -230,7 +230,7 @@ fn update(app: &mut App_, update: Update<'_, Msg>) -> ControlFlow<()> {
     // an entry that just fell off the front) close it rather than dangle. While
     // paused, the line is dropped on the floor (the source keeps ticking; a
     // cancel-then-respawn would also work but this keeps the seq monotonic).
-    if let Event::Message(Msg::Line(entry)) = update.event() {
+    if let Event::Message(Message::Line(entry)) = update.event() {
         if !app.paused {
             app.entries.push_back(entry.clone());
             while app.entries.len() > MAX_ENTRIES {
@@ -482,7 +482,7 @@ struct CloseButton;
 impl rabbitui_core::widget::Widget for CloseButton {
     type State = ();
 
-    fn render(&self, _state: &mut (), ctx: &mut rabbitui_core::widget::RenderCtx<'_>) {
+    fn render(&self, _state: &mut (), ctx: &mut rabbitui_core::widget::RenderContext<'_>) {
         ctx.focusable(true);
         let role = if ctx.is_focused() {
             Role::Highlight
@@ -499,7 +499,7 @@ impl rabbitui_core::widget::Widget for CloseButton {
     fn handle(
         _state: &mut (),
         event: &rabbitui_core::input::InputEvent,
-        ctx: &mut rabbitui_core::widget::HandleCtx<'_>,
+        ctx: &mut rabbitui_core::widget::HandleContext<'_>,
     ) -> rabbitui_core::widget::Handled {
         use rabbitui_core::input::{Key, MouseButton, MouseKind};
         use rabbitui_core::widget::Handled;
@@ -535,7 +535,7 @@ fn split_rows_horizontal<const N: usize>(
 
 /// The simulated log source: a stream that emits a new [`LogEntry`] every
 /// ~700ms, cycling through a small script of realistic-looking lines. This is
-/// the streaming primitive the field report calls for — a `Cmd::stream` timer,
+/// the streaming primitive the field report calls for — a `Command::stream` timer,
 /// exactly like the flagship's spinner ticker.
 struct LogSource {
     interval: tokio::time::Interval,
@@ -590,15 +590,15 @@ impl LogSource {
 }
 
 impl Stream for LogSource {
-    type Item = Msg;
+    type Item = Message;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Msg>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Message>> {
         let this = self.get_mut();
         match this.interval.poll_tick(cx) {
             Poll::Ready(_) => {
                 let entry = LogSource::entry(this.seq);
                 this.seq += 1;
-                Poll::Ready(Some(Msg::Line(entry)))
+                Poll::Ready(Some(Message::Line(entry)))
             }
             Poll::Pending => Poll::Pending,
         }

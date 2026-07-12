@@ -159,7 +159,7 @@
 //! # Effects
 //!
 //! Async work is app-owned: `update` spawns a command
-//! ([`Cmd`](effect::Cmd)) — a future, stream, or timer — whose results re-enter
+//! ([`Command`](effect::Command)) — a future, stream, or timer — whose results re-enter
 //! the one serialized `update` as [`Event::Message`](app::Event::Message)
 //! (`docs/adr/0005-runtime.md`). There is no subscription primitive; a recurring
 //! timer is a command that re-arms. Grouped commands cancel their predecessor

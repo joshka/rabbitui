@@ -22,7 +22,7 @@ use rabbitui::core::geometry::{Position, Rect, Size};
 use rabbitui::core::id::key;
 use rabbitui::core::store::StateStore;
 use rabbitui::core::style::Style;
-use rabbitui::core::widget::{RenderCtx, Widget};
+use rabbitui::core::widget::{RenderContext, Widget};
 use std::hint::black_box;
 
 /// A synthetic content cell: a stateless, one-row label that paints a short
@@ -34,7 +34,7 @@ struct Cell {
 
 impl Widget for Cell {
     type State = ();
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         ctx.set_string(Position::ORIGIN, self.label, Style::new());
     }
 }

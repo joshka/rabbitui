@@ -38,11 +38,11 @@ use crate::style::Style;
 /// # Examples
 ///
 /// ```
-/// use rabbitui_core::style::{Attrs, Style};
+/// use rabbitui_core::style::{Attributes, Style};
 /// use rabbitui_core::text::Span;
 ///
 /// let heading = Span::styled("Title", Style::new().bold());
-/// assert!(heading.style.attrs.contains(Attrs::BOLD));
+/// assert!(heading.style.attrs.contains(Attributes::BOLD));
 /// assert_eq!(heading.text, "Title");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +119,7 @@ impl From<(&str, Style)> for Span {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::{Attrs, Color};
+    use crate::style::{Attributes, Color};
 
     #[test]
     fn raw_is_unstyled() {
@@ -131,7 +131,7 @@ mod tests {
     fn styled_carries_the_style() {
         let span = Span::styled("hi", Style::new().fg(Color::GREEN).bold());
         assert_eq!(span.style.fg, Some(Color::GREEN));
-        assert!(span.style.attrs.contains(Attrs::BOLD));
+        assert!(span.style.attrs.contains(Attributes::BOLD));
     }
 
     #[test]

@@ -21,7 +21,7 @@ use futures_core::Stream;
 use futures_util::StreamExt as _;
 use rabbitui::App;
 use rabbitui::app::{Event, Update};
-use rabbitui::effect::Cmd;
+use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::Rect;
 use rabbitui_core::id::key;
@@ -174,7 +174,7 @@ impl Agent {
 
 /// A message an effect delivers to [`update`].
 #[derive(Debug, Clone)]
-pub enum Msg {
+pub enum Message {
     /// A backend event (or error) for the in-flight turn.
     Event(Result<StreamEvent, crate::backend::BackendError>),
     /// The spinner ticker fired.
@@ -198,15 +198,15 @@ pub enum Reaction {
 // Reducer (pure — mutates state only; no commits, no spawns, no I/O)
 // ---------------------------------------------------------------------------
 
-/// Folds one delivered [`Msg`] into the app, returning what happened.
-pub fn apply_message(app: &mut Agent, msg: Msg) -> Reaction {
+/// Folds one delivered [`Message`] into the app, returning what happened.
+pub fn apply_message(app: &mut Agent, msg: Message) -> Reaction {
     match msg {
-        Msg::Tick => {
+        Message::Tick => {
             app.spinner = (app.spinner + 1) % SPINNER.len();
             Reaction::None
         }
-        Msg::Event(Ok(event)) => apply_event(app, event),
-        Msg::Event(Err(error)) => {
+        Message::Event(Ok(event)) => apply_event(app, event),
+        Message::Event(Err(error)) => {
             // A failed turn commits nothing but the error, in order.
             app.streaming = None;
             app.cells.push(TranscriptCell::Error(error.to_string()));
@@ -512,7 +512,7 @@ pub fn on_submit(app: &mut Agent) -> Option<ChatRequest> {
 
 /// The `App` update closure: folds one event, then runs the reducer's side
 /// effects (commit, persist, spawn).
-pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
+pub fn update(app: &mut Agent, update: Update<'_, Message>) -> ControlFlow<()> {
     // Track the composer draft and act on a submit.
     if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("composer")]) {
         app.draft.clone_from(value);
@@ -605,7 +605,7 @@ pub fn update(app: &mut Agent, update: Update<'_, Msg>) -> ControlFlow<()> {
 /// Entering browse mode moves focus into the transcript scroll so Up/Down/
 /// PageUp/PageDown/Home/End (and the wheel) drive it immediately; returning to
 /// inline puts focus back on the composer so typing resumes without a Tab.
-fn toggle_mode(app: &mut Agent, update: &Update<'_, Msg>) {
+fn toggle_mode(app: &mut Agent, update: &Update<'_, Message>) {
     app.inline = !app.inline;
     if app.inline {
         update.set_mode(Mode::inline(TAIL_HEIGHT));
@@ -617,23 +617,23 @@ fn toggle_mode(app: &mut Agent, update: &Update<'_, Msg>) {
 }
 
 /// Sends the composer draft and spawns the response stream and spinner.
-fn submit(app: &mut Agent, update: &Update<'_, Msg>) {
+fn submit(app: &mut Agent, update: &Update<'_, Message>) {
     update.widget::<TextInput>(&[key("composer")], |state| state.clear());
     let Some(request) = on_submit(app) else {
         return;
     };
     let stream = app.backend.send(request);
-    update.spawn(Cmd::stream(stream.map(Msg::Event)).group(AGENT_GROUP));
+    update.spawn(Command::stream(stream.map(Message::Event)).group(AGENT_GROUP));
     if !app.ticking {
         app.ticking = true;
-        update.spawn(Cmd::stream(SpinnerTicker::new()).group(SPINNER_GROUP));
+        update.spawn(Command::stream(SpinnerTicker::new()).group(SPINNER_GROUP));
     }
 }
 
 /// Routes the confirmation modal: Allow (button / Enter / 'y') runs the tools;
 /// Deny (button / Esc / 'n') denies them. Both build the tool_result message and
 /// re-send the grown history, looping the turn.
-fn handle_modal(app: &mut Agent, update: &Update<'_, Msg>) {
+fn handle_modal(app: &mut Agent, update: &Update<'_, Message>) {
     let allow_button =
         update.outcome_for(&[key("modal"), key("allow")]) == Some(&Outcome::Activated);
     let deny_button = update.outcome_for(&[key("modal"), key("deny")]) == Some(&Outcome::Activated);
@@ -665,7 +665,7 @@ fn handle_modal(app: &mut Agent, update: &Update<'_, Msg>) {
 
 /// Folds the resolved tool outcomes into history and re-sends the grown
 /// conversation, re-arming the spinner — the continuation round-trip.
-fn resend(app: &mut Agent, update: &Update<'_, Msg>, outcomes: Vec<ToolOutcome>) {
+fn resend(app: &mut Agent, update: &Update<'_, Message>, outcomes: Vec<ToolOutcome>) {
     let Some(request) = continue_with_results(app, outcomes) else {
         // The cap was hit: `continue_with_results` recorded the notice and left
         // no streaming turn open.
@@ -673,31 +673,31 @@ fn resend(app: &mut Agent, update: &Update<'_, Msg>, outcomes: Vec<ToolOutcome>)
         return;
     };
     let stream = app.backend.send(request);
-    update.spawn(Cmd::stream(stream.map(Msg::Event)).group(AGENT_GROUP));
+    update.spawn(Command::stream(stream.map(Message::Event)).group(AGENT_GROUP));
     if !app.ticking {
         app.ticking = true;
-        update.spawn(Cmd::stream(SpinnerTicker::new()).group(SPINNER_GROUP));
+        update.spawn(Command::stream(SpinnerTicker::new()).group(SPINNER_GROUP));
     }
 }
 
 /// Aborts the running turn, discarding any partial prose, and stops the spinner.
-fn cancel(app: &mut Agent, update: &Update<'_, Msg>) {
-    update.spawn(Cmd::<Msg>::cancel_group(AGENT_GROUP));
+fn cancel(app: &mut Agent, update: &Update<'_, Message>) {
+    update.spawn(Command::<Message>::cancel_group(AGENT_GROUP));
     app.streaming = None;
     app.awaiting = None;
     stop_spinner(app, update);
 }
 
 /// Stops the spinner ticker when the turn goes idle.
-fn stop_spinner(app: &mut Agent, update: &Update<'_, Msg>) {
+fn stop_spinner(app: &mut Agent, update: &Update<'_, Message>) {
     if app.ticking {
         app.ticking = false;
-        update.spawn(Cmd::<Msg>::cancel_group(SPINNER_GROUP));
+        update.spawn(Command::<Message>::cancel_group(SPINNER_GROUP));
     }
 }
 
 /// Commits any not-yet-committed cells to native scrollback, in inline mode.
-fn flush_commits(app: &mut Agent, update: &Update<'_, Msg>) {
+fn flush_commits(app: &mut Agent, update: &Update<'_, Message>) {
     if !app.inline {
         return;
     }
@@ -1156,7 +1156,7 @@ pub async fn run_themed(app: Agent, theme: ThemeConfig) -> rabbitui::app::Result
 // Spinner ticker
 // ---------------------------------------------------------------------------
 
-/// A ticker driving the streaming spinner, one [`Msg::Tick`] every ~120ms.
+/// A ticker driving the streaming spinner, one [`Message::Tick`] every ~120ms.
 struct SpinnerTicker {
     /// The underlying interval.
     interval: tokio::time::Interval,
@@ -1172,11 +1172,11 @@ impl SpinnerTicker {
 }
 
 impl Stream for SpinnerTicker {
-    type Item = Msg;
+    type Item = Message;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Msg>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Message>> {
         match self.get_mut().interval.poll_tick(cx) {
-            Poll::Ready(_) => Poll::Ready(Some(Msg::Tick)),
+            Poll::Ready(_) => Poll::Ready(Some(Message::Tick)),
             Poll::Pending => Poll::Pending,
         }
     }

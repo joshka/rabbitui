@@ -32,7 +32,7 @@
 //!
 //! ```
 //! use rabbitui::theme::parse_theme;
-//! use rabbitui_core::style::{Attrs, Color};
+//! use rabbitui_core::style::{Attributes, Color};
 //! use rabbitui_core::theme::{Role, Theme};
 //!
 //! let toml = r##"
@@ -41,13 +41,13 @@
 //! "##;
 //! let theme = parse_theme(toml, Theme::default()).unwrap();
 //! assert_eq!(theme.style(Role::Accent).fg, Some(Color::Rgb(0xcb, 0xa6, 0xf7)));
-//! assert!(theme.style(Role::Accent).attrs.contains(Attrs::BOLD));
+//! assert!(theme.style(Role::Accent).attrs.contains(Attributes::BOLD));
 //! ```
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 use rabbitui_core::theme::{Role, Theme};
 
 /// What went wrong loading or parsing a theme.
@@ -257,9 +257,9 @@ fn apply_attr(style: Style, attr: &str) -> Result<Style, String> {
 }
 
 /// Adds strikethrough. [`Style`] has no `strikethrough` builder, so fold the
-/// [`Attrs::STRIKETHROUGH`] bit in through the public attrs field.
+/// [`Attributes::STRIKETHROUGH`] bit in through the public attrs field.
 fn add_strikethrough(mut style: Style) -> Style {
-    style.attrs |= Attrs::STRIKETHROUGH;
+    style.attrs |= Attributes::STRIKETHROUGH;
     style
 }
 
@@ -285,7 +285,11 @@ mod tests {
     #[test]
     fn parses_attributes() {
         let style = parse_style("#ffffff, bold underline").unwrap();
-        assert!(style.attrs.contains(Attrs::BOLD | Attrs::UNDERLINE));
+        assert!(
+            style
+                .attrs
+                .contains(Attributes::BOLD | Attributes::UNDERLINE)
+        );
     }
 
     #[test]
@@ -293,7 +297,11 @@ mod tests {
         let style = parse_style("#000000 on #ffffff, bold reversed").unwrap();
         assert_eq!(style.fg, Some(Color::Rgb(0, 0, 0)));
         assert_eq!(style.bg, Some(Color::Rgb(0xff, 0xff, 0xff)));
-        assert!(style.attrs.contains(Attrs::BOLD | Attrs::REVERSED));
+        assert!(
+            style
+                .attrs
+                .contains(Attributes::BOLD | Attributes::REVERSED)
+        );
     }
 
     #[test]
@@ -301,12 +309,12 @@ mod tests {
         let style =
             parse_style("#ffffff, bold dim italic underline reversed strikethrough").unwrap();
         for attr in [
-            Attrs::BOLD,
-            Attrs::DIM,
-            Attrs::ITALIC,
-            Attrs::UNDERLINE,
-            Attrs::REVERSED,
-            Attrs::STRIKETHROUGH,
+            Attributes::BOLD,
+            Attributes::DIM,
+            Attributes::ITALIC,
+            Attributes::UNDERLINE,
+            Attributes::REVERSED,
+            Attributes::STRIKETHROUGH,
         ] {
             assert!(style.attrs.contains(attr));
         }

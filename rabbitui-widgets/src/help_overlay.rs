@@ -70,11 +70,11 @@
 //! # store.end_frame();
 //! ```
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::{Position, Rect};
 use rabbitui_core::keymap::Keymap;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 
 use crate::Panel;
 
@@ -223,7 +223,7 @@ impl Widget for HelpOverlay<'_> {
         chrome.saturating_add(rows).max(chrome + 1)
     }
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // Display-only: never a focus target (focusing the Panel would panic).
         ctx.focusable(false);
         // A11y groundwork (ADR arc4 §5): a modal-like reference readout.
@@ -292,7 +292,7 @@ mod tests {
     use rabbitui_core::input::Key;
     use rabbitui_core::keymap::{Binding, Chord, Keymap};
     use rabbitui_core::theme::Theme;
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::HelpOverlay;
 
@@ -327,7 +327,7 @@ mod tests {
     /// Renders an overlay into a fresh `size` buffer against `theme`.
     fn render(overlay: &HelpOverlay<'_>, size: Size, theme: &Theme) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
+        let mut ctx = RenderContext::new_themed(&mut buffer, Rect::from_size(size), false, theme);
         overlay.render(&mut (), &mut ctx);
         buffer
     }
@@ -397,7 +397,7 @@ mod tests {
         // The overlay must declare no focusable — the app owns the close keys.
         let overlay = HelpOverlay::from_keymap(&keymap(), label);
         let mut buffer = Buffer::new(Size::new(40, 5));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(40, 5)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(40, 5)), false);
         overlay.render(&mut (), &mut ctx);
         assert!(
             !ctx.is_focusable(),

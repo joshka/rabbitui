@@ -31,7 +31,7 @@
 //!     area: Rect::new(Position::ORIGIN, Size::new(4, 1)),
 //!     focusable: true,
 //!     layer: 0,
-//!     role: rabbitui_core::a11y::SemanticRole::None,
+//!     role: rabbitui_core::accessibility::SemanticRole::None,
 //! });
 //! facts.push(FactEntry {
 //!     id: b,
@@ -39,7 +39,7 @@
 //!     area: Rect::new(Position::new(0, 1), Size::new(4, 1)),
 //!     focusable: false,
 //!     layer: 0,
-//!     role: rabbitui_core::a11y::SemanticRole::None,
+//!     role: rabbitui_core::accessibility::SemanticRole::None,
 //! });
 //!
 //! assert_eq!(facts.get(a).unwrap().parent, WidgetId::ROOT);
@@ -69,18 +69,18 @@ pub struct FactEntry {
     /// (slice 7, ADR 0003 delta).
     pub layer: u8,
     /// The widget's accessibility role, if it declared one via
-    /// [`RenderCtx::semantic_role`](crate::widget::RenderCtx::semantic_role)
-    /// ([`SemanticRole::None`](crate::a11y::SemanticRole::None) otherwise).
-    /// Recorded for a future a11y exporter;
+    /// [`RenderContext::semantic_role`](crate::widget::RenderContext::semantic_role)
+    /// ([`SemanticRole::None`](crate::accessibility::SemanticRole::None) otherwise).
+    /// Recorded for a future accessibility exporter;
     /// nothing consumes it yet (ADR arc4 §5). The accessible *label* is a separate
     /// side table ([`FrameFacts::label`]), since it is an owned string.
-    pub role: crate::a11y::SemanticRole,
+    pub role: crate::accessibility::SemanticRole,
 }
 
 /// A widget's request to be scrolled into view, recorded as a fact.
 ///
 /// Per the slice-7 design note this is **plumbing only**: a widget calls
-/// [`RenderCtx::request_visibility`](crate::widget::RenderCtx::request_visibility)
+/// [`RenderContext::request_visibility`](crate::widget::RenderContext::request_visibility)
 /// with an area-relative rectangle it wants revealed, the frame records it here
 /// keyed by the widget's identity, and a future scrollable container consumes it.
 /// No generic container exists yet, so the fact is recorded and queryable
@@ -112,9 +112,9 @@ pub struct FrameFacts {
     names: std::collections::HashMap<WidgetId, &'static str>,
     /// Accessibility `id → label` side table (ADR arc4 §5): the accessible name a
     /// widget declared via
-    /// [`RenderCtx::label`](crate::widget::RenderCtx::label), for a future a11y
+    /// [`RenderContext::label`](crate::widget::RenderContext::label), for a future accessibility
     /// exporter. A side table (not a [`FactEntry`] field) so labels can be owned
-    /// strings while `FactEntry` stays [`Copy`]. Present in every build — a11y is
+    /// strings while `FactEntry` stays [`Copy`]. Present in every build — accessibility is
     /// not a devtools-only concern.
     labels: std::collections::HashMap<WidgetId, String>,
 }
@@ -135,8 +135,8 @@ impl FrameFacts {
     /// Records a widget's accessible label (ADR arc4 §5).
     ///
     /// Called by [`Frame`](crate::frame::Frame) when a widget declares one via
-    /// [`RenderCtx::label`](crate::widget::RenderCtx::label). Queryable through
-    /// [`label`](Self::label); nothing consumes it yet — this is the a11y
+    /// [`RenderContext::label`](crate::widget::RenderContext::label). Queryable through
+    /// [`label`](Self::label); nothing consumes it yet — this is the accessibility
     /// groundwork the exporter will read.
     pub fn record_label(&mut self, id: WidgetId, label: impl Into<String>) {
         self.labels.insert(id, label.into());
@@ -149,11 +149,11 @@ impl FrameFacts {
     }
 
     /// The accessibility role `id` declared this frame, or
-    /// [`SemanticRole::None`](crate::a11y::SemanticRole::None) when absent.
+    /// [`SemanticRole::None`](crate::accessibility::SemanticRole::None) when absent.
     #[must_use]
-    pub fn role(&self, id: WidgetId) -> crate::a11y::SemanticRole {
+    pub fn role(&self, id: WidgetId) -> crate::accessibility::SemanticRole {
         self.get(id)
-            .map_or(crate::a11y::SemanticRole::None, |e| e.role)
+            .map_or(crate::accessibility::SemanticRole::None, |e| e.role)
     }
 
     /// Records the source name a widget was declared under (devtools only).
@@ -203,7 +203,7 @@ impl FrameFacts {
     /// Records a widget's scroll-into-view request (slice-7 plumbing).
     ///
     /// Called by [`Frame`](crate::frame::Frame) when a widget invokes
-    /// [`RenderCtx::request_visibility`](crate::widget::RenderCtx::request_visibility).
+    /// [`RenderContext::request_visibility`](crate::widget::RenderContext::request_visibility).
     /// The requests are queryable through [`visibility_requests`](Self::visibility_requests);
     /// no container consumes them yet.
     pub fn push_visibility(&mut self, request: VisibilityRequest) {
@@ -325,7 +325,7 @@ impl FrameFacts {
                     entry.layer, area.origin.x, area.origin.y, area.size.width, area.size.height,
                 );
                 // A11y facts (ADR arc4 §5), when the widget declared them.
-                if entry.role != crate::a11y::SemanticRole::None {
+                if entry.role != crate::accessibility::SemanticRole::None {
                     line.push_str(&format!("  role={}", entry.role.as_str()));
                 }
                 if let Some(label) = self.labels.get(&entry.id) {
@@ -420,7 +420,7 @@ mod tests {
             area,
             focusable,
             layer: 0,
-            role: crate::a11y::SemanticRole::None,
+            role: crate::accessibility::SemanticRole::None,
         }
     }
 
@@ -437,7 +437,7 @@ mod tests {
             area,
             focusable,
             layer,
-            role: crate::a11y::SemanticRole::None,
+            role: crate::accessibility::SemanticRole::None,
         }
     }
 
@@ -553,20 +553,20 @@ mod tests {
         use crate::frame::Frame;
         use crate::geometry::Position;
         use crate::store::StateStore;
-        use crate::widget::{RenderCtx, Widget};
+        use crate::widget::{RenderContext, Widget};
 
         // A focusable leaf so the dump shows the `focusable` tag and a focus marker.
         struct Focusable;
         impl Widget for Focusable {
             type State = ();
-            fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+            fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
                 ctx.focusable(true);
             }
         }
         struct Passive;
         impl Widget for Passive {
             type State = ();
-            fn render(&self, _s: &mut (), _ctx: &mut RenderCtx<'_>) {}
+            fn render(&self, _s: &mut (), _ctx: &mut RenderContext<'_>) {}
         }
 
         let mut buffer = Buffer::new(Size::new(20, 6));

@@ -1,10 +1,10 @@
 //! Async effects: commands and the runtime that runs them (ADR 0005).
 //!
-//! ADR 0005 makes effects **commands only** — a [`Cmd<M>`] is a future or a
+//! ADR 0005 makes effects **commands only** — a [`Command<M>`] is a future or a
 //! stream the runtime spawns, whose messages re-enter the one serialized
 //! `update` as [`Event::Message`](crate::app::Event::Message). There is no
 //! subscription primitive: a recurring timer is a command that re-arms, a
-//! long-lived source is a [`Cmd::stream`] that yields (Bubble Tea `ade8203c`).
+//! long-lived source is a [`Command::stream`] that yields (Bubble Tea `ade8203c`).
 //!
 //! The runtime is an [`Effects<M>`] struct, deliberately **separable from the
 //! render loop**: it owns the spawn tables, the group-abort registry, and the
@@ -16,7 +16,7 @@
 //!
 //! # Groups: cancel-previous
 //!
-//! [`Cmd::group`] tags a command with a name; spawning into a group **aborts the
+//! [`Command::group`] tags a command with a name; spawning into a group **aborts the
 //! group's previous task** before starting the new one — Textual's
 //! `@work(exclusive=True)`, the debounced-search pattern. Ungrouped commands run
 //! to completion. When rapid input spawns a new grouped fetch each keystroke,
@@ -99,7 +99,7 @@ type BoxFuture<M> = Pin<Box<dyn Future<Output = M> + Send>>;
 /// A boxed stream producing many messages.
 type BoxStream<M> = Pin<Box<dyn Stream<Item = M> + Send>>;
 
-/// What a [`Cmd`] carries: a single future, a stream of messages, or a request
+/// What a [`Command`] carries: a single future, a stream of messages, or a request
 /// to cancel a group's live task without replacing it.
 enum Kind<M> {
     /// A future yielding exactly one message.
@@ -126,23 +126,23 @@ enum Kind<M> {
 /// ```
 /// use std::time::Duration;
 ///
-/// use rabbitui::effect::Cmd;
+/// use rabbitui::effect::Command;
 ///
 /// // One message after some async work.
-/// let load: Cmd<u32> = Cmd::future(async { 42 });
+/// let load: Command<u32> = Command::future(async { 42 });
 ///
 /// // A debounced search: spawning another into "search" aborts this one.
-/// let search: Cmd<String> =
-///     Cmd::timeout(Duration::from_millis(300), || "results".to_string()).group("search");
+/// let search: Command<String> =
+///     Command::timeout(Duration::from_millis(300), || "results".to_string()).group("search");
 /// let _ = (load, search);
 /// ```
-#[must_use = "a Cmd does nothing until it is spawned via Update::spawn"]
-pub struct Cmd<M> {
+#[must_use = "a Command does nothing until it is spawned via Update::spawn"]
+pub struct Command<M> {
     kind: Kind<M>,
     group: Option<String>,
 }
 
-impl<M: Send + 'static> Cmd<M> {
+impl<M: Send + 'static> Command<M> {
     /// A command that awaits `future` and delivers its one message.
     ///
     /// The single effect primitive (ADR 0005): all other constructors are sugar
@@ -187,16 +187,16 @@ impl<M: Send + 'static> Cmd<M> {
     /// one; `cancel_group` is the missing half: it cancels the group's task and
     /// starts nothing. This is how a toggled subscription (a clock ticker, a live
     /// feed) is stopped on demand rather than left running with its messages
-    /// ignored. Spawning a `cancel_group("clock")` after `Cmd::stream(...).group("clock")`
+    /// ignored. Spawning a `cancel_group("clock")` after `Command::stream(...).group("clock")`
     /// stops the stream for good; the aborted task delivers no further messages.
     ///
     /// # Examples
     ///
     /// ```
-    /// use rabbitui::effect::Cmd;
+    /// use rabbitui::effect::Command;
     ///
     /// // Later: stop the ticker started under the "clock" group.
-    /// let stop: Cmd<u32> = Cmd::cancel_group("clock");
+    /// let stop: Command<u32> = Command::cancel_group("clock");
     /// let _ = stop;
     /// ```
     pub fn cancel_group(name: impl Into<String>) -> Self {
@@ -274,8 +274,8 @@ impl<M: Send + 'static> Effects<M> {
     /// previous task (if still live) is aborted first, so only the newest grouped
     /// command survives — the debounced-search guarantee. A task that panics
     /// sends an [`EffectError`] (with the group name) instead of crashing.
-    pub fn spawn(&mut self, cmd: Cmd<M>) {
-        let Cmd { kind, group } = cmd;
+    pub fn spawn(&mut self, cmd: Command<M>) {
+        let Command { kind, group } = cmd;
 
         // A cancel-group command aborts the group's live task and starts nothing.
         // Removing the entry lets the group be re-armed later by a fresh spawn.
@@ -436,7 +436,7 @@ mod tests {
 
     use super::*;
 
-    /// A hand-rolled stream over a `Vec`, to test `Cmd::stream` without a
+    /// A hand-rolled stream over a `Vec`, to test `Command::stream` without a
     /// stream-combinator dependency.
     struct VecStream<M> {
         items: std::collections::VecDeque<M>,
@@ -463,14 +463,14 @@ mod tests {
     #[tokio::test]
     async fn future_delivers_one_message() {
         let mut effects = Effects::new();
-        effects.spawn(Cmd::future(async { 7u32 }));
+        effects.spawn(Command::future(async { 7u32 }));
         assert_eq!(effects.recv().await, Some(Outbox::Message(7)));
     }
 
     #[tokio::test]
     async fn stream_delivers_every_item_then_ends() {
         let mut effects = Effects::new();
-        effects.spawn(Cmd::stream(VecStream::new([1u32, 2, 3])));
+        effects.spawn(Command::stream(VecStream::new([1u32, 2, 3])));
         assert_eq!(effects.recv().await, Some(Outbox::Message(1)));
         assert_eq!(effects.recv().await, Some(Outbox::Message(2)));
         assert_eq!(effects.recv().await, Some(Outbox::Message(3)));
@@ -482,7 +482,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn timeout_delivers_after_the_delay() {
         let mut effects = Effects::new();
-        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "done"));
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "done"));
         // With the clock paused, nothing has fired yet.
         assert!(effects.try_recv().is_none());
         tokio::time::advance(Duration::from_millis(300)).await;
@@ -493,9 +493,9 @@ mod tests {
     async fn group_cancel_previous_drops_the_first_result() {
         let mut effects = Effects::new();
         // First grouped fetch: slow.
-        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "first").group("search"));
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "first").group("search"));
         // A second into the same group aborts the first before it can fire.
-        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "second").group("search"));
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "second").group("search"));
         tokio::time::advance(Duration::from_millis(300)).await;
         // Only the second survives; the first's result never arrives.
         assert_eq!(effects.recv().await, Some(Outbox::Message("second")));
@@ -507,9 +507,9 @@ mod tests {
     async fn cancel_group_aborts_the_live_task_without_replacing_it() {
         let mut effects = Effects::new();
         // Start a grouped fetch, then cancel the group before it fires.
-        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "result").group("search"));
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "result").group("search"));
         assert_eq!(effects.group_count(), 1);
-        effects.spawn(Cmd::<&str>::cancel_group("search"));
+        effects.spawn(Command::<&str>::cancel_group("search"));
         // The group is gone and nothing replaced the task.
         assert_eq!(effects.group_count(), 0);
         tokio::time::advance(Duration::from_millis(300)).await;
@@ -521,7 +521,7 @@ mod tests {
     async fn cancel_group_of_an_absent_group_is_a_no_op() {
         let mut effects = Effects::<&str>::new();
         // Cancelling a group that was never spawned into does nothing, cleanly.
-        effects.spawn(Cmd::cancel_group("nope"));
+        effects.spawn(Command::cancel_group("nope"));
         assert_eq!(effects.group_count(), 0);
         assert!(effects.try_recv().is_none());
     }
@@ -529,8 +529,8 @@ mod tests {
     #[tokio::test]
     async fn ungrouped_commands_all_complete() {
         let mut effects = Effects::new();
-        effects.spawn(Cmd::future(async { 1u32 }));
-        effects.spawn(Cmd::future(async { 2u32 }));
+        effects.spawn(Command::future(async { 1u32 }));
+        effects.spawn(Command::future(async { 2u32 }));
         let mut got = vec![
             unwrap_message(effects.recv().await),
             unwrap_message(effects.recv().await),
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn panic_is_contained_and_reported_with_group() {
         let mut effects = Effects::new();
-        effects.spawn(Cmd::<u32>::future(async { panic!("boom") }).group("risky"));
+        effects.spawn(Command::<u32>::future(async { panic!("boom") }).group("risky"));
         match effects.recv().await {
             Some(Outbox::Failed(error)) => {
                 assert_eq!(error.group(), Some("risky"));
@@ -556,8 +556,8 @@ mod tests {
     async fn completion_order_is_by_finish_not_spawn() {
         let mut effects = Effects::new();
         // Spawn slow-then-fast; the fast one must arrive first.
-        effects.spawn(Cmd::timeout(Duration::from_millis(300), || "slow"));
-        effects.spawn(Cmd::timeout(Duration::from_millis(100), || "fast"));
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "slow"));
+        effects.spawn(Command::timeout(Duration::from_millis(100), || "fast"));
         tokio::time::advance(Duration::from_millis(100)).await;
         assert_eq!(effects.recv().await, Some(Outbox::Message("fast")));
         tokio::time::advance(Duration::from_millis(200)).await;
@@ -570,7 +570,7 @@ mod tests {
         // `try_recv` drain absorbs the whole burst without awaiting per message.
         let mut effects = Effects::new();
         const N: u32 = 1000;
-        effects.spawn(Cmd::stream(VecStream::new(0..N)));
+        effects.spawn(Command::stream(VecStream::new(0..N)));
         // Await the first to know the task has started producing…
         let first = unwrap_message(effects.recv().await);
         let mut count = 1;

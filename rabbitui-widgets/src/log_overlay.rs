@@ -55,12 +55,12 @@
 //! # store.end_frame();
 //! ```
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::{Position, Size};
 use rabbitui_core::log::{Level, LogHandle, LogRecord};
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 
 use crate::Panel;
 
@@ -129,7 +129,7 @@ impl<'a> LogOverlay<'a> {
 impl Widget for LogOverlay<'_> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // A passive readout: never a focus target.
         ctx.focusable(false);
         // A11y groundwork (ADR arc4 §5): a read-only log readout.
@@ -184,7 +184,7 @@ fn area_rect(size: Size) -> rabbitui_core::geometry::Rect {
 /// the message in the text style, all clipped to `width`.
 #[allow(clippy::too_many_arguments)]
 fn paint_record(
-    ctx: &mut RenderCtx<'_>,
+    ctx: &mut RenderContext<'_>,
     origin: Position,
     width: u16,
     record: &LogRecord,
@@ -193,7 +193,7 @@ fn paint_record(
     text_style: Style,
 ) {
     // The three runs share one row, each starting where the last left off; the
-    // RenderCtx clips at the area's right edge, so a long message never overruns.
+    // RenderContext clips at the area's right edge, so a long message never overruns.
     let mut x = origin.x;
     let level = record.level.as_str();
     ctx.set_string(Position::new(x, origin.y), level, level_style);
@@ -214,14 +214,14 @@ mod tests {
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::log::{Level, LogHandle, LogRecord};
     use rabbitui_core::theme::{Role, Theme};
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
 
     use super::LogOverlay;
 
     /// Renders an overlay over `handle` into a fresh `size` buffer against `theme`.
     fn render(handle: &LogHandle, size: Size, theme: &Theme) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new_themed(&mut buffer, Rect::from_size(size), false, theme);
+        let mut ctx = RenderContext::new_themed(&mut buffer, Rect::from_size(size), false, theme);
         LogOverlay::new(handle).render(&mut (), &mut ctx);
         buffer
     }
@@ -291,7 +291,7 @@ mod tests {
         let handle = LogHandle::new();
         let theme = Theme::default();
         let mut buffer = Buffer::new(Size::new(20, 3));
-        let mut ctx = RenderCtx::new_themed(
+        let mut ctx = RenderContext::new_themed(
             &mut buffer,
             Rect::from_size(Size::new(20, 3)),
             false,

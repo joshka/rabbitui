@@ -1,11 +1,11 @@
 //! A collapsible cell: a header that toggles a body open or closed.
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// A header line with a body that expands and collapses.
 ///
@@ -196,7 +196,7 @@ impl Collapsible<'_> {
 impl Widget for Collapsible<'_> {
     type State = CollapsibleState;
 
-    fn render(&self, state: &mut CollapsibleState, ctx: &mut RenderCtx<'_>) {
+    fn render(&self, state: &mut CollapsibleState, ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
         // A11y groundwork (ADR arc4 §5): a disclosure header, labelled by its title.
         ctx.semantic_role(SemanticRole::Disclosure);
@@ -246,7 +246,7 @@ impl Widget for Collapsible<'_> {
     fn handle(
         state: &mut CollapsibleState,
         event: &InputEvent,
-        ctx: &mut HandleCtx<'_>,
+        ctx: &mut HandleContext<'_>,
     ) -> Handled {
         // A left click on the header row toggles the cell (row 0 of the area).
         if let Some(mouse) = event.as_mouse() {
@@ -283,7 +283,7 @@ mod tests {
     use rabbitui_core::geometry::{Position, Rect, Size};
     use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseEvent, MouseKind};
     use rabbitui_core::outcome::Outcome;
-    use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
+    use rabbitui_core::widget::{HandleContext, Handled, Phase, RenderContext, Widget};
 
     use super::{Collapsible, CollapsibleState};
 
@@ -295,7 +295,8 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(Phase::Bubble, area, &mut outcomes, &mut request_focus);
+            let mut ctx =
+                HandleContext::new(Phase::Bubble, area, &mut outcomes, &mut request_focus);
             Collapsible::handle(state, &event, &mut ctx)
         };
         (handled, outcomes)
@@ -308,7 +309,7 @@ mod tests {
         focused: bool,
     ) -> Buffer {
         let mut buffer = Buffer::new(size);
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(size), focused);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(size), focused);
         cell.render(state, &mut ctx);
         buffer
     }

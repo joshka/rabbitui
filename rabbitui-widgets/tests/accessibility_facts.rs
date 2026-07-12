@@ -1,9 +1,9 @@
 //! Item 4 (arc4-spine.md §5): the catalog widgets record their accessibility
-//! **role** and **label** into frame facts, so a future a11y exporter has what it
+//! **role** and **label** into frame facts, so a future accessibility exporter has what it
 //! needs. This asserts those facts for a representative gallery, and that the
 //! devtools facts dump surfaces them.
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::buffer::Buffer;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::{Position, Rect, Size};

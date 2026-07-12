@@ -25,7 +25,7 @@
 //! widget's `render` and keep the state in your app struct — that state cannot
 //! live in rabbitui's per-identity store (§Consequences.Negative).
 
-use rabbitui_core::widget::{RenderCtx, Widget};
+use rabbitui_core::widget::{RenderContext, Widget};
 use ratatui::widgets::Widget as RatWidget;
 
 use crate::render_ratatui;
@@ -88,7 +88,7 @@ impl<W: RatWidget + Clone> RatatuiWidget<W> {
 impl<W: RatWidget + Clone> Widget for RatatuiWidget<W> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         // Clone to hand ratatui the owned value its by-value render wants; the
         // spec itself is untouched, so the same wrapper renders every frame.
         render_ratatui(self.widget.clone(), ctx);
@@ -99,7 +99,7 @@ impl<W: RatWidget + Clone> Widget for RatatuiWidget<W> {
 mod tests {
     use rabbitui_core::buffer::Buffer;
     use rabbitui_core::geometry::{Position, Rect, Size};
-    use rabbitui_core::widget::{RenderCtx, Widget};
+    use rabbitui_core::widget::{RenderContext, Widget};
     use ratatui::widgets::{Block, Paragraph};
 
     use super::RatatuiWidget;
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn wraps_and_renders_a_paragraph() {
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         RatatuiWidget::new(Paragraph::new("hey")).render(&mut (), &mut ctx);
         assert_eq!(symbol(&buffer, 0, 0), "h");
         assert_eq!(symbol(&buffer, 2, 0), "y");
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn is_not_focusable_bridged_content_is_inert() {
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         RatatuiWidget::new(Paragraph::new("x")).render(&mut (), &mut ctx);
         // The wrapper never declares itself focusable (ADR 0010 §Decision.5).
         assert!(!ctx.is_focusable());

@@ -10,7 +10,7 @@ use rabbitui::core::geometry::{Position, Rect, Size};
 use rabbitui::core::id::{WidgetId, key};
 use rabbitui::core::store::StateStore;
 use rabbitui::core::style::Style;
-use rabbitui::core::widget::{RenderCtx, Widget};
+use rabbitui::core::widget::{RenderContext, Widget};
 
 struct Cell {
     label: &'static str,
@@ -18,7 +18,7 @@ struct Cell {
 
 impl Widget for Cell {
     type State = ();
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         ctx.set_string(Position::ORIGIN, self.label, Style::new());
     }
 }

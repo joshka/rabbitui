@@ -10,13 +10,13 @@
 //! # Lossy corners (documented, never a panic)
 //!
 //! The map is total but not a bijection — ratatui can express a few things
-//! rabbitui's [`Style`]/[`Attrs`] cannot. Per ADR 0010 §Decision.6 the bridge
+//! rabbitui's [`Style`]/[`Attributes`] cannot. Per ADR 0010 §Decision.6 the bridge
 //! *degrades* rather than withholds: it drops what has no analog and copies the
 //! rest, silently, with the corners named here.
 //!
 //! - **`Modifier::SLOW_BLINK` / `Modifier::RAPID_BLINK`** — rabbitui has no
 //!   blink attribute (blink is widely disabled in terminals and omitted from
-//!   [`Attrs`]). Dropped.
+//!   [`Attributes`]). Dropped.
 //! - **`Modifier::HIDDEN`** — rabbitui has no conceal attribute. Dropped.
 //! - **`underline_color`** — ratatui carries a *separate* underline color; a
 //!   rabbitui [`Style`] has one foreground and one background and no underline
@@ -28,7 +28,7 @@
 //! (bold/dim/italic/underline/reversed/strikethrough) each have a `Modifier`
 //! bit.
 
-use rabbitui_core::style::{Attrs, Color, Style};
+use rabbitui_core::style::{Attributes, Color, Style};
 use ratatui::buffer::Cell;
 use ratatui::style::{Color as RatColor, Modifier};
 
@@ -82,7 +82,7 @@ pub fn convert_color(color: RatColor) -> Color {
     }
 }
 
-/// Converts a ratatui [`Modifier`] bitset to rabbitui [`Attrs`].
+/// Converts a ratatui [`Modifier`] bitset to rabbitui [`Attributes`].
 ///
 /// The six attributes rabbitui models are copied bit-for-bit; the three ratatui
 /// modifiers with no rabbitui analog (`SLOW_BLINK`, `RAPID_BLINK`, `HIDDEN`) are
@@ -92,35 +92,35 @@ pub fn convert_color(color: RatColor) -> Color {
 /// # Examples
 ///
 /// ```
-/// use rabbitui_core::style::Attrs;
+/// use rabbitui_core::style::Attributes;
 /// use rabbitui_ratatui::style::convert_modifier;
 /// use ratatui::style::Modifier;
 ///
 /// let attrs = convert_modifier(Modifier::BOLD | Modifier::ITALIC);
-/// assert!(attrs.contains(Attrs::BOLD | Attrs::ITALIC));
+/// assert!(attrs.contains(Attributes::BOLD | Attributes::ITALIC));
 /// // Blink has no rabbitui analog and is dropped.
 /// assert!(convert_modifier(Modifier::SLOW_BLINK).is_empty());
 /// ```
 #[must_use]
-pub fn convert_modifier(modifier: Modifier) -> Attrs {
-    let mut attrs = Attrs::NONE;
+pub fn convert_modifier(modifier: Modifier) -> Attributes {
+    let mut attrs = Attributes::NONE;
     if modifier.contains(Modifier::BOLD) {
-        attrs |= Attrs::BOLD;
+        attrs |= Attributes::BOLD;
     }
     if modifier.contains(Modifier::DIM) {
-        attrs |= Attrs::DIM;
+        attrs |= Attributes::DIM;
     }
     if modifier.contains(Modifier::ITALIC) {
-        attrs |= Attrs::ITALIC;
+        attrs |= Attributes::ITALIC;
     }
     if modifier.contains(Modifier::UNDERLINED) {
-        attrs |= Attrs::UNDERLINE;
+        attrs |= Attributes::UNDERLINE;
     }
     if modifier.contains(Modifier::REVERSED) {
-        attrs |= Attrs::REVERSED;
+        attrs |= Attributes::REVERSED;
     }
     if modifier.contains(Modifier::CROSSED_OUT) {
-        attrs |= Attrs::STRIKETHROUGH;
+        attrs |= Attributes::STRIKETHROUGH;
     }
     // SLOW_BLINK, RAPID_BLINK, HIDDEN: no rabbitui analog — dropped, not an
     // error (ADR 0010 §Decision.6).
@@ -137,7 +137,7 @@ pub fn convert_modifier(modifier: Modifier) -> Attrs {
 /// # Examples
 ///
 /// ```
-/// use rabbitui_core::style::{Attrs, Color};
+/// use rabbitui_core::style::{Attributes, Color};
 /// use rabbitui_ratatui::style::convert_style;
 /// use ratatui::buffer::Cell;
 ///
@@ -146,7 +146,7 @@ pub fn convert_modifier(modifier: Modifier) -> Attrs {
 /// cell.modifier = ratatui::style::Modifier::BOLD;
 /// let style = convert_style(&cell);
 /// assert_eq!(style.fg, Some(Color::Ansi(2)));
-/// assert!(style.attrs.contains(Attrs::BOLD));
+/// assert!(style.attrs.contains(Attributes::BOLD));
 /// ```
 #[must_use]
 pub fn convert_style(cell: &Cell) -> Style {
@@ -196,12 +196,12 @@ mod tests {
     #[test]
     fn each_modeled_modifier_maps_to_its_attr() {
         let pairs = [
-            (Modifier::BOLD, Attrs::BOLD),
-            (Modifier::DIM, Attrs::DIM),
-            (Modifier::ITALIC, Attrs::ITALIC),
-            (Modifier::UNDERLINED, Attrs::UNDERLINE),
-            (Modifier::REVERSED, Attrs::REVERSED),
-            (Modifier::CROSSED_OUT, Attrs::STRIKETHROUGH),
+            (Modifier::BOLD, Attributes::BOLD),
+            (Modifier::DIM, Attributes::DIM),
+            (Modifier::ITALIC, Attributes::ITALIC),
+            (Modifier::UNDERLINED, Attributes::UNDERLINE),
+            (Modifier::REVERSED, Attributes::REVERSED),
+            (Modifier::CROSSED_OUT, Attributes::STRIKETHROUGH),
         ];
         for (modifier, attr) in pairs {
             assert!(convert_modifier(modifier).contains(attr), "{modifier:?}");
@@ -217,8 +217,8 @@ mod tests {
         assert!(convert_modifier(Modifier::HIDDEN).is_empty());
         // A mix keeps the representable half and drops the rest.
         let mixed = convert_modifier(Modifier::BOLD | Modifier::HIDDEN);
-        assert!(mixed.contains(Attrs::BOLD));
-        assert_eq!(mixed, Attrs::BOLD);
+        assert!(mixed.contains(Attributes::BOLD));
+        assert_eq!(mixed, Attributes::BOLD);
     }
 
     #[test]
@@ -230,6 +230,10 @@ mod tests {
         let style = convert_style(&cell);
         assert_eq!(style.fg, Some(Color::Ansi(1)));
         assert_eq!(style.bg, Some(Color::Ansi(4)));
-        assert!(style.attrs.contains(Attrs::BOLD | Attrs::UNDERLINE));
+        assert!(
+            style
+                .attrs
+                .contains(Attributes::BOLD | Attributes::UNDERLINE)
+        );
     }
 }

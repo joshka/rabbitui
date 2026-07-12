@@ -4,7 +4,7 @@
 //! a [`Frame`] and declares widgets into it by key. The frame composes
 //! identities ([`WidgetId`]s) from the declaration path, lends each widget its
 //! retained state from the [`StateStore`], and paints into the target buffer
-//! through clipped [`RenderCtx`]s. From slice 3 it also collects frame facts
+//! through clipped [`RenderContext`]s. From slice 3 it also collects frame facts
 //! (each widget's area, scope parent, focusability) and registers a
 //! type-erased **handler thunk** per widget, so the runtime can route the next
 //! event against this frame's facts (ADR 0006).
@@ -13,7 +13,7 @@
 //!
 //! The frame carries a read-only focus snapshot — the [`WidgetId`] the
 //! framework currently focuses. When declaring a widget whose id equals the
-//! snapshot, the frame tells that widget's [`RenderCtx`] it is focused, so the
+//! snapshot, the frame tells that widget's [`RenderContext`] it is focused, so the
 //! widget can paint a focus style. The snapshot is the *previous* frame's focus
 //! verdict; the runtime advances focus between frames (ADR 0006).
 //!
@@ -27,12 +27,12 @@
 //! use rabbitui_core::layout::Constraint;
 //! use rabbitui_core::store::StateStore;
 //! use rabbitui_core::style::Style;
-//! use rabbitui_core::widget::{RenderCtx, Widget};
+//! use rabbitui_core::widget::{RenderContext, Widget};
 //!
 //! struct Label<'a>(&'a str);
 //! impl Widget for Label<'_> {
 //!     type State = ();
-//!     fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+//!     fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
 //!         ctx.set_string(Position::ORIGIN, self.0, Style::new());
 //!     }
 //! }
@@ -58,7 +58,7 @@ use crate::input::InputEvent;
 use crate::layout::{Constraint, split_columns, split_rows};
 use crate::store::StateStore;
 use crate::theme::Theme;
-use crate::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use crate::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// The theme a [`Frame`] carries when none is supplied — the restrained dark
 /// default. Kept as a `const` so [`Frame::new`]/[`Frame::with_focus`] can borrow
@@ -71,7 +71,7 @@ const DEFAULT_THEME: &Theme = &Theme::dark();
 /// that downcasts the erased state back to `W::State` before calling it. This is
 /// how the runtime routes an event to a widget whose spec no longer exists —
 /// the thunk closes over `W`, not over the spec (ADR 0006).
-pub type Handler = fn(&mut dyn Any, &InputEvent, &mut HandleCtx<'_>) -> Handled;
+pub type Handler = fn(&mut dyn Any, &InputEvent, &mut HandleContext<'_>) -> Handled;
 
 /// The registered handlers of one frame, keyed by widget identity.
 ///
@@ -111,7 +111,7 @@ pub struct Frame<'a> {
     /// The framework's current focus verdict (previous frame's), used to tell a
     /// widget it is focused at render time.
     focus: Option<WidgetId>,
-    /// The active theme, lent to every widget's [`RenderCtx`] so it can resolve
+    /// The active theme, lent to every widget's [`RenderContext`] so it can resolve
     /// roles to styles (ADR 0007).
     theme: &'a Theme,
     /// The overlay layer widgets declared into this frame land in. Base = 0;
@@ -223,7 +223,7 @@ impl<'a> Frame<'a> {
     /// This is the read-only focus snapshot the frame carries (the *previous*
     /// frame's focus verdict; the runtime advances focus between frames, ADR
     /// 0006). It is the same value a widget's
-    /// [`RenderCtx::is_focused`](crate::widget::RenderCtx::is_focused) reflects
+    /// [`RenderContext::is_focused`](crate::widget::RenderContext::is_focused) reflects
     /// for its own id, exposed at the frame level so a `view` can read focus
     /// without mirroring it into app state. Prefer
     /// [`is_focused`](Self::is_focused) when you know the path you want to test.
@@ -330,7 +330,7 @@ impl<'a> Frame<'a> {
 
         let (focusable, visibility, role, label) = {
             let state = self.store.get_or_default::<W::State>(id);
-            let mut ctx = RenderCtx::new_themed(self.buffer, area, focused, self.theme);
+            let mut ctx = RenderContext::new_themed(self.buffer, area, focused, self.theme);
             widget.render(state, &mut ctx);
             (
                 ctx.is_focusable(),
@@ -384,12 +384,12 @@ impl<'a> Frame<'a> {
     /// use rabbitui_core::id::key;
     /// use rabbitui_core::store::StateStore;
     /// use rabbitui_core::style::Style;
-    /// use rabbitui_core::widget::{RenderCtx, Widget};
+    /// use rabbitui_core::widget::{RenderContext, Widget};
     ///
     /// struct Para<'a>(&'a str);
     /// impl Widget for Para<'_> {
     ///     type State = ();
-    ///     fn render(&self, _s: &mut (), ctx: &mut RenderCtx<'_>) {
+    ///     fn render(&self, _s: &mut (), ctx: &mut RenderContext<'_>) {
     ///         ctx.set_string(Position::ORIGIN, self.0, Style::new());
     ///     }
     ///     fn desired_height(&self, _s: &(), _width: u16) -> u16 {
@@ -452,7 +452,7 @@ impl<'a> Frame<'a> {
             area: area.intersection(bounds),
             focusable: true,
             layer: self.layer,
-            role: crate::a11y::SemanticRole::None,
+            role: crate::accessibility::SemanticRole::None,
         });
         self.handlers.insert(id, handler_thunk::<W>());
     }
@@ -472,7 +472,7 @@ impl<'a> Frame<'a> {
 
     /// Paints `text` at absolute buffer `position` in `style`, clipped to the
     /// buffer — the container-level paint primitive (the scroll container's
-    /// scrollbar). Unlike a widget's [`RenderCtx`], a container paints in absolute
+    /// scrollbar). Unlike a widget's [`RenderContext`], a container paints in absolute
     /// coordinates.
     pub(crate) fn paint_absolute(
         &mut self,
@@ -617,7 +617,7 @@ mod tests {
 
     impl Widget for Probe {
         type State = CountState;
-        fn render(&self, state: &mut CountState, ctx: &mut RenderCtx<'_>) {
+        fn render(&self, state: &mut CountState, ctx: &mut RenderContext<'_>) {
             state.renders += 1;
             ctx.set_string(Position::ORIGIN, &state.renders.to_string(), Style::new());
         }
@@ -676,7 +676,7 @@ mod tests {
     struct Focusable;
     impl Widget for Focusable {
         type State = ();
-        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
         }
     }
@@ -686,7 +686,7 @@ mod tests {
     struct StateHeight;
     impl Widget for StateHeight {
         type State = CountState;
-        fn render(&self, state: &mut CountState, _ctx: &mut RenderCtx<'_>) {
+        fn render(&self, state: &mut CountState, _ctx: &mut RenderContext<'_>) {
             state.renders += 1;
         }
         fn desired_height(&self, state: &CountState, _width: u16) -> u16 {
@@ -749,7 +749,7 @@ mod tests {
     struct DefaultHeight;
     impl Widget for DefaultHeight {
         type State = ();
-        fn render(&self, _state: &mut (), _ctx: &mut RenderCtx<'_>) {}
+        fn render(&self, _state: &mut (), _ctx: &mut RenderContext<'_>) {}
     }
 
     #[test]
@@ -849,7 +849,7 @@ mod tests {
     struct VisibilityRequester;
     impl Widget for VisibilityRequester {
         type State = ();
-        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.request_visibility(Rect::from_size(Size::new(2, 1)));
         }
     }
@@ -875,7 +875,7 @@ mod tests {
     struct FocusPainter;
     impl Widget for FocusPainter {
         type State = ();
-        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
             let mark = if ctx.is_focused() { "F" } else { "." };
             ctx.set_string(Position::ORIGIN, mark, Style::new());
@@ -939,14 +939,14 @@ mod tests {
 
     #[test]
     fn frame_is_focused_agrees_with_render_ctx_is_focused() {
-        // The frame-level reader and the widget's own `RenderCtx::is_focused` must
+        // The frame-level reader and the widget's own `RenderContext::is_focused` must
         // report the same verdict for the same id.
         let mut buffer = Buffer::new(Size::new(1, 1));
         let mut store = StateStore::new();
         let w = WidgetId::ROOT.child(key("w"));
         store.begin_frame();
         let mut frame = Frame::with_focus(&mut buffer, &mut store, Some(w));
-        // FocusPainter paints "F" iff its RenderCtx reports focus.
+        // FocusPainter paints "F" iff its RenderContext reports focus.
         frame.widget(key("w"), frame.area(), &FocusPainter);
         assert!(frame.is_focused(&[key("w")]));
         let _ = frame.finish();
@@ -967,7 +967,7 @@ mod tests {
     struct RoleProbe;
     impl Widget for RoleProbe {
         type State = ();
-        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
             let accent = ctx.style(crate::theme::Role::Accent);
             ctx.set_string(Position::ORIGIN, "x", accent);
         }
@@ -994,10 +994,10 @@ mod tests {
     struct Activator;
     impl Widget for Activator {
         type State = ();
-        fn render(&self, _state: &mut (), ctx: &mut RenderCtx<'_>) {
+        fn render(&self, _state: &mut (), ctx: &mut RenderContext<'_>) {
             ctx.focusable(true);
         }
-        fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+        fn handle(_state: &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
             if matches!(
                 event.as_key(),
                 Some(KeyEvent {
@@ -1030,7 +1030,7 @@ mod tests {
         let state = store.get_or_default::<()>(id);
         let mut outcomes = Vec::new();
         let mut request_focus = false;
-        let mut ctx = HandleCtx::new(
+        let mut ctx = HandleContext::new(
             crate::widget::Phase::Bubble,
             Rect::default(),
             &mut outcomes,

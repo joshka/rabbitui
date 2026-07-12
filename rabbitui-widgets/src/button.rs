@@ -1,12 +1,12 @@
 //! A focusable push button.
 
-use rabbitui_core::a11y::SemanticRole;
+use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::style::{Color, Style};
 use rabbitui_core::theme::Role;
-use rabbitui_core::widget::{HandleCtx, Handled, RenderCtx, Widget};
+use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
 
 /// A single-line push button: a label that takes focus and activates on Enter
 /// or Space.
@@ -149,7 +149,7 @@ impl<'a> Button<'a> {
 
     /// Paints the solid-chip form: a tonal fill across the whole area with the
     /// label centered on it in the same hue (see [`filled`](Self::filled)).
-    fn render_filled(&self, ctx: &mut RenderCtx<'_>) {
+    fn render_filled(&self, ctx: &mut RenderContext<'_>) {
         let role = if ctx.is_focused() {
             Role::Highlight
         } else {
@@ -193,7 +193,7 @@ fn tonal_pair(base: Color) -> (Color, Color) {
 impl Widget for Button<'_> {
     type State = ();
 
-    fn render(&self, (): &mut (), ctx: &mut RenderCtx<'_>) {
+    fn render(&self, (): &mut (), ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
         // A11y groundwork (ADR arc4 §5): a button, labelled by its caption.
         ctx.semantic_role(SemanticRole::Button);
@@ -210,7 +210,7 @@ impl Widget for Button<'_> {
         ctx.set_string(Position::ORIGIN, self.label, style);
     }
 
-    fn handle((): &mut (), event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle((): &mut (), event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
         // A left-button press over the button activates it (click), mirroring
         // Enter/Space. The router has already resolved the hit region, so the
         // press need only be checked for button + kind.
@@ -242,7 +242,7 @@ mod tests {
     use rabbitui_core::outcome::Outcome;
     use rabbitui_core::style::Style;
     use rabbitui_core::theme::{Role, Theme};
-    use rabbitui_core::widget::{HandleCtx, Handled, Phase, RenderCtx, Widget};
+    use rabbitui_core::widget::{HandleContext, Handled, Phase, RenderContext, Widget};
 
     use super::Button;
 
@@ -262,7 +262,7 @@ mod tests {
     fn filled_button_paints_a_solid_tonal_fill() {
         let theme = Theme::catppuccin_mocha();
         let mut buffer = Buffer::new(Size::new(11, 1));
-        let mut ctx = RenderCtx::new_themed(
+        let mut ctx = RenderContext::new_themed(
             &mut buffer,
             Rect::from_size(Size::new(11, 1)),
             false,
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn renders_label_in_text_role_when_unfocused() {
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Button::new("Go").render(&mut (), &mut ctx);
         assert_eq!(buffer.get(Position::ORIGIN).unwrap().symbol, "G");
         assert_eq!(cell_style(&buffer, 0), Theme::default().style(Role::Text));
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn renders_highlight_role_when_focused() {
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
         Button::new("Go").render(&mut (), &mut ctx);
         assert_eq!(
             cell_style(&buffer, 0),
@@ -312,12 +312,12 @@ mod tests {
         let base = Style::new().fg(rabbitui_core::style::Color::RED).bold();
         // Unfocused: the literal override wins.
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), false);
         Button::new("Go").style(base).render(&mut (), &mut ctx);
         assert_eq!(cell_style(&buffer, 0), base);
         // Focused: highlight role still applies, so focus stays visible.
         let mut buffer = Buffer::new(Size::new(4, 1));
-        let mut ctx = RenderCtx::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
+        let mut ctx = RenderContext::new(&mut buffer, Rect::from_size(Size::new(4, 1)), true);
         Button::new("Go").style(base).render(&mut (), &mut ctx);
         assert_eq!(
             cell_style(&buffer, 0),
@@ -329,7 +329,7 @@ mod tests {
         let mut outcomes = Vec::new();
         let mut request_focus = false;
         let handled = {
-            let mut ctx = HandleCtx::new(
+            let mut ctx = HandleContext::new(
                 Phase::Bubble,
                 Rect::default(),
                 &mut outcomes,

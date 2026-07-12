@@ -27,7 +27,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rabbitui::effect::{Cmd, Effects, Outbox};
+use rabbitui::effect::{Command, Effects, Outbox};
 
 /// A contained effect panic is caught at the task boundary and surfaced as a
 /// failure — the loop stays alive. This is the property the restore-hook guard
@@ -36,7 +36,7 @@ use rabbitui::effect::{Cmd, Effects, Outbox};
 #[tokio::test]
 async fn contained_effect_panic_is_reported_not_crashed() {
     let mut effects: Effects<u32> = Effects::new();
-    effects.spawn(Cmd::future(async { panic!("effect boom") }).group("risky"));
+    effects.spawn(Command::future(async { panic!("effect boom") }).group("risky"));
     match effects.recv().await {
         Some(Outbox::Failed(error)) => {
             assert_eq!(error.group(), Some("risky"));
@@ -45,7 +45,7 @@ async fn contained_effect_panic_is_reported_not_crashed() {
         other => panic!("expected a contained failure, got {other:?}"),
     }
     // The runtime is still usable after a contained panic — a fresh effect runs.
-    effects.spawn(Cmd::future(async { 7u32 }));
+    effects.spawn(Command::future(async { 7u32 }));
     assert_eq!(effects.recv().await, Some(Outbox::Message(7)));
 }
 
@@ -58,8 +58,8 @@ async fn loop_survives_and_keeps_delivering_after_an_effect_panic() {
     let mut effects: Effects<u32> = Effects::new();
 
     // Panic, then a normal effect; both spawned before draining.
-    effects.spawn(Cmd::future(async { panic!("boom") }));
-    effects.spawn(Cmd::future(async { 42u32 }));
+    effects.spawn(Command::future(async { panic!("boom") }));
+    effects.spawn(Command::future(async { 42u32 }));
 
     let mut failures = 0;
     let mut messages = 0;
