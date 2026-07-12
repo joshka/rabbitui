@@ -37,6 +37,8 @@ pub enum SemanticRole {
     TextInput,
     /// A selectable list of items (e.g. `SelectionList`).
     List,
+    /// A grid of rows and columns with a selectable row (e.g. `Table`).
+    Table,
     /// A modal dialog / overlay grouping (an `ErrorBanner`, a confirm modal).
     Dialog,
     /// A static, non-interactive text label (e.g. `Text`).
@@ -58,6 +60,7 @@ impl SemanticRole {
             SemanticRole::Button => "button",
             SemanticRole::TextInput => "textinput",
             SemanticRole::List => "list",
+            SemanticRole::Table => "table",
             SemanticRole::Dialog => "dialog",
             SemanticRole::Label => "label",
             SemanticRole::Log => "log",
@@ -80,6 +83,8 @@ mod tests {
     fn roles_have_stable_identifiers() {
         assert_eq!(SemanticRole::Button.as_str(), "button");
         assert_eq!(SemanticRole::TextInput.as_str(), "textinput");
+        assert_eq!(SemanticRole::List.as_str(), "list");
+        assert_eq!(SemanticRole::Table.as_str(), "table");
         assert_eq!(SemanticRole::Disclosure.as_str(), "disclosure");
     }
 }
