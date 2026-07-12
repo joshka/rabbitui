@@ -7,6 +7,7 @@
 //! Inline-mode scrollback commits are not modelled by the test buffer, so the app
 //! renders in alt-screen mode here (`inline = false`).
 
+use rabbitui::App as _;
 use rabbitui_agent::app::{self, Agent, Message, Reaction};
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::backend::{BackendError, ChatMessage, Role, StreamEvent};
@@ -32,7 +33,7 @@ fn replay_greeting(app: &mut TestApp<Agent>) {
             |state| {
                 app::apply_message(state, Message::Event(Ok(event.clone())));
             },
-            app::view,
+            Agent::view,
         );
     }
 }
@@ -40,7 +41,7 @@ fn replay_greeting(app: &mut TestApp<Agent>) {
 #[test]
 fn a_conversation_renders_prompt_thinking_and_reply() {
     let mut app = TestApp::new(Size::new(48, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
 
     // Submit a prompt (the reducer part of a composer submit).
     app.send(
@@ -49,7 +50,7 @@ fn a_conversation_renders_prompt_thinking_and_reply() {
             let request = app::on_submit(state);
             assert!(request.is_some(), "a non-empty prompt yields a request");
         },
-        app::view,
+        Agent::view,
     );
     assert!(
         app.state().is_streaming(),
@@ -90,13 +91,13 @@ fn a_conversation_renders_prompt_thinking_and_reply() {
 #[test]
 fn history_accumulates_user_then_assistant() {
     let mut app = TestApp::new(Size::new(48, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
     app.send(
         |state| {
             state.draft = "count to three".to_string();
             app::on_submit(state);
         },
-        app::view,
+        Agent::view,
     );
     replay_greeting(&mut app);
 
@@ -158,7 +159,7 @@ fn mouse_wheel_scrolls_the_transcript_in_browse_mode() {
             .push(TranscriptCell::User(format!("line {n:02}")));
     }
     let mut app = TestApp::new(Size::new(48, 24), agent);
-    app.render(app::view);
+    app.render(Agent::view);
 
     let top = app.buffer_text();
     assert!(top.contains("line 00"), "starts at the top:\n{top}");
@@ -169,7 +170,7 @@ fn mouse_wheel_scrolls_the_transcript_in_browse_mode() {
 
     // Wheel down over the transcript: positive notches scroll toward newer cells.
     app.send_mouse(MouseKind::Scroll(30), Position::new(10, 10));
-    app.render(app::view);
+    app.render(Agent::view);
 
     let scrolled = app.buffer_text();
     assert!(

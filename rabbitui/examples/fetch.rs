@@ -34,11 +34,11 @@
 //! # The log overlay (Arc 2B logging seam)
 //!
 //! This example demonstrates rabbitui's tracing integration. The app supplies a
-//! shared [`LogHandle`] to [`App::log_handle`]; the runtime's collector writes
-//! every `tracing::info!` / `warn!` into that ring, and `~` toggles a
-//! [`LogOverlay`] declared into a `frame.layer` that renders the ring's tail. The
-//! `update` emits a couple of traces (a search start, a clock toggle) so the
-//! overlay shows real content.
+//! shared [`LogHandle`] to [`Config::log_handle`] (via [`Fetch::config`]); the
+//! runtime's collector writes every `tracing::info!` / `warn!` into that ring,
+//! and `~` toggles a [`LogOverlay`] declared into a `frame.layer` that renders
+//! the ring's tail. `update` emits a couple of traces (a search start, a clock
+//! toggle) so the overlay shows real content.
 
 use std::ops::ControlFlow;
 use std::pin::Pin;
@@ -47,7 +47,7 @@ use std::time::Duration;
 
 use futures_core::Stream;
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
@@ -85,197 +85,199 @@ struct Fetch {
     /// The last effect failure, shown on the status line (contained, not fatal).
     last_error: Option<String>,
     /// The shared log ring the runtime's tracing collector writes into; the
-    /// overlay renders its tail. A clone lives in the runtime too (via
-    /// [`App::log_handle`]), so both view the same events.
+    /// overlay renders its tail. Cloned into [`Config::log_handle`] via
+    /// [`Fetch::config`], so both view the same events.
     logs: LogHandle,
     /// Whether the debug log overlay is toggled on (the `~` key).
     show_logs: bool,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app = Fetch::default();
-    // Share the app's log ring with the runtime so the collector's events land
-    // where the overlay reads them. `.tracing(true)` forces the collector on even
-    // in a release build of the example.
-    let logs = app.logs.clone();
-    App::new(app, update, view)
-        .log_handle(logs)
-        .tracing(true)
-        .run()
-        .await?;
-    Ok(())
-}
-
-/// Folds one update into the app: spawn searches, toggle the ticker, clear the
-/// input, and absorb effect results.
-fn update(app: &mut Fetch, update: Update<'_, Message>) -> ControlFlow<()> {
-    // A keystroke that changed the input spawns a new debounced fetch. The
-    // `group("search")` aborts the previous fetch, so only the last-typed query
-    // completes — the cancel-previous guarantee.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
-        app.draft = value.clone();
-        let query = app.draft.clone();
-        tracing::info!(query = %query, "search started");
-        update.spawn(fake_fetch(query).group("search"));
-    }
-
-    // Dismissing the error banner (Enter/Space/click) clears the failure.
-    if update.outcome_for(&[key("errlayer"), key("banner")]) == Some(&Outcome::Dismissed) {
-        app.last_error = None;
-    }
-
-    // Effect results re-enter here as messages.
-    match update.event() {
-        Event::Message(Message::Results { query, rows }) => {
-            app.completed += 1;
-            // Only display results for the query still in the box (belt-and-braces;
-            // cancel-previous already makes stale results rare).
-            if *query == app.draft {
-                app.results = rows.clone();
-            }
+impl App<Message> for Fetch {
+    /// Folds one update into the app: spawn searches, toggle the ticker, clear
+    /// the input, and absorb effect results.
+    fn update(&mut self, update: Update<'_, Message>) -> ControlFlow<()> {
+        // A keystroke that changed the input spawns a new debounced fetch. The
+        // `group("search")` aborts the previous fetch, so only the last-typed
+        // query completes — the cancel-previous guarantee.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
+            self.draft = value.clone();
+            let query = self.draft.clone();
+            tracing::info!(query = %query, "search started");
+            update.spawn(fake_fetch(query).group("search"));
         }
-        Event::Message(Message::Tick(n)) => app.ticks = *n,
-        Event::EffectFailed(error) => {
-            tracing::warn!(error = %error, "effect failed");
-            app.last_error = Some(error.to_string());
-        }
-        _ => {}
-    }
 
-    // App-level key bindings on keys no focused widget consumed. `Ctrl-L` clears
-    // the field even while it is focused (TextInput ignores ctrl chords).
-    if let Event::Input(input) = update.event()
-        && let Some(k) = input.as_key()
-    {
-        if k.key == Key::Char('l') && k.modifiers.ctrl {
-            update.widget::<TextInput>(&[key("input")], |state| state.clear());
-            app.draft.clear();
-            app.results.clear();
+        // Dismissing the error banner (Enter/Space/click) clears the failure.
+        if update.outcome_for(&[key("errlayer"), key("banner")]) == Some(&Outcome::Dismissed) {
+            self.last_error = None;
         }
-        // Ctrl-E simulates an operation that fails in an expected way: it sets a
-        // domain error, surfaced in a dismissible ErrorBanner (the recommended
-        // failure UX). Expected failures are error *values*, not panics — see
-        // the `EffectFailed` handler above for the panic safety net.
-        if k.key == Key::Char('e') && k.modifiers.ctrl {
-            app.last_error = Some("could not reach the search backend (simulated)".to_string());
-        }
-        match k.key {
-            // Toggle the clock ticker stream on/off. Guarded: the search
-            // input consumes printables while focused (Update::consumed).
-            Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
-                app.ticking = !app.ticking;
-                tracing::info!(ticking = app.ticking, "clock toggled");
-                if app.ticking {
-                    // Start the ticker under the "clock" group so it can be
-                    // aborted on demand.
-                    update.spawn(
-                        Command::stream(Ticker::every(Duration::from_secs(1))).group("clock"),
-                    );
-                } else {
-                    // Stop it for good: cancel_group aborts the stream task
-                    // without replacing it (the stream-stop primitive).
-                    update.spawn(Command::cancel_group("clock"));
+
+        // Effect results re-enter here as messages.
+        match update.event() {
+            Event::Message(Message::Results { query, rows }) => {
+                self.completed += 1;
+                // Only display results for the query still in the box
+                // (belt-and-braces; cancel-previous already makes stale results
+                // rare).
+                if *query == self.draft {
+                    self.results = rows.clone();
                 }
             }
-            // Toggle the debug log overlay. Guarded on `!consumed()` so it does
-            // not fire while `~` is typed into the focused search field.
-            Key::Char('~') if !update.consumed() => {
-                app.show_logs = !app.show_logs;
+            Event::Message(Message::Tick(n)) => self.ticks = *n,
+            Event::EffectFailed(error) => {
+                tracing::warn!(error = %error, "effect failed");
+                self.last_error = Some(error.to_string());
             }
-            Key::Char('q') if !update.consumed() => return ControlFlow::Break(()),
-            Key::Escape => return ControlFlow::Break(()),
             _ => {}
+        }
+
+        // App-level key bindings on keys no focused widget consumed. `Ctrl-L`
+        // clears the field even while it is focused (TextInput ignores ctrl
+        // chords).
+        if let Event::Input(input) = update.event()
+            && let Some(k) = input.as_key()
+        {
+            if k.key == Key::Char('l') && k.modifiers.ctrl {
+                update.widget::<TextInput>(&[key("input")], |state| state.clear());
+                self.draft.clear();
+                self.results.clear();
+            }
+            // Ctrl-E simulates an operation that fails in an expected way: it
+            // sets a domain error, surfaced in a dismissible ErrorBanner (the
+            // recommended failure UX). Expected failures are error *values*,
+            // not panics — see the `EffectFailed` handler above for the panic
+            // safety net.
+            if k.key == Key::Char('e') && k.modifiers.ctrl {
+                self.last_error =
+                    Some("could not reach the search backend (simulated)".to_string());
+            }
+            match k.key {
+                // Toggle the clock ticker stream on/off. Guarded: the search
+                // input consumes printables while focused (Update::consumed).
+                Key::Char('t') if !k.modifiers.ctrl && !update.consumed() => {
+                    self.ticking = !self.ticking;
+                    tracing::info!(ticking = self.ticking, "clock toggled");
+                    if self.ticking {
+                        // Start the ticker under the "clock" group so it can be
+                        // aborted on demand.
+                        update.spawn(
+                            Command::stream(Ticker::every(Duration::from_secs(1))).group("clock"),
+                        );
+                    } else {
+                        // Stop it for good: cancel_group aborts the stream task
+                        // without replacing it (the stream-stop primitive).
+                        update.spawn(Command::cancel_group("clock"));
+                    }
+                }
+                // Toggle the debug log overlay. Guarded on `!consumed()` so it
+                // does not fire while `~` is typed into the focused search
+                // field.
+                Key::Char('~') if !update.consumed() => {
+                    self.show_logs = !self.show_logs;
+                }
+                Key::Char('q') if !update.consumed() => return ControlFlow::Break(()),
+                Key::Escape => return ControlFlow::Break(()),
+                _ => {}
+            }
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    /// Declares the input, the results list, and the status/clock/hint lines
+    /// inside a centered, focused panel.
+    fn view(&self, frame: &mut Frame<'_>) {
+        let full = frame.area();
+        let width = full.size.width.min(60);
+        let height = full.size.height.saturating_sub(4).clamp(12, 26);
+        let area = center(full, width, height);
+        let panel = Panel::new().title("fetch").padding(1).focused(true);
+        frame.widget(key("panel"), area, &panel);
+
+        let inner = Panel::inner(area, &panel);
+        let [input_row, list_area, clock_row, status_row, hint_row] = split_rows(
+            inner,
+            [
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ],
+        );
+
+        frame.widget(
+            key("input"),
+            input_row,
+            &TextInput::new().placeholder("Tab, then search…"),
+        );
+        frame.widget(
+            key("results"),
+            list_area,
+            &SelectionList::new(self.results.clone()),
+        );
+
+        let clock = if self.ticking {
+            format!("clock: tick {}", self.ticks)
+        } else {
+            "clock: off (press t)".to_string()
+        };
+        frame.widget(
+            key("clock"),
+            clock_row,
+            &Text::new(&clock).role(Role::Accent),
+        );
+
+        // Failures surface in the ErrorBanner overlay below, so the status line
+        // always reports the completed-fetch count (the cancel-previous proof).
+        let status = format!("{} fetches completed", self.completed);
+        frame.widget(
+            key("status"),
+            status_row,
+            &Text::new(&status).role(Role::Success),
+        );
+
+        let hint = "search   Ctrl-L: clear   Ctrl-E: fail   t/~ (list): clock/logs   Ctrl-C: quit";
+        frame.widget(key("hint"), hint_row, &Text::new(hint).role(Role::Muted));
+
+        // The debug log overlay: a themed panel over the bottom third of the
+        // screen, declared into its own layer so it sits above the app and (per
+        // ADR 0003's layer semantics) contains its own input. It renders the
+        // shared log ring's tail — the tracing events the update emits.
+        if self.show_logs {
+            let log_h = full.size.height.saturating_sub(2).clamp(3, 10);
+            let log_area = split_rows(full, [Constraint::Fill(1), Constraint::Length(log_h)])[1];
+            frame.layer(key("logs"), |overlay| {
+                overlay.widget(key("overlay"), log_area, &LogOverlay::new(&self.logs));
+            });
+        }
+
+        // A contained effect failure surfaces here, in a dismissible
+        // ErrorBanner on its own top layer (which captures focus, so
+        // Enter/Space dismisses it). Clearing `last_error` on the Dismissed
+        // outcome stops declaring it next frame.
+        if let Some(error) = &self.last_error {
+            let banner = ErrorBanner::new(error).title("Effect failed");
+            let width = full.size.width.saturating_sub(4).clamp(10, 50);
+            let height = banner.desired_height(&(), width).min(full.size.height);
+            let banner_area = center(full, width, height);
+            frame.layer(key("errlayer"), |overlay| {
+                overlay.widget(key("banner"), banner_area, &banner);
+            });
         }
     }
 
-    ControlFlow::Continue(())
+    /// Shares the app's log ring with the runtime so the collector's events
+    /// land where the overlay reads them. `.tracing(true)` forces the collector
+    /// on even in a release build of the example.
+    fn config(&self) -> Config {
+        Config::new().log_handle(self.logs.clone()).tracing(true)
+    }
 }
 
-/// Declares the input, the results list, and the status/clock/hint lines inside
-/// a centered, focused panel.
-fn view(app: &Fetch, frame: &mut Frame<'_>) {
-    let full = frame.area();
-    let width = full.size.width.min(60);
-    let height = full.size.height.saturating_sub(4).clamp(12, 26);
-    let area = center(full, width, height);
-    let panel = Panel::new().title("fetch").padding(1).focused(true);
-    frame.widget(key("panel"), area, &panel);
-
-    let inner = Panel::inner(area, &panel);
-    let [input_row, list_area, clock_row, status_row, hint_row] = split_rows(
-        inner,
-        [
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ],
-    );
-
-    frame.widget(
-        key("input"),
-        input_row,
-        &TextInput::new().placeholder("Tab, then search…"),
-    );
-    frame.widget(
-        key("results"),
-        list_area,
-        &SelectionList::new(app.results.clone()),
-    );
-
-    let clock = if app.ticking {
-        format!("clock: tick {}", app.ticks)
-    } else {
-        "clock: off (press t)".to_string()
-    };
-    frame.widget(
-        key("clock"),
-        clock_row,
-        &Text::new(&clock).role(Role::Accent),
-    );
-
-    // Failures surface in the ErrorBanner overlay below, so the status line always
-    // reports the completed-fetch count (the cancel-previous proof).
-    let status = format!("{} fetches completed", app.completed);
-    frame.widget(
-        key("status"),
-        status_row,
-        &Text::new(&status).role(Role::Success),
-    );
-
-    frame.widget(
-        key("hint"),
-        hint_row,
-        &Text::new("search   Ctrl-L: clear   Ctrl-E: fail   t/~ (list): clock/logs   Ctrl-C: quit")
-            .role(Role::Muted),
-    );
-
-    // The debug log overlay: a themed panel over the bottom third of the screen,
-    // declared into its own layer so it sits above the app and (per ADR 0003's
-    // layer semantics) contains its own input. It renders the shared log ring's
-    // tail — the tracing events the update emits.
-    if app.show_logs {
-        let log_h = full.size.height.saturating_sub(2).clamp(3, 10);
-        let log_area = split_rows(full, [Constraint::Fill(1), Constraint::Length(log_h)])[1];
-        frame.layer(key("logs"), |overlay| {
-            overlay.widget(key("overlay"), log_area, &LogOverlay::new(&app.logs));
-        });
-    }
-
-    // A contained effect failure surfaces here, in a dismissible ErrorBanner on its
-    // own top layer (which captures focus, so Enter/Space dismisses it). Clearing
-    // `last_error` on the Dismissed outcome stops declaring it next frame.
-    if let Some(error) = &app.last_error {
-        let banner = ErrorBanner::new(error).title("Effect failed");
-        let width = full.size.width.saturating_sub(4).clamp(10, 50);
-        let height = banner.desired_height(&(), width).min(full.size.height);
-        let banner_area = center(full, width, height);
-        frame.layer(key("errlayer"), |overlay| {
-            overlay.widget(key("banner"), banner_area, &banner);
-        });
-    }
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    Fetch::default().run().await?;
+    Ok(())
 }
 
 /// A simulated ~300ms fetch that returns a few result rows for `query`.

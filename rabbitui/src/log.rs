@@ -1,24 +1,24 @@
 //! The `tracing` collector: a [`Layer`] that formats events into the core log
-//! ring, plus the global-default install used by [`App::tracing`].
+//! ring, plus the global-default install used by [`Config::tracing`](crate::app::Config::tracing).
 //!
 //! This module is the facade half of the logging seam
 //! (`docs/design/arc2b-measurement-scroll.md`). It is the *only* place `tracing`
 //! appears in rabbitui: [`Collector`] implements
 //! [`tracing_subscriber::Layer`], formats each event into a
-//! [`LogRecord`](rabbitui_core::log::LogRecord), and pushes it into a
-//! [`LogHandle`](rabbitui_core::log::LogHandle) — the runtime-free ring the
+//! [`LogRecord`], and pushes it into a
+//! [`LogHandle`] — the runtime-free ring the
 //! runtime owns and the `LogOverlay` widget reads. The widget never touches this
 //! module: it meets the runtime at the core handle, so `rabbitui-widgets` depends
 //! only on `rabbitui-core` (ADR 0011).
 //!
 //! # Install-once, never panic
 //!
-//! [`App::tracing`](crate::App::tracing) installs the collector as the process's
-//! **global default** subscriber — but only if none is already set. A second
-//! install (a test harness, a host app that set up its own subscriber, a second
-//! `App` in one process) is a no-op, not a panic: [`try_install`] returns whether
-//! it won the race, and the runtime ignores a loss. Double-init is a supported,
-//! silent outcome by design.
+//! [`Config::tracing`](crate::app::Config::tracing) installs the collector as the
+//! process's **global default** subscriber — but only if none is already set. A
+//! second install (a test harness, a host app that set up its own subscriber, a
+//! second app in one process) is a no-op, not a panic: [`try_install`] returns
+//! whether it won the race, and the runtime ignores a loss. Double-init is a
+//! supported, silent outcome by design.
 //!
 //! # Filtering and the close flush
 //!
@@ -44,8 +44,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// back to the conventional `RUST_LOG`.
 pub const FILTER_ENV: &str = "RABBITUI_LOG";
 
-/// A [`tracing_subscriber::Layer`] that formats events into a
-/// [`LogHandle`](rabbitui_core::log::LogHandle) ring.
+/// A [`tracing_subscriber::Layer`] that formats events into a [`LogHandle`]
+/// ring.
 ///
 /// Holds a clone of the ring handle (a cheap `Arc`); the runtime keeps another
 /// clone to hand the overlay. On each event it maps the `tracing::Level` to the
@@ -59,8 +59,8 @@ pub const FILTER_ENV: &str = "RABBITUI_LOG";
 ///
 /// let handle = LogHandle::with_capacity(64);
 /// let _collector = Collector::new(handle.clone());
-/// // Installing it globally is `App::tracing`'s job; a Collector can also be
-/// // used directly in a `tracing_subscriber` stack for testing.
+/// // Installing it globally is `Config::tracing`'s job; a Collector can also
+/// // be used directly in a `tracing_subscriber` stack for testing.
 /// ```
 #[derive(Debug, Clone)]
 pub struct Collector {
@@ -176,9 +176,9 @@ fn filter_from(rabbitui_log: Option<String>, rust_log: Option<String>) -> EnvFil
 /// the [`env_filter`] filter — **only if no global default is already set**.
 ///
 /// Returns `true` if this call installed the collector, `false` if a global
-/// default was already in place (a host app's subscriber, a prior `App`, a test
+/// default was already in place (a host app's subscriber, a prior app, a test
 /// harness). Never panics on a double install: that is the documented, supported
-/// outcome (`App::tracing`'s "install only if none is set").
+/// outcome (`Config::tracing`'s "install only if none is set").
 pub fn try_install(handle: LogHandle) -> bool {
     let subscriber = Registry::default()
         .with(env_filter())

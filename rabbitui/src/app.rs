@@ -1,31 +1,54 @@
-//! The minimal application loop.
+//! The application loop and the [`App`] trait.
 //!
-//! [`run`] is the walking-skeleton facade over the event loop (ADR 0005): it
-//! owns the terminal, drives update → view → diff → render, and restores the
-//! terminal on every exit path. The app supplies plain owned state, a
-//! synchronous `update` that folds events and outcomes into that state, and a
-//! synchronous `view` that declares the state's UI into a [`Frame`].
+//! An application is a type implementing [`App`] (ADR 0001, amended
+//! 2026-07-11): `Self` is the state, a synchronous [`App::update`] folds events
+//! and outcomes into it, and a synchronous [`App::view`] declares its UI into a
+//! [`Frame`]. The provided [`App::run`] owns the terminal, drives
+//! update → view → diff → render, and restores the terminal on every exit
+//! path. Defaulted hooks cover the lifecycle: [`App::init`] (the opening
+//! [`Command`]), [`App::global`] (before-`update` chords), and [`App::config`]
+//! (launch configuration).
 //!
-//! # The declared frame, facts, and routing
+//! ```no_run
+//! use std::ops::ControlFlow;
 //!
-//! `view` receives a [`Frame`] (`docs/adr/0001-programming-model.md`), not a
-//! bare buffer: it declares widgets by key into the frame, which composes their
-//! identities, lends each its framework-retained state from the loop's
-//! [`StateStore`], paints them, and — from slice 3 — collects the frame's
-//! *facts* (each widget's area, scope parent, focusability) and registers a
-//! handler thunk per widget.
+//! use rabbitui::app::{App, Event, Update};
+//! use rabbitui_core::frame::Frame;
+//! use rabbitui_core::id::key;
+//! use rabbitui_core::input::Key;
+//! use rabbitui_widgets::Text;
 //!
-//! On the next input event, [`run`] maps it into the core input vocabulary
-//! (`crate::input`) and routes it through the *previous* frame's facts and
-//! handlers via the shared [`route`] function (`docs/adr/0006-input-focus-events.md`):
-//! capture → target → bubble, with unconsumed Tab/BackTab driving focus
-//! traversal. Handlers emit typed [`Outcome`]s; the app sees them — together
-//! with the raw event — in one [`Update`] passed to `update`. Focus is framework
-//! state the loop owns across frames (a [`Focus`]), not app state.
+//! #[derive(Default)]
+//! struct Counter {
+//!     count: i64,
+//! }
 //!
-//! # Examples
+//! impl App for Counter {
+//!     fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+//!         if let Event::Input(input) = update.event() {
+//!             match input.as_key().map(|k| k.key) {
+//!                 Some(Key::Char('+')) => self.count += 1,
+//!                 Some(Key::Char('q')) => return ControlFlow::Break(()),
+//!                 _ => {}
+//!             }
+//!         }
+//!         ControlFlow::Continue(())
+//!     }
 //!
-//! A one-line app that quits on the next event:
+//!     fn view(&self, frame: &mut Frame<'_>) {
+//!         let text = format!("count: {} (+ to add, q to quit)", self.count);
+//!         frame.widget(key("count"), frame.area(), &Text::new(&text));
+//!     }
+//! }
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> rabbitui::app::Result<()> {
+//!     Counter::default().run().await
+//! }
+//! ```
+//!
+//! For tests, demos, and one-screen tools the closure shorthand [`from_fn`]
+//! (or the free [`run`]) skips the trait ceremony:
 //!
 //! ```no_run
 //! use std::ops::ControlFlow;
@@ -46,6 +69,23 @@
 //! .await
 //! # }
 //! ```
+//!
+//! # The declared frame, facts, and routing
+//!
+//! `view` receives a [`Frame`] (`docs/adr/0001-programming-model.md`), not a
+//! bare buffer: it declares widgets by key into the frame, which composes their
+//! identities, lends each its framework-retained state from the loop's
+//! [`StateStore`], paints them, and — from slice 3 — collects the frame's
+//! *facts* (each widget's area, scope parent, focusability) and registers a
+//! handler thunk per widget.
+//!
+//! On the next input event, the loop maps it into the core input vocabulary
+//! (`crate::input`) and routes it through the *previous* frame's facts and
+//! handlers via the shared [`route`] function (`docs/adr/0006-input-focus-events.md`):
+//! capture → target → bubble, with unconsumed Tab/BackTab driving focus
+//! traversal. Handlers emit typed [`Outcome`]s; the app sees them — together
+//! with the raw event — in one [`Update`] passed to `update`. Focus is framework
+//! state the loop owns across frames (a [`Focus`]), not app state.
 
 use std::cell::RefCell;
 use std::ops::ControlFlow;
@@ -389,7 +429,7 @@ impl<'a, M> Update<'a, M> {
     /// theme — and applied by replacing the active theme threaded into every
     /// widget's [`RenderContext`](rabbitui_core::widget::RenderContext). This is how an app
     /// offers a live theme picker. If a theme file is also configured
-    /// ([`theme_file`](App::theme_file)), it is last-writer-wins: a later file
+    /// ([`Config::theme_file`]), it is last-writer-wins: a later file
     /// change (debug hot-reload) overrides a runtime switch, and vice versa.
     ///
     /// # Examples
@@ -684,185 +724,113 @@ pub async fn run<S, M>(
 where
     M: Send + 'static,
 {
-    App::new(state, update, view).run().await
+    from_fn(state, update, view).run().await
 }
 
-/// A configurable application: state, an `update`, a `view`, and theming.
+/// Startup configuration for an [`App`], read once by the runtime before the
+/// loop starts.
 ///
-/// The builder form of [`run`], for apps that need more than the three-argument
-/// default — specifically a [`Theme`] other than [`Theme::default`], or a theme
-/// **file** with debug-build hot reload. Terse apps use [`run`]; anything
-/// theming-aware constructs an `App`, chains [`theme`](Self::theme) /
-/// [`theme_file`](Self::theme_file), and calls [`run`](Self::run):
+/// Returned by [`App::config`]; the runtime reads it exactly once, before the
+/// terminal opens. Runtime switching stays on [`Update`]
+/// ([`set_mode`](Update::set_mode) / [`set_theme`](Update::set_theme)) — this
+/// struct is *launch* state only. One method returning one struct keeps the
+/// trait surface flat: new knobs are new fields with defaults, not new trait
+/// methods (`docs/design/core-model-and-roadmap.md` §1).
 ///
-/// ```no_run
-/// use std::ops::ControlFlow;
+/// The struct is `#[non_exhaustive]` so it can grow without breaking
+/// `App::config` implementations downstream; construct it with
+/// [`new`](Self::new) (or [`Default::default`]) and chain the builders:
 ///
-/// use rabbitui::App;
-/// use rabbitui::app::Update;
-/// use rabbitui_core::frame::Frame;
-/// use rabbitui_core::id::key;
-/// use rabbitui_core::theme::Theme;
-/// use rabbitui_widgets::Text;
-///
-/// # async fn demo() -> rabbitui::app::Result<()> {
-/// App::new(
-///     (),
-///     |_state: &mut (), _update: Update<'_>| ControlFlow::Break(()),
-///     |_state: &(), frame: &mut Frame<'_>| {
-///         frame.widget(key("hi"), frame.area(), &Text::new("hi"));
-///     },
-/// )
-/// .theme(Theme::catppuccin_mocha())
-/// .theme_file("theme.toml")
-/// .run()
-/// .await
-/// # }
 /// ```
+/// use rabbitui::app::Config;
+/// use rabbitui_core::mode::Mode;
+/// use rabbitui_core::theme::Theme;
 ///
-/// # Why a builder, not more `run` arguments
-///
-/// `run(state, update, view)` reads cleanly at three arguments; a fourth and
-/// fifth positional argument for `theme` and an *optional* path would not.
-/// Theming is also opt-in — most apps never set it — so it belongs on a builder
-/// whose defaults reproduce `run` exactly. `run` stays as the terse entry point
-/// and simply delegates to `App::new(...).run()`, so there is one loop, not two.
-pub struct App<S, U, V, M = ()> {
-    state: S,
-    update: U,
-    view: V,
-    theme: Theme,
-    theme_file: Option<PathBuf>,
-    mode: Mode,
+/// let config = Config::new()
+///     .theme(Theme::catppuccin_mocha())
+///     .theme_file("theme.toml") // debug builds re-read this on change
+///     .mode(Mode::inline(4))
+///     .mouse(false);
+/// let _ = config;
+/// ```
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct Config {
+    /// The active [`Theme`] the loop threads into every frame. See
+    /// [`theme`](Self::theme).
+    pub theme: Theme,
+    /// A TOML theme file layered over the base theme, hot-reloaded in debug
+    /// builds. See [`theme_file`](Self::theme_file).
+    pub theme_file: Option<PathBuf>,
+    /// The startup screen [`Mode`]. See [`mode`](Self::mode).
+    pub mode: Mode,
     /// Whether to capture the mouse, or `None` to default by mode (on in
     /// alt-screen, off in inline). See [`mouse`](Self::mouse).
-    mouse: Option<bool>,
+    pub mouse: Option<bool>,
     /// Whether to install the tracing collector, or `None` to default by build
     /// profile (on in debug, off in release). See [`tracing`](Self::tracing).
     #[cfg(feature = "tracing")]
-    tracing: Option<bool>,
-    /// The ring the collector writes into, if the app supplied one to share with a
-    /// `LogOverlay`. When `None`, [`run`](Self::run) makes its own so the
+    pub tracing: Option<bool>,
+    /// The ring the collector writes into, if the app supplied one to share
+    /// with a `LogOverlay`. When `None`, the runtime makes its own so the
     /// close-flush still works. See [`log_handle`](Self::log_handle).
     #[cfg(feature = "tracing")]
-    log_handle: Option<rabbitui_core::log::LogHandle>,
-    /// Ties the app to its message type without owning one; the `fn() -> M`
-    /// form keeps `App` `Send`-agnostic and variance-correct.
-    _marker: std::marker::PhantomData<fn() -> M>,
+    pub log_handle: Option<rabbitui_core::log::LogHandle>,
 }
 
-impl<S, U, V, M> App<S, U, V, M>
-where
-    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
-    V: Fn(&S, &mut Frame<'_>),
-    M: Send + 'static,
-{
-    /// Creates an app from owned `state`, an `update`, and a `view`, using the
-    /// default theme, no theme file, and the default screen [`Mode`]
-    /// ([`Mode::AltScreen`]).
-    ///
-    /// The result behaves exactly like [`run`] until [`theme`](Self::theme),
-    /// [`theme_file`](Self::theme_file), or [`mode`](Self::mode) is called.
+impl Config {
+    /// The default configuration: the default theme, no theme file, alt-screen
+    /// mode, by-mode mouse capture, and by-profile tracing.
     #[must_use]
-    pub fn new(state: S, update: U, view: V) -> Self {
-        Self {
-            state,
-            update,
-            view,
-            theme: Theme::default(),
-            theme_file: None,
-            mode: Mode::default(),
-            mouse: None,
-            #[cfg(feature = "tracing")]
-            tracing: None,
-            #[cfg(feature = "tracing")]
-            log_handle: None,
-            _marker: std::marker::PhantomData,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Supplies the [`LogHandle`](rabbitui_core::log::LogHandle) the tracing
-    /// collector writes into, so the app can render its tail with a `LogOverlay`.
+    /// Sets the active [`Theme`] the loop threads into every frame.
     ///
-    /// The runtime owns and shares the log ring (`docs/design/arc2b-measurement-scroll.md`):
-    /// pass a clone here and keep another clone in your state, and the collector's
-    /// events land in the same ring your `view` reads. Without this, [`run`](Self::run)
-    /// still makes an internal ring so the close-flush works — an app just cannot
-    /// display the overlay, since it never sees the handle.
-    ///
-    /// Only meaningful alongside [`tracing`](Self::tracing) (or its debug-build
-    /// default); a supplied handle with tracing off is simply never written.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use rabbitui::App;
-    /// use rabbitui::app::Update;
-    /// use rabbitui_core::frame::Frame;
-    /// use rabbitui_core::log::LogHandle;
-    ///
-    /// let logs = LogHandle::with_capacity(256);
-    /// let app = App::new(
-    ///     logs.clone(), // the app keeps a clone in its state for the overlay
-    ///     |_: &mut LogHandle, _: Update<'_>| ControlFlow::Break(()),
-    ///     |_: &LogHandle, _: &mut Frame<'_>| {},
-    /// )
-    /// .log_handle(logs);
-    /// let _ = app;
-    /// ```
-    #[cfg(feature = "tracing")]
+    /// If a [`theme_file`](Self::theme_file) is also set, this is the *base* the
+    /// file's roles layer over (a file names only the roles it changes; the rest
+    /// stay as this theme).
     #[must_use]
-    pub fn log_handle(mut self, handle: rabbitui_core::log::LogHandle) -> Self {
-        self.log_handle = Some(handle);
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
         self
     }
 
-    /// Sets whether the app installs rabbitui's [`tracing`](crate::log) collector
-    /// as the global-default subscriber, overriding the by-profile default.
+    /// Loads the active theme from a TOML file at `path`, layered over the base
+    /// [`theme`](Self::theme).
     ///
-    /// The collector formats `tracing` events into a bounded ring the runtime
-    /// owns; the `LogOverlay` widget renders that ring's tail. By default it is
-    /// installed in **debug builds** and skipped in **release** builds (a dev
-    /// affordance, off in shipped binaries) — pass `true` to force it on in
-    /// release, or `false` to opt out in debug.
+    /// The file is loaded once at startup. In **debug builds** the loop then
+    /// polls the file's modification time once per loop iteration and reloads it
+    /// on change — Textual's dev loop without a file-watcher dependency (ADR
+    /// 0007). Release builds load once and never re-stat. A load or parse error
+    /// at startup fails [`App::run`]; a reload error mid-run is ignored so a
+    /// half-saved edit never crashes the app (the previous theme stays).
     ///
-    /// # Install-once, never panic
+    /// # Cost of hot reload
     ///
-    /// Installation is **only** attempted if no global-default subscriber is
-    /// already set (`docs/design/arc2b-measurement-scroll.md`): if a host app, a
-    /// test harness, or a prior `App` already installed one, this is a silent
-    /// no-op, never a panic. So a program that sets up its own `tracing` stack and
-    /// then runs a rabbitui `App` keeps its subscriber — but then the `LogOverlay`
-    /// shows nothing, since rabbitui's ring never receives events.
-    ///
-    /// The filter honors `RABBITUI_LOG`, falling back to `RUST_LOG`
-    /// ([`log::env_filter`](crate::log::env_filter)). On close, buffered `WARN` and
-    /// above flush to stderr after the terminal is restored, so errors survive the
-    /// alternate screen.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use rabbitui::App;
-    /// use rabbitui::app::Update;
-    /// use rabbitui_core::frame::Frame;
-    ///
-    /// let app = App::new(
-    ///     (),
-    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
-    ///     |_: &(), _: &mut Frame<'_>| {},
-    /// )
-    /// .tracing(true); // force the collector on, even in release
-    /// let _ = app;
-    /// ```
-    #[cfg(feature = "tracing")]
+    /// The debug-build poll is **one `stat(2)` per loop iteration** — a metadata
+    /// read, no file contents unless the mtime changed. The loop iterates once
+    /// per input event, so at terminal event rates this is negligible; it is
+    /// compiled out entirely in release builds via `cfg!(debug_assertions)`.
     #[must_use]
-    pub fn tracing(mut self, tracing: bool) -> Self {
-        self.tracing = Some(tracing);
+    pub fn theme_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.theme_file = Some(path.into());
+        self
+    }
+
+    /// Sets the initial screen [`Mode`] — [`Mode::AltScreen`] (the default) or
+    /// [`Mode::Inline`] with a bounded live tail.
+    ///
+    /// The mode can also change at runtime via
+    /// [`Update::set_mode`](Update::set_mode); this sets the startup mode. In
+    /// inline mode the app declares a frame sized to the live tail (the runtime
+    /// caps it at `min(max_height, viewport_height)`), commits finalized lines
+    /// with [`Update::commit`], and the terminal keeps native scrollback,
+    /// selection, and copy above the tail (ADR 0013).
+    #[must_use]
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -880,131 +848,198 @@ where
     /// When on, the runtime enables mouse reporting (modes 1000 + 1006) at mode
     /// entry and disables it at leave; the panic/restore path disables it
     /// unconditionally regardless of this setting.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use rabbitui::App;
-    /// use rabbitui::app::Update;
-    /// use rabbitui_core::frame::Frame;
-    ///
-    /// let app = App::new(
-    ///     (),
-    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
-    ///     |_: &(), _: &mut Frame<'_>| {},
-    /// )
-    /// .mouse(true);
-    /// let _ = app;
-    /// ```
     #[must_use]
     pub fn mouse(mut self, mouse: bool) -> Self {
         self.mouse = Some(mouse);
         self
     }
 
-    /// Sets the initial screen [`Mode`] — [`Mode::AltScreen`] (the default) or
-    /// [`Mode::Inline`] with a bounded live tail.
+    /// Sets whether the app installs rabbitui's [`tracing`](crate::log) collector
+    /// as the global-default subscriber, overriding the by-profile default.
     ///
-    /// The mode can also change at runtime via
-    /// [`Update::set_mode`](Update::set_mode); this sets the startup mode. In
-    /// inline mode the app declares a frame sized to the live tail (the runtime
-    /// caps it at `min(max_height, viewport_height)`), commits finalized lines
-    /// with [`Update::commit`], and the terminal keeps native scrollback,
-    /// selection, and copy above the tail (ADR 0013).
+    /// The collector formats `tracing` events into a bounded ring the runtime
+    /// owns; the `LogOverlay` widget renders that ring's tail. By default it is
+    /// installed in **debug builds** and skipped in **release** builds (a dev
+    /// affordance, off in shipped binaries) — pass `true` to force it on in
+    /// release, or `false` to opt out in debug.
     ///
-    /// # Examples
+    /// # Install-once, never panic
     ///
-    /// ```
-    /// use std::ops::ControlFlow;
+    /// Installation is **only** attempted if no global-default subscriber is
+    /// already set (`docs/design/arc2b-measurement-scroll.md`): if a host app, a
+    /// test harness, or a prior app already installed one, this is a silent
+    /// no-op, never a panic. So a program that sets up its own `tracing` stack and
+    /// then runs a rabbitui [`App`] keeps its subscriber — but then the
+    /// `LogOverlay` shows nothing, since rabbitui's ring never receives events.
     ///
-    /// use rabbitui::App;
-    /// use rabbitui::app::Update;
-    /// use rabbitui_core::frame::Frame;
-    /// use rabbitui_core::mode::Mode;
-    ///
-    /// let app = App::new(
-    ///     (),
-    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
-    ///     |_: &(), _: &mut Frame<'_>| {},
-    /// )
-    /// .mode(Mode::inline(3));
-    /// let _ = app;
-    /// ```
+    /// The filter honors `RABBITUI_LOG`, falling back to `RUST_LOG`
+    /// ([`log::env_filter`](crate::log::env_filter)). On close, buffered `WARN` and
+    /// above flush to stderr after the terminal is restored, so errors survive the
+    /// alternate screen.
+    #[cfg(feature = "tracing")]
     #[must_use]
-    pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
+    pub fn tracing(mut self, tracing: bool) -> Self {
+        self.tracing = Some(tracing);
         self
     }
 
-    /// Sets the active [`Theme`] the loop threads into every frame.
+    /// Supplies the [`LogHandle`](rabbitui_core::log::LogHandle) the tracing
+    /// collector writes into, so the app can render its tail with a `LogOverlay`.
     ///
-    /// If a [`theme_file`](Self::theme_file) is also set, this is the *base* the
-    /// file's roles layer over (a file names only the roles it changes; the rest
-    /// stay as this theme).
+    /// The runtime owns and shares the log ring (`docs/design/arc2b-measurement-scroll.md`):
+    /// pass a clone here and keep another clone in your state, and the collector's
+    /// events land in the same ring your `view` reads. Without this, the runtime
+    /// still makes an internal ring so the close-flush works — an app just cannot
+    /// display the overlay, since it never sees the handle.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use rabbitui::App;
-    /// use rabbitui::app::Update;
-    /// use rabbitui_core::frame::Frame;
-    /// use rabbitui_core::theme::Theme;
-    ///
-    /// let app = App::new(
-    ///     (),
-    ///     |_: &mut (), _: Update<'_>| ControlFlow::Break(()),
-    ///     |_: &(), _: &mut Frame<'_>| {},
-    /// )
-    /// .theme(Theme::catppuccin_mocha());
-    /// let _ = app;
-    /// ```
+    /// Only meaningful alongside [`tracing`](Self::tracing) (or its debug-build
+    /// default); a supplied handle with tracing off is simply never written.
+    #[cfg(feature = "tracing")]
     #[must_use]
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = theme;
+    pub fn log_handle(mut self, handle: rabbitui_core::log::LogHandle) -> Self {
+        self.log_handle = Some(handle);
         self
     }
+}
 
-    /// Loads the active theme from a TOML file at `path`, layered over the base
-    /// [`theme`](Self::theme).
+/// An application: `Self` is the state, [`update`](Self::update) folds events
+/// into it, [`view`](Self::view) declares its UI — plus defaulted lifecycle
+/// hooks ([`init`](Self::init), [`global`](Self::global)), startup
+/// [`config`](Self::config), and provided run entries.
+///
+/// This is the app-facing shape of the framework
+/// (`docs/design/core-model-and-roadmap.md` §1; ADR 0001 amendment): the
+/// declared-frame contract is the two required methods, everything else has a
+/// default. Implement it on your state type and call [`run`](Self::run):
+///
+/// ```no_run
+/// use std::ops::ControlFlow;
+///
+/// use rabbitui::app::{App, Event, Update};
+/// use rabbitui_core::frame::Frame;
+/// use rabbitui_core::id::key;
+/// use rabbitui_core::input::Key;
+/// use rabbitui_widgets::Text;
+///
+/// #[derive(Default)]
+/// struct Counter {
+///     count: i64,
+/// }
+///
+/// impl App for Counter {
+///     fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+///         if let Event::Input(input) = update.event() {
+///             match input.as_key().map(|k| k.key) {
+///                 Some(Key::Char('+')) => self.count += 1,
+///                 Some(Key::Char('q')) => return ControlFlow::Break(()),
+///                 _ => {}
+///             }
+///         }
+///         ControlFlow::Continue(())
+///     }
+///
+///     fn view(&self, frame: &mut Frame<'_>) {
+///         let text = format!("count: {} (+ to add, q to quit)", self.count);
+///         frame.widget(key("count"), frame.area(), &Text::new(&text));
+///     }
+/// }
+///
+/// #[tokio::main(flavor = "current_thread")]
+/// async fn main() -> rabbitui::app::Result<()> {
+///     Counter::default().run().await
+/// }
+/// ```
+///
+/// Closure-shaped apps (tests, demos, one-screen tools) use [`from_fn`]
+/// instead of implementing the trait — see [`FnApp`].
+///
+/// # The message type `M`
+///
+/// `M` is the app's effect-message type, delivered back as
+/// [`Event::Message`] — see [`Command`] and [`Update::spawn`]. It is a
+/// **defaulted generic parameter**, not an associated type (associated-type
+/// defaults are unstable): message-less apps write `impl App for X` and never
+/// see it. A type implementing two different `App<M>`s is legal but call
+/// sites then need a turbofish to pick one.
+///
+/// # Not dyn-compatible, deliberately
+///
+/// The provided run entries are `async fn` (AFIT), so `dyn App` does not
+/// compile. The loop is generic over the concrete app type; nothing in the
+/// framework needs to box one.
+#[allow(async_fn_in_trait)] // single-runtime facade: callers never re-spawn the returned futures
+pub trait App<M = ()>: Sized
+where
+    M: Send + 'static,
+{
+    /// Folds one event — with its routed outcomes — into `self`, returning
+    /// [`ControlFlow::Break`] to quit.
     ///
-    /// The file is loaded once at startup. In **debug builds** the loop then
-    /// polls the file's modification time once per loop iteration and reloads it
-    /// on change — Textual's dev loop without a file-watcher dependency (ADR
-    /// 0007). Release builds load once and never re-stat. A load or parse error
-    /// at startup fails [`run`](Self::run); a reload error mid-run is ignored so
-    /// a half-saved edit never crashes the app (the previous theme stays).
+    /// Strictly synchronous (ADR 0005): async work leaves through
+    /// [`Update::spawn`] and re-enters as [`Event::Message`]. Runs for every
+    /// event *after* [`global`](Self::global) declined to break.
+    fn update(&mut self, update: Update<'_, M>) -> ControlFlow<()>;
+
+    /// Declares the UI for the current state into `frame`, every frame.
     ///
-    /// # Cost of hot reload
+    /// Pure and synchronous: reads `&self`, paints, owns no state. The
+    /// read/mutate split is compiler-enforced — `view` cannot touch what
+    /// [`update`](Self::update) mutates mid-frame.
+    fn view(&self, frame: &mut Frame<'_>);
+
+    /// The app's opening [`Command`], spawned once at startup before
+    /// [`Event::Started`] is delivered.
     ///
-    /// The debug-build poll is **one `stat(2)` per loop iteration** — a metadata
-    /// read, no file contents unless the mtime changed. The loop iterates once
-    /// per input event, so at terminal event rates this is negligible; it is
-    /// compiled out entirely in release builds via `cfg!(debug_assertions)`.
-    ///
-    /// [`theme_file`]: Self::theme_file
-    #[must_use]
-    pub fn theme_file(mut self, path: impl AsRef<Path>) -> Self {
-        self.theme_file = Some(path.as_ref().to_path_buf());
-        self
+    /// Override it to start work at launch — begin a stream, kick off a load —
+    /// without waiting for the first keypress. The default is
+    /// [`Command::none()`], a true no-op. `init` and [`Event::Started`]
+    /// coexist deliberately: closure apps ([`from_fn`]) cannot override hooks,
+    /// so the event is their init path; trait apps may use either.
+    fn init(&mut self) -> Command<M> {
+        Command::none()
     }
 
-    /// Runs the application loop until `update` returns [`ControlFlow::Break`].
+    /// Runs before [`update`](Self::update) for **every** event; returning
+    /// [`ControlFlow::Break`] quits without calling `update`.
     ///
-    /// Identical to [`run`]'s loop, plus theming: the active theme is threaded
-    /// into every frame, and (debug builds only) a theme file is polled for
-    /// changes once per iteration and hot-reloaded.
+    /// The home for app-wide chords — Ctrl-C quit, a global help toggle —
+    /// that must fire even when `update` early-returns (a modal open, a
+    /// wizard step). Routing has already run, so [`Update::consumed`] and
+    /// [`Update::action`] work; the borrow is shared (`&Update`) but all
+    /// `Update` methods take `&self`, so it can spawn, commit, and focus.
+    /// On `Break`, the update's pending set still drains (effects spawn,
+    /// commits flush).
+    fn global(&mut self, _update: &Update<'_, M>) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    /// The app's startup [`Config`], read once by the runtime before the loop
+    /// starts.
+    ///
+    /// The default is [`Config::default()`]. Runtime switching stays on
+    /// [`Update`] ([`set_mode`](Update::set_mode) /
+    /// [`set_theme`](Update::set_theme)) — this is launch state only.
+    fn config(&self) -> Config {
+        Config::default()
+    }
+
+    /// Runs the application loop over the controlling terminal until
+    /// [`update`](Self::update) (or [`global`](Self::global)) returns
+    /// [`ControlFlow::Break`].
+    ///
+    /// Opens the terminal, reads [`config`](Self::config) once, spawns
+    /// [`init`](Self::init)'s command, delivers [`Event::Started`], then
+    /// drives update → view → diff → render, restoring the terminal on every
+    /// exit path (including panics).
     ///
     /// # Errors
     ///
-    /// Returns an error if the terminal, input, size polling, or rendering fails,
-    /// or if a configured theme file cannot be loaded or parsed at startup.
-    pub async fn run(self) -> Result<()> {
+    /// Returns an error if the terminal, input, size polling, or rendering
+    /// fails, or if a configured theme file cannot be loaded or parsed at
+    /// startup.
+    async fn run(self) -> Result<()> {
         let terminal = Terminal::open().await?;
-        self.run_on(terminal).await
+        run_on(self, terminal).await
     }
 
     /// Runs the app over a caller-supplied [`TerminalDevice`](qwertty::TerminalDevice)
@@ -1012,7 +1047,7 @@ where
     ///
     /// The headless-testing / embedding seam: pass a [`qwertty::FakeDevice`] (a
     /// socketpair) and the *whole* [`run`](Self::run) loop executes with no pty,
-    /// so tests can drive the real `update` closure and assert on emitted bytes
+    /// so tests can drive the real `update` path and assert on emitted bytes
     /// (`docs/design/fakedevice-e2e-harness.md`). Unlike [`run`](Self::run) this
     /// installs no panic-restore hook — a fake device has nothing to strand, and
     /// a test wants panics to surface.
@@ -1021,78 +1056,236 @@ where
     ///
     /// Returns an error if the session cannot be built over the device, the theme
     /// file cannot be loaded, or the loop hits a terminal I/O error.
-    pub async fn run_over_device<D: qwertty::TerminalDevice>(self, device: D) -> Result<()> {
+    async fn run_over_device<D: qwertty::TerminalDevice>(self, device: D) -> Result<()> {
         let terminal = Terminal::from_device(device)?;
-        self.run_on(terminal).await
-    }
-
-    /// Shared setup for [`run`](Self::run) and [`run_over_device`](Self::run_over_device):
-    /// installs tracing, resolves the initial theme, then enters [`run_loop`] over
-    /// the given terminal.
-    async fn run_on<D: qwertty::TerminalDevice>(self, terminal: Terminal<D>) -> Result<()> {
-        // Install the tracing collector before the loop starts, so startup events
-        // are captured. The default is by build profile (debug on, release off); an
-        // explicit `.tracing(bool)` overrides it. Installation is a no-op if a
-        // global default is already set — never a panic. The returned handle (if we
-        // installed and hold one) is flushed on close, after the terminal is
-        // restored, so WARN+ survives the alternate screen.
-        #[cfg(feature = "tracing")]
-        let flush_handle = install_tracing(self.tracing, self.log_handle.clone());
-
-        let App {
-            state,
-            update,
-            view,
-            theme: base_theme,
-            theme_file,
-            mode,
-            mouse,
-            ..
-        } = self;
-
-        // Load the initial theme from the file (if any), layered over the base.
-        // A startup error is fatal; a mid-run reload error is not (see below).
-        let watcher = ThemeWatcher::new(theme_file, base_theme)?;
-
-        run_loop(
-            terminal,
-            state,
-            update,
-            view,
-            watcher,
-            mode,
-            mouse,
-            #[cfg(feature = "tracing")]
-            flush_handle,
-        )
-        .await
+        run_on(self, terminal).await
     }
 }
 
-/// The headless-testable core of [`run`]: drives the real event loop over any
-/// [`TerminalDevice`](qwertty::TerminalDevice).
+/// Shared setup for [`App::run`] and [`App::run_over_device`]: reads the app's
+/// [`Config`] once, installs tracing, resolves the initial theme, then enters
+/// [`run_loop`] over the given terminal.
+async fn run_on<M, A, D>(app: A, terminal: Terminal<D>) -> Result<()>
+where
+    M: Send + 'static,
+    A: App<M>,
+    D: qwertty::TerminalDevice,
+{
+    let config = app.config();
+
+    // Install the tracing collector before the loop starts, so startup events
+    // are captured. The default is by build profile (debug on, release off); an
+    // explicit `Config::tracing` overrides it. Installation is a no-op if a
+    // global default is already set — never a panic. The returned handle (if we
+    // installed and hold one) is flushed on close, after the terminal is
+    // restored, so WARN+ survives the alternate screen.
+    #[cfg(feature = "tracing")]
+    let flush_handle = install_tracing(config.tracing, config.log_handle.clone());
+
+    // Load the initial theme from the file (if any), layered over the base.
+    // A startup error is fatal; a mid-run reload error is not (see ThemeWatcher).
+    let watcher = ThemeWatcher::new(config.theme_file, config.theme)?;
+
+    run_loop(
+        terminal,
+        app,
+        watcher,
+        config.mode,
+        config.mouse,
+        #[cfg(feature = "tracing")]
+        flush_handle,
+    )
+    .await
+}
+
+/// A closure-shaped [`App`]: owned state plus an `update` and a `view`
+/// function, built by [`from_fn`].
+///
+/// The zero-ceremony adapter for tests, demos, and one-screen tools — the std
+/// pattern (`iter::from_fn`, `future::poll_fn`). Anything that outgrows two
+/// closures implements [`App`] directly; the closure form is a strict subset.
+/// Configuration chains through the `with_*` builders (prefixed so they cannot
+/// shadow the trait's method names):
+///
+/// ```no_run
+/// use std::ops::ControlFlow;
+///
+/// use rabbitui::app::{App as _, Update};
+/// use rabbitui::from_fn;
+/// use rabbitui_core::frame::Frame;
+/// use rabbitui_core::id::key;
+/// use rabbitui_core::theme::Theme;
+/// use rabbitui_widgets::Text;
+///
+/// # async fn demo() -> rabbitui::app::Result<()> {
+/// from_fn(
+///     (),
+///     |_state: &mut (), _update: Update<'_>| ControlFlow::Break(()),
+///     |_state: &(), frame: &mut Frame<'_>| {
+///         frame.widget(key("hi"), frame.area(), &Text::new("hi"));
+///     },
+/// )
+/// .with_theme(Theme::catppuccin_mocha())
+/// .run()
+/// .await
+/// # }
+/// ```
+pub struct FnApp<S, U, V, M = ()> {
+    state: S,
+    update: U,
+    view: V,
+    config: Config,
+    /// Ties the app to its message type without owning one; the `fn() -> M`
+    /// form keeps `FnApp` `Send`-agnostic and variance-correct.
+    _marker: std::marker::PhantomData<fn() -> M>,
+}
+
+/// Creates a closure-shaped [`App`] from owned `state`, an `update`, and a
+/// `view` — see [`FnApp`].
+///
+/// Behaves exactly like implementing [`App`] with those two bodies and default
+/// hooks; closure apps take startup effects via [`Event::Started`] (they cannot
+/// override [`App::init`]). The free [`run`] is `from_fn(...).run()`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::ops::ControlFlow;
+///
+/// use rabbitui::app::{App as _, Update};
+/// use rabbitui::from_fn;
+/// use rabbitui_core::frame::Frame;
+/// use rabbitui_core::id::key;
+/// use rabbitui_widgets::Text;
+///
+/// # async fn demo() -> rabbitui::app::Result<()> {
+/// from_fn(
+///     (),
+///     |_state: &mut (), _update: Update<'_>| ControlFlow::Break(()),
+///     |_state: &(), frame: &mut Frame<'_>| {
+///         frame.widget(key("greeting"), frame.area(), &Text::new("hi"));
+///     },
+/// )
+/// .run()
+/// .await
+/// # }
+/// ```
+pub fn from_fn<S, U, V, M>(state: S, update: U, view: V) -> FnApp<S, U, V, M>
+where
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
+    V: Fn(&S, &mut Frame<'_>),
+    M: Send + 'static,
+{
+    FnApp {
+        state,
+        update,
+        view,
+        config: Config::default(),
+        _marker: std::marker::PhantomData,
+    }
+}
+
+impl<S, U, V, M> FnApp<S, U, V, M>
+where
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
+    V: Fn(&S, &mut Frame<'_>),
+    M: Send + 'static,
+{
+    /// Sets [`Config::theme`] — the active theme the loop threads into every
+    /// frame, and the base a [`with_theme_file`](Self::with_theme_file) layers
+    /// over.
+    #[must_use]
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.config = self.config.theme(theme);
+        self
+    }
+
+    /// Sets [`Config::theme_file`] — a TOML theme file layered over the base
+    /// theme, hot-reloaded in debug builds.
+    #[must_use]
+    pub fn with_theme_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.config = self.config.theme_file(path);
+        self
+    }
+
+    /// Sets [`Config::mode`] — the startup screen [`Mode`].
+    #[must_use]
+    pub fn with_mode(mut self, mode: Mode) -> Self {
+        self.config = self.config.mode(mode);
+        self
+    }
+
+    /// Sets [`Config::mouse`] — whether to capture the mouse, overriding the
+    /// by-mode default.
+    #[must_use]
+    pub fn with_mouse(mut self, mouse: bool) -> Self {
+        self.config = self.config.mouse(mouse);
+        self
+    }
+
+    /// Sets [`Config::tracing`] — whether to install the tracing collector,
+    /// overriding the by-profile default.
+    #[cfg(feature = "tracing")]
+    #[must_use]
+    pub fn with_tracing(mut self, tracing: bool) -> Self {
+        self.config = self.config.tracing(tracing);
+        self
+    }
+
+    /// Sets [`Config::log_handle`] — the ring the tracing collector writes
+    /// into, shared with the app for a `LogOverlay`.
+    #[cfg(feature = "tracing")]
+    #[must_use]
+    pub fn with_log_handle(mut self, handle: rabbitui_core::log::LogHandle) -> Self {
+        self.config = self.config.log_handle(handle);
+        self
+    }
+}
+
+impl<S, U, V, M> App<M> for FnApp<S, U, V, M>
+where
+    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
+    V: Fn(&S, &mut Frame<'_>),
+    M: Send + 'static,
+{
+    fn update(&mut self, update: Update<'_, M>) -> ControlFlow<()> {
+        (self.update)(&mut self.state, update)
+    }
+
+    fn view(&self, frame: &mut Frame<'_>) {
+        (self.view)(&self.state, frame)
+    }
+
+    fn config(&self) -> Config {
+        self.config.clone()
+    }
+}
+
+/// The headless-testable core of [`App::run`]: drives the real event loop over
+/// any [`TerminalDevice`](qwertty::TerminalDevice).
 ///
 /// Production [`App::run`] passes a real terminal ([`Terminal::open`]); the
 /// FakeDevice harness passes [`Terminal::from_device`] over a socketpair, so the
-/// *same* loop — the real `update` closure, routing, effects, mode switches, and
+/// *same* loop — the real `update` path, routing, effects, mode switches, and
 /// paint scheduling — runs headlessly in CI. That is the whole point: the bug
 /// classes that only surfaced on real hardware (a declare-then-focus panic in
 /// `update`, inline-commit timing) become CI-catchable
 /// (`docs/design/fakedevice-e2e-harness.md`).
-#[allow(clippy::too_many_arguments)]
-async fn run_loop<S, U, V, M, D>(
+///
+/// Every event delivery is the **global-then-update** sequence: one `Update` is
+/// constructed, lent to [`App::global`], and — unless `global` broke — moved
+/// into [`App::update`]. On a `global` break, `update` is not called but the
+/// pending set still drains (effects spawn, commits flush).
+async fn run_loop<A, M, D>(
     mut terminal: Terminal<D>,
-    mut state: S,
-    mut update: U,
-    view: V,
+    mut app: A,
     mut watcher: ThemeWatcher,
     mode: Mode,
     mouse: Option<bool>,
     #[cfg(feature = "tracing")] flush_handle: Option<rabbitui_core::log::LogHandle>,
 ) -> Result<()>
 where
-    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
-    V: Fn(&S, &mut Frame<'_>),
+    A: App<M>,
     M: Send + 'static,
     D: qwertty::TerminalDevice,
 {
@@ -1121,7 +1314,7 @@ where
 
     // Enter the mode, then render the first frame.
     terminal.write_bytes(&engine.enter()).await?;
-    let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, &state, &view);
+    let (mut facts, mut handlers) = draw(&mut back, &mut store, focus, &theme, |f| app.view(f));
     focus.reconcile(&facts);
     terminal
         .write_bytes(&engine.render(&back, &front, &[]))
@@ -1200,14 +1393,21 @@ where
         let mut broke = false;
         match wake {
             Wake::Started => {
-                // Deliver the one-shot startup event against the frame
-                // already on screen, then let the pending set (spawned
-                // effects, widget commands, a mode switch) drain like any
-                // other update. `dirty` forces a repaint if init changed
-                // state without spawning an effect to wake the loop.
+                // Spawn the app's opening command first (`App::init`; a
+                // `Command::none()` default is a no-op), then deliver the
+                // one-shot startup event against the frame already on
+                // screen and let the pending set (spawned effects, widget
+                // commands, a mode switch) drain like any other update.
+                // `dirty` forces a repaint if init changed state without
+                // spawning an effect to wake the loop.
+                effects.spawn(app.init());
                 let pending = RefCell::new(Pending::default());
                 let ctx = Update::new(Event::Started, &[], &pending).with_store(&store);
-                broke = update(&mut state, ctx).is_break();
+                broke = if app.global(&ctx).is_break() {
+                    true
+                } else {
+                    app.update(ctx).is_break()
+                };
                 drain_pending(
                     pending.into_inner(),
                     &mut effects,
@@ -1240,7 +1440,11 @@ where
                     let pending = RefCell::new(Pending::default());
                     let ctx =
                         Update::new(Event::Resize(viewport), &[], &pending).with_store(&store);
-                    broke = update(&mut state, ctx).is_break();
+                    broke = if app.global(&ctx).is_break() {
+                        true
+                    } else {
+                        app.update(ctx).is_break()
+                    };
                     drain_pending(
                         pending.into_inner(),
                         &mut effects,
@@ -1262,7 +1466,11 @@ where
                         .with_consumed(result.consumed)
                         .with_focus(focus.current())
                         .with_store(&store);
-                    broke = update(&mut state, ctx).is_break();
+                    broke = if app.global(&ctx).is_break() {
+                        true
+                    } else {
+                        app.update(ctx).is_break()
+                    };
                     drain_pending(
                         pending.into_inner(),
                         &mut effects,
@@ -1280,8 +1488,7 @@ where
             Wake::Effect(outbox) => {
                 broke = deliver_effect(
                     outbox,
-                    &mut state,
-                    &mut update,
+                    &mut app,
                     &mut effects,
                     &mut store,
                     &facts,
@@ -1302,8 +1509,7 @@ where
                     };
                     broke = deliver_effect(
                         next,
-                        &mut state,
-                        &mut update,
+                        &mut app,
                         &mut effects,
                         &mut store,
                         &facts,
@@ -1386,7 +1592,7 @@ where
         // focus request against its facts (the shared `core::pending` path,
         // identical to `TestApp`), then paint.
         back.reset();
-        let drawn = draw(&mut back, &mut store, focus, &theme, &state, &view);
+        let drawn = draw(&mut back, &mut store, focus, &theme, |f| app.view(f));
         facts = drawn.0;
         handlers = drawn.1;
         // Retry the carried-forward remainder (a declare-then-focus request
@@ -1414,8 +1620,8 @@ where
 ///
 /// The on/off default is by build profile: debug on, release off. When on, the
 /// collector writes into the app's supplied [`LogHandle`] if it gave one
-/// ([`App::log_handle`]), else an internal ring made here so the close-flush still
-/// works. Installation is attempted only if no global default is set; a loss is
+/// ([`Config::log_handle`]), else an internal ring made here so the close-flush
+/// still works. Installation is attempted only if no global default is set; a loss is
 /// silent (`docs/design/arc2b-measurement-scroll.md`).
 ///
 /// The returned handle is flushed for WARN+ on close only when *this* call
@@ -1533,18 +1739,17 @@ fn drain_pending<M: Send + 'static>(
     }
 }
 
-/// Delivers one effect result to `update` and drains its pending, returning
+/// Delivers one effect result to the app and drains its pending, returning
 /// whether the app asked to break.
 ///
 /// A [`Outbox::Message`] becomes [`Event::Message`]; a [`Outbox::Failed`] becomes
-/// [`Event::EffectFailed`]. Either way the app's `update` sees it in the one
-/// serialized loop, exactly like an input event, and may itself spawn more
-/// effects or command widgets.
+/// [`Event::EffectFailed`]. Either way the app sees it in the one serialized
+/// loop — the same global-then-update sequence as an input event — and may
+/// itself spawn more effects or command widgets.
 #[allow(clippy::too_many_arguments)]
-fn deliver_effect<S, M, U>(
+fn deliver_effect<A, M>(
     outbox: Outbox<M>,
-    state: &mut S,
-    update: &mut U,
+    app: &mut A,
     effects: &mut Effects<M>,
     store: &mut StateStore,
     facts: &FrameFacts,
@@ -1555,8 +1760,8 @@ fn deliver_effect<S, M, U>(
     set_theme_buf: &mut Option<Theme>,
 ) -> bool
 where
+    A: App<M>,
     M: Send + 'static,
-    U: FnMut(&mut S, Update<'_, M>) -> ControlFlow<()>,
 {
     let event = match outbox {
         Outbox::Message(message) => Event::Message(message),
@@ -1564,7 +1769,11 @@ where
     };
     let pending = RefCell::new(Pending::default());
     let ctx = Update::new(event, &[], &pending).with_store(&*store);
-    let broke = update(state, ctx).is_break();
+    let broke = if app.global(&ctx).is_break() {
+        true
+    } else {
+        app.update(ctx).is_break()
+    };
     drain_pending(
         pending.into_inner(),
         effects,
@@ -1882,18 +2091,17 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
 ///
 /// The caller has already cleared (or resized) `buffer` to blank, matching the
 /// declared-frame rule that widgets re-declare everything each frame.
-fn draw<S>(
+fn draw(
     buffer: &mut Buffer,
     store: &mut StateStore,
     focus: Focus,
     theme: &Theme,
-    state: &S,
-    view: &impl Fn(&S, &mut Frame<'_>),
+    view: impl FnOnce(&mut Frame<'_>),
 ) -> (FrameFacts, HandlerMap) {
     store.begin_frame();
     let parts = {
         let mut frame = Frame::themed(buffer, store, focus.current(), theme);
-        view(state, &mut frame);
+        view(&mut frame);
         frame.into_parts()
     };
     store.end_frame();

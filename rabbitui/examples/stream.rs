@@ -30,7 +30,7 @@
 use std::ops::ControlFlow;
 
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
@@ -65,107 +65,106 @@ impl Default for Stream {
     }
 }
 
+impl App for Stream {
+    /// Folds one update into the app: commit lines, toggle mode, quit.
+    fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+        // Track the input draft on every edit; a submit (Enter) commits it.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[input_key(self)]) {
+            self.draft = value.clone();
+        }
+        if update.outcome_for(&[input_key(self)]) == Some(&Outcome::Submitted) {
+            let line = self.draft.trim().to_string();
+            if !line.is_empty() {
+                self.committed += 1;
+                update.commit(format!("{:>3}  {line}", self.committed));
+            }
+            // Re-key the input to clear it, and reset the tracked draft.
+            self.input_generation += 1;
+            self.draft.clear();
+        }
+
+        // App-level bindings fire only on keys no focused widget consumed (the
+        // input eats printables while focused — Update::consumed is the guard).
+        // The input is the only focusable, so auto-focus means it is ALWAYS
+        // focused and printable bindings would never fire — hence ctrl-chords,
+        // which text inputs pass through (user rule: printable bindings must not
+        // fight text boxes).
+        if let Event::Input(input) = update.event() {
+            let (key, ctrl) = match input.as_key() {
+                Some(k) => (Some(k.key), k.modifiers.ctrl),
+                None => (None, false),
+            };
+            match key {
+                // Commit the next numbered log line into native scrollback.
+                Some(Key::Char('n')) if ctrl => {
+                    self.committed += 1;
+                    update.commit(format!("{:>3}  log line", self.committed));
+                }
+                // Toggle inline ↔ alt-screen live.
+                Some(Key::Char('t')) if ctrl => {
+                    self.inline = !self.inline;
+                    update.set_mode(if self.inline {
+                        Mode::inline(TAIL_HEIGHT)
+                    } else {
+                        Mode::AltScreen
+                    });
+                }
+                Some(Key::Char('c')) if ctrl => return ControlFlow::Break(()),
+                Some(Key::Char('q') | Key::Escape) if !update.consumed() => {
+                    return ControlFlow::Break(());
+                }
+                _ => {}
+            }
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    /// Declares the live tail: an input, a status line, and a hint.
+    ///
+    /// In inline mode the frame's area is the bounded tail (the runtime sizes
+    /// the buffer to `TAIL_HEIGHT`); in alt-screen it is the whole viewport. The
+    /// same declaration works in both — the tail rows pin to the top of
+    /// whatever area the mode provides.
+    ///
+    /// This is an inline-mode example, so the tail is *not* wrapped in a panel:
+    /// the committed scrollback above belongs to the terminal, and a border
+    /// around a bottom-pinned strip that shares its top edge with native
+    /// history would read wrong. Styling stays inside the tail, via theme roles.
+    fn view(&self, frame: &mut Frame<'_>) {
+        let [input_row, status_row, hint_row] = frame.rows([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ]);
+
+        frame.widget(
+            input_key(self),
+            input_row,
+            &TextInput::new().placeholder("Tab, type, Enter…"),
+        );
+
+        let mode = if self.inline { "inline" } else { "alt-screen" };
+        let status = format!("[{mode}]  {} committed", self.committed);
+        frame.widget(
+            key("status"),
+            status_row,
+            &Text::new(&status).role(Role::Success),
+        );
+
+        let hint = "type + Enter: commit   Ctrl-N: log line   Ctrl-T: mode   Ctrl-C: quit";
+        frame.widget(key("hint"), hint_row, &Text::new(hint).role(Role::Muted));
+    }
+
+    fn config(&self) -> Config {
+        Config::new().mode(Mode::inline(TAIL_HEIGHT))
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    App::new(Stream::default(), update, view)
-        .mode(Mode::inline(TAIL_HEIGHT))
-        .run()
-        .await?;
+    Stream::default().run().await?;
     Ok(())
-}
-
-/// Folds one update into the app: commit lines, toggle mode, quit.
-fn update(app: &mut Stream, update: Update<'_>) -> ControlFlow<()> {
-    // Track the input draft on every edit; a submit (Enter) commits it.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[input_key(app)]) {
-        app.draft = value.clone();
-    }
-    if update.outcome_for(&[input_key(app)]) == Some(&Outcome::Submitted) {
-        let line = app.draft.trim().to_string();
-        if !line.is_empty() {
-            app.committed += 1;
-            update.commit(format!("{:>3}  {line}", app.committed));
-        }
-        // Re-key the input to clear it, and reset the tracked draft.
-        app.input_generation += 1;
-        app.draft.clear();
-    }
-
-    // App-level bindings fire only on keys no focused widget consumed (the input
-    // eats printables while focused — Update::consumed is the guard).
-    // The input is the only focusable, so auto-focus means it is ALWAYS
-    // focused and printable bindings would never fire — hence ctrl-chords,
-    // which text inputs pass through (user rule: printable bindings must not
-    // fight text boxes).
-    if let Event::Input(input) = update.event() {
-        let (key, ctrl) = match input.as_key() {
-            Some(k) => (Some(k.key), k.modifiers.ctrl),
-            None => (None, false),
-        };
-        match key {
-            // Commit the next numbered log line into native scrollback.
-            Some(Key::Char('n')) if ctrl => {
-                app.committed += 1;
-                update.commit(format!("{:>3}  log line", app.committed));
-            }
-            // Toggle inline ↔ alt-screen live.
-            Some(Key::Char('t')) if ctrl => {
-                app.inline = !app.inline;
-                update.set_mode(if app.inline {
-                    Mode::inline(TAIL_HEIGHT)
-                } else {
-                    Mode::AltScreen
-                });
-            }
-            Some(Key::Char('c')) if ctrl => return ControlFlow::Break(()),
-            Some(Key::Char('q') | Key::Escape) if !update.consumed() => {
-                return ControlFlow::Break(());
-            }
-            _ => {}
-        }
-    }
-
-    ControlFlow::Continue(())
-}
-
-/// Declares the live tail: an input, a status line, and a hint.
-///
-/// In inline mode the frame's area is the bounded tail (the runtime sizes the
-/// buffer to `TAIL_HEIGHT`); in alt-screen it is the whole viewport. The same
-/// declaration works in both — the tail rows pin to the top of whatever area the
-/// mode provides.
-///
-/// This is an inline-mode example, so the tail is *not* wrapped in a panel: the
-/// committed scrollback above belongs to the terminal, and a border around a
-/// bottom-pinned strip that shares its top edge with native history would read
-/// wrong. Styling stays inside the tail, via theme roles.
-fn view(app: &Stream, frame: &mut Frame<'_>) {
-    let [input_row, status_row, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ]);
-
-    frame.widget(
-        input_key(app),
-        input_row,
-        &TextInput::new().placeholder("Tab, type, Enter…"),
-    );
-
-    let mode = if app.inline { "inline" } else { "alt-screen" };
-    let status = format!("[{mode}]  {} committed", app.committed);
-    frame.widget(
-        key("status"),
-        status_row,
-        &Text::new(&status).role(Role::Success),
-    );
-
-    frame.widget(
-        key("hint"),
-        hint_row,
-        &Text::new("type + Enter: commit   Ctrl-N: log line   Ctrl-T: mode   Ctrl-C: quit")
-            .role(Role::Muted),
-    );
 }
 
 /// The input's key for this frame, carrying the generation so a submit re-keys

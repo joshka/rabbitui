@@ -2,13 +2,13 @@
 //!
 //! The reducer ([`apply_message`], [`on_submit`]) only *mutates state* — it never
 //! commits or spawns. That purity is what lets `rabbitui_testing::TestApp`
-//! drive it: the harness does not run the real [`update`] closure, so tests inject
+//! drive it: the harness does not run the real [`Agent::update`] method, so tests inject
 //! state mutations and assert the rendered buffer. The closure is the thin layer
 //! that turns reducer results into framework side effects (scrollback commits,
 //! effect spawns, persistence).
 //!
 //! Scrollback commits are decoupled from state via [`Agent::committed`]: after the
-//! reducer runs, [`update`] commits any not-yet-committed cells in inline mode.
+//! reducer runs, [`Agent::update`] commits any not-yet-committed cells in inline mode.
 //! Commits go to native scrollback, which the test buffer does not model, so tests
 //! render in alt-screen mode.
 
@@ -20,7 +20,7 @@ use std::time::Duration;
 use futures_core::Stream;
 use futures_util::StreamExt as _;
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::geometry::Rect;
@@ -104,6 +104,9 @@ pub struct Agent {
     /// dismissed by Esc (or the same chord again). Display-only, so it holds no
     /// focus — the composer keeps it while help is shown.
     pub showing_help: bool,
+    /// The resolved launch theme configuration, read once by [`App::config`] to
+    /// build the startup [`Config`]. Set before `run` via [`with_theme`](Self::with_theme).
+    pub theme: ThemeConfig,
 }
 
 impl Agent {
@@ -126,7 +129,16 @@ impl Agent {
             awaiting: None,
             focus_modal: false,
             showing_help: false,
+            theme: ThemeConfig::default(),
         }
+    }
+
+    /// Sets the launch [`ThemeConfig`] used by [`App::config`] to build the
+    /// startup [`Config`] (base preset plus optional TOML override file).
+    #[must_use]
+    pub fn with_theme(mut self, theme: ThemeConfig) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// Enables persistence to `session`, seeding history from a resumed file.
@@ -172,7 +184,7 @@ impl Agent {
     }
 }
 
-/// A message an effect delivers to [`update`].
+/// A message an effect delivers to [`Agent::update`].
 #[derive(Debug, Clone)]
 pub enum Message {
     /// A backend event (or error) for the in-flight turn.
@@ -510,94 +522,126 @@ pub fn on_submit(app: &mut Agent) -> Option<ChatRequest> {
 // Update closure (side effects: commits, spawns, persistence)
 // ---------------------------------------------------------------------------
 
-/// The `App` update closure: folds one event, then runs the reducer's side
-/// effects (commit, persist, spawn).
-pub fn update(app: &mut Agent, update: Update<'_, Message>) -> ControlFlow<()> {
-    // Track the composer draft and act on a submit.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("composer")]) {
-        app.draft.clone_from(value);
-    }
-    if update.outcome_for(&[key("composer")]) == Some(&Outcome::Submitted) {
-        submit(app, &update);
-    }
-
-    // Absorb effect messages (stream events, spinner ticks).
-    if let Event::Message(message) = update.event() {
-        match apply_message(app, message.clone()) {
-            Reaction::TurnComplete => stop_spinner(app, &update),
-            Reaction::AwaitConfirmation => {
-                // The turn stopped on tool_use: stop the spinner and open the
-                // modal, requesting focus into it (the form.rs handshake).
-                stop_spinner(app, &update);
-                app.focus_modal = true;
-            }
-            Reaction::None => {}
+impl App<Message> for Agent {
+    /// Folds one event, then runs the reducer's side effects (commit, persist,
+    /// spawn).
+    fn update(&mut self, update: Update<'_, Message>) -> ControlFlow<()> {
+        // Track the composer draft and act on a submit.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("composer")]) {
+            self.draft.clone_from(value);
         }
-    }
+        if update.outcome_for(&[key("composer")]) == Some(&Outcome::Submitted) {
+            submit(self, &update);
+        }
 
-    // Help overlay routing (topmost when up): Esc or the Help chord closes it;
-    // Ctrl-C still quits. Everything else is swallowed so the overlay is modal.
-    if app.showing_help {
-        if let Event::Input(input) = update.event()
-            && let Some(press) = input.as_key()
-        {
-            match KEYMAP.action_for(press) {
-                Some(Action::Quit) => return ControlFlow::Break(()),
-                Some(Action::Help | Action::Dismiss) => app.showing_help = false,
-                _ => {}
+        // Absorb effect messages (stream events, spinner ticks).
+        if let Event::Message(message) = update.event() {
+            match apply_message(self, message.clone()) {
+                Reaction::TurnComplete => stop_spinner(self, &update),
+                Reaction::AwaitConfirmation => {
+                    // The turn stopped on tool_use: stop the spinner and open the
+                    // modal, requesting focus into it (the form.rs handshake).
+                    stop_spinner(self, &update);
+                    self.focus_modal = true;
+                }
+                Reaction::None => {}
             }
         }
-        // The help overlay is display-only: it holds no focusable widget, so it
-        // takes no focus (focusing its Panel would fail the declare-then-focus
-        // contract and panic). Its keys — Esc / the Help chord / Ctrl-C — are
-        // routed here at the app level regardless of what is focused; the composer
-        // keeps focus underneath.
-        flush_commits(app, &update);
-        persist_history(app);
-        return ControlFlow::Continue(());
+
+        // Help overlay routing (topmost when up): Esc or the Help chord closes it.
+        // The always-available Quit chord fires in `global`, before this runs.
+        // Everything else is swallowed so the overlay is modal.
+        if self.showing_help {
+            if let Event::Input(input) = update.event()
+                && let Some(press) = input.as_key()
+                && let Some(Action::Help | Action::Dismiss) = KEYMAP.action_for(press)
+            {
+                self.showing_help = false;
+            }
+            // The help overlay is display-only: it holds no focusable widget, so it
+            // takes no focus (focusing its Panel would fail the declare-then-focus
+            // contract and panic). Its keys — Esc / the Help chord — are routed here
+            // at the app level regardless of what is focused; the composer keeps
+            // focus underneath.
+            flush_commits(self, &update);
+            persist_history(self);
+            return ControlFlow::Continue(());
+        }
+
+        // Confirmation modal routing (when up): Allow/Deny buttons, plus y/n and Esc.
+        if self.is_confirming() {
+            handle_modal(self, &update);
+            // Honor the one-shot focus request into the modal.
+            if self.focus_modal {
+                update.focus(&[key("modal"), key("allow")]);
+                self.focus_modal = false;
+            }
+            // While the modal is up, keys belong to it — skip base app bindings.
+            // (The Quit chord is handled in `global`.)
+            flush_commits(self, &update);
+            persist_history(self);
+            return ControlFlow::Continue(());
+        }
+
+        // App-level key bindings, dispatched through the ONE keymap. `Update::action`
+        // applies the consumed-guard (a printable chord a focused widget took is never
+        // re-interpreted). `Send` is owned by the composer's `Submitted` outcome (see
+        // the top of `update`), and `Quit` by `global`, so their arms are absent here.
+        match update.action(&KEYMAP) {
+            Some(Action::ToggleMode) => toggle_mode(self, &update),
+            Some(Action::Cancel) => {
+                if self.is_streaming() {
+                    cancel(self, &update);
+                }
+            }
+            Some(Action::Help) => self.showing_help = true,
+            _ => {}
+        }
+
+        flush_commits(self, &update);
+        persist_history(self);
+        ControlFlow::Continue(())
     }
 
-    // Confirmation modal routing (when up): Allow/Deny buttons, plus y/n and Esc.
-    if app.is_confirming() {
-        handle_modal(app, &update);
-        // Honor the one-shot focus request into the modal.
-        if app.focus_modal {
-            update.focus(&[key("modal"), key("allow")]);
-            app.focus_modal = false;
+    /// Declares the frame for the active mode, plus the confirmation modal over it.
+    fn view(&self, frame: &mut Frame<'_>) {
+        if self.inline {
+            view_inline(self, frame);
+        } else {
+            view_alt(self, frame);
         }
-        // While the modal is up, keys belong to it — skip base app bindings,
-        // except the always-available Quit chord below.
-        if let Event::Input(input) = update.event()
-            && !update.consumed()
-            && let Some(press) = input.as_key()
-            && KEYMAP.action_for(press) == Some(Action::Quit)
-        {
+        if self.is_confirming() {
+            view_modal(self, frame);
+        }
+        // The help overlay sits above everything, including the confirm modal, so a
+        // user can always summon the reference card.
+        if self.showing_help {
+            view_help(frame);
+        }
+    }
+
+    /// The app-wide quit chord, run before `update` for every event: Ctrl-C quits
+    /// from anywhere — while a modal is up, help is open, or a turn is streaming —
+    /// so it must live here rather than in a branch of `update` that early-returns.
+    fn global(&mut self, update: &Update<'_, Message>) -> ControlFlow<()> {
+        if update.action(&KEYMAP) == Some(Action::Quit) {
             return ControlFlow::Break(());
         }
-        flush_commits(app, &update);
-        persist_history(app);
-        return ControlFlow::Continue(());
+        ControlFlow::Continue(())
     }
 
-    // App-level key bindings, dispatched through the ONE keymap. `Update::action`
-    // applies the consumed-guard (a printable chord a focused widget took is never
-    // re-interpreted). `Send` is owned by the composer's `Submitted` outcome (see
-    // the top of `update`), so its arm is absent here.
-    match update.action(&KEYMAP) {
-        Some(Action::ToggleMode) => toggle_mode(app, &update),
-        Some(Action::Cancel) => {
-            if app.is_streaming() {
-                cancel(app, &update);
-            }
+    /// The flagship's launch config: inline mode with the bounded live tail, plus
+    /// the resolved [`ThemeConfig`] (base preset and/or hot-reloaded override file).
+    fn config(&self) -> Config {
+        let mut config = Config::new().mode(Mode::inline(TAIL_HEIGHT));
+        if let Some(base) = self.theme.base {
+            config = config.theme(base);
         }
-        Some(Action::Help) => app.showing_help = true,
-        Some(Action::Quit) => return ControlFlow::Break(()),
-        _ => {}
+        if let Some(file) = &self.theme.file {
+            config = config.theme_file(file.clone());
+        }
+        config
     }
-
-    flush_commits(app, &update);
-    persist_history(app);
-    ControlFlow::Continue(())
 }
 
 /// Toggles inline ↔ alt-screen browse and switches the runtime mode.
@@ -763,23 +807,6 @@ fn title_from(prompt: &str) -> String {
 // ---------------------------------------------------------------------------
 // View
 // ---------------------------------------------------------------------------
-
-/// Declares the frame for the active mode, plus the confirmation modal over it.
-pub fn view(app: &Agent, frame: &mut Frame<'_>) {
-    if app.inline {
-        view_inline(app, frame);
-    } else {
-        view_alt(app, frame);
-    }
-    if app.is_confirming() {
-        view_modal(app, frame);
-    }
-    // The help overlay sits above everything, including the confirm modal, so a
-    // user can always summon the reference card.
-    if app.showing_help {
-        view_help(frame);
-    }
-}
 
 /// The generated help overlay, on a z-layer over the transcript (the same
 /// `Frame::layer` pattern the confirm modal uses). Rows are GENERATED from the
@@ -1111,15 +1138,6 @@ fn status_role(app: &Agent) -> Role {
     }
 }
 
-/// Builds and runs the app over `backend`.
-///
-/// # Errors
-///
-/// Propagates any terminal error from the run loop.
-pub async fn run(app: Agent) -> rabbitui::app::Result<()> {
-    run_themed(app, ThemeConfig::default()).await
-}
-
 /// How to theme the app: an optional base preset plus an optional TOML override
 /// file (the facade's `theme_file` path). Either or both may be set; a file
 /// layers its roles over the base ([`Theme::default`] when no base is given).
@@ -1130,26 +1148,6 @@ pub struct ThemeConfig {
     /// A TOML theme file whose `[roles]` layer over `base`. Loaded once at
     /// startup and (in debug builds) hot-reloaded on change by the facade.
     pub file: Option<std::path::PathBuf>,
-}
-
-/// Builds and runs the app under a theme configuration.
-///
-/// Wires the facade's theme path end to end: `--theme <file>` becomes
-/// [`ThemeConfig::file`], loaded via [`App::theme_file`] (the facade parses the
-/// TOML into a [`Theme`] over the base, and hot-reloads it in debug builds).
-///
-/// # Errors
-///
-/// Propagates terminal errors, and any theme-file load/parse error at startup.
-pub async fn run_themed(app: Agent, theme: ThemeConfig) -> rabbitui::app::Result<()> {
-    let mut builder = App::new(app, update, view).mode(Mode::inline(TAIL_HEIGHT));
-    if let Some(base) = theme.base {
-        builder = builder.theme(base);
-    }
-    if let Some(file) = theme.file {
-        builder = builder.theme_file(file);
-    }
-    builder.run().await
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 //!
 //! Slice 1 lands the crate skeleton, the backend contract, a replay backend,
 //! transcript persistence, and the ported chat UI — no network code. The reducer
-//! ([`app::apply_message`], [`app::on_submit`]) is pure so [`app::update`]'s side
+//! ([`app::apply_message`], [`app::on_submit`]) is pure so [`Agent`](app::Agent)'s `update` side
 //! effects (commits, spawns, persistence) stay thin and the whole flow is
 //! testable through `rabbitui_testing::TestApp`.
 

@@ -18,6 +18,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use rabbitui::App as _;
 use rabbitui_agent::app::{self, Agent, Message};
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::backend::{ChatMessage, ContentBlock, Role, StreamEvent};
@@ -51,7 +52,7 @@ fn feed(app: &mut TestApp<Agent>, events: &[StreamEvent], cursor: usize, count: 
             move |state| {
                 app::apply_message(state, Message::Event(Ok(event.clone())));
             },
-            app::view,
+            Agent::view,
         );
     }
     cursor + count
@@ -71,7 +72,7 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
     let root = temp_root();
     let events = fixture_events();
     let mut app = TestApp::new(Size::new(60, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
 
     // Submit a prompt and open the streaming turn.
     app.send(
@@ -79,7 +80,7 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
             state.draft = "read hello.txt".to_string();
             app::on_submit(state);
         },
-        app::view,
+        Agent::view,
     );
 
     // Feed the first turn: thinking, signature, text, tool_use(...), MessageDone(tool_use).
@@ -137,7 +138,7 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
         let outcomes = app::run_pending(state, &root);
         app::continue_with_results(state, outcomes)
     };
-    app.render(app::view);
+    app.render(Agent::view);
     let request = request.expect("a continuation request is produced");
 
     // The Tool cell ended Done, holding the file contents.
@@ -187,13 +188,13 @@ fn allow_runs_tools_and_a_continuation_carries_the_result() {
 fn deny_sends_an_is_error_result() {
     let events = fixture_events();
     let mut app = TestApp::new(Size::new(60, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
     app.send(
         |state| {
             state.draft = "read hello.txt".to_string();
             app::on_submit(state);
         },
-        app::view,
+        Agent::view,
     );
     feed(&mut app, &events, 0, 8);
     assert!(app.state().is_confirming());
@@ -205,7 +206,7 @@ fn deny_sends_an_is_error_result() {
         app::continue_with_results(state, outcomes)
     }
     .expect("deny still re-sends so the model reacts");
-    app.render(app::view);
+    app.render(Agent::view);
 
     let cells = &app.state().cells;
     assert!(

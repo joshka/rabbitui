@@ -40,7 +40,7 @@ use std::time::Duration;
 
 use futures_core::Stream;
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui::effect::Command;
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
@@ -142,7 +142,7 @@ enum Focus {
 }
 
 /// The app's owned state.
-struct App_ {
+struct LogFollower {
     /// The bounded live window of received entries, oldest first.
     entries: VecDeque<LogEntry>,
     /// The current filter draft, tracked from the input's `Changed` outcomes.
@@ -162,7 +162,7 @@ struct App_ {
     focus: Focus,
 }
 
-impl Default for App_ {
+impl Default for LogFollower {
     fn default() -> Self {
         Self {
             entries: VecDeque::new(),
@@ -175,7 +175,7 @@ impl Default for App_ {
     }
 }
 
-impl App_ {
+impl LogFollower {
     /// The entries currently passing the filter, oldest first, cloned for the
     /// list source. (The list borrows a `Vec<String>`; see the friction note on
     /// rebuilding this every frame.)
@@ -190,220 +190,221 @@ impl App_ {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    App::new(App_::default(), update, view)
-        .mouse(true)
-        .run()
-        .await?;
+    LogFollower::default().run().await?;
     Ok(())
 }
 
-/// Folds one update into the app.
-fn update(app: &mut App_, update: Update<'_, Message>) -> ControlFlow<()> {
-    // Start the log source at launch via the one-shot `Event::Started` hook
-    // (dogfood finding #1) — no lazy `started` flag, no "press a key to begin".
-    if matches!(update.event(), Event::Started) {
-        update.spawn(Command::stream(LogSource::new()).group("source"));
+impl App<Message> for LogFollower {
+    /// Startup config: capture the mouse so list rows and the modal Close button
+    /// respond to clicks.
+    fn config(&self) -> Config {
+        Config::new().mouse(true)
     }
 
-    // Global chords, checked FIRST so an early `return` in a later branch (the
-    // modal captures input and returns) can never strand them — dogfood finding
-    // #7. Ctrl-C quits from anywhere; text inputs pass it through, so it works
-    // while the filter is focused. Checking here once replaces the copy that
-    // previously had to live in both the modal branch and the base bindings.
-    if let Event::Input(input) = update.event() {
-        if let Some(k) = input.as_key() {
-            if k.key == Key::Char('c') && k.modifiers.ctrl {
-                return ControlFlow::Break(());
+    /// Starts the log source at launch (dogfood finding #1) via the trait's launch
+    /// hook — no "press a key to begin"; its lines re-enter as `Event::Message`.
+    fn init(&mut self) -> Command<Message> {
+        Command::stream(LogSource::new()).group("source")
+    }
+
+    /// Global chords, run before `update` for every event so an early `return` in a
+    /// later `update` branch (the modal captures input and returns) can never strand
+    /// them — dogfood finding #7. Ctrl-C quits from anywhere; text inputs pass it
+    /// through, so it fires while the filter is focused.
+    fn global(&mut self, update: &Update<'_, Message>) -> ControlFlow<()> {
+        if let Event::Input(input) = update.event() {
+            if let Some(k) = input.as_key() {
+                if k.key == Key::Char('c') && k.modifiers.ctrl {
+                    return ControlFlow::Break(());
+                }
             }
         }
+        ControlFlow::Continue(())
     }
 
-    // Mirror the framework's focus verdict into app state so the view can
-    // highlight the focused region (the view itself cannot read focus).
-    if update.is_focused(&[key("filter")]) {
-        app.focus = Focus::Filter;
-    } else if update.is_focused(&[key("list")]) {
-        app.focus = Focus::List;
-    }
+    /// Folds one update into the app.
+    fn update(&mut self, update: Update<'_, Message>) -> ControlFlow<()> {
+        // Mirror the framework's focus verdict into app state so the view can
+        // highlight the focused region (the view itself cannot read focus).
+        if update.is_focused(&[key("filter")]) {
+            self.focus = Focus::Filter;
+        } else if update.is_focused(&[key("list")]) {
+            self.focus = Focus::List;
+        }
 
-    // A new streamed line: append, bound the window, and (if the modal is open on
-    // an entry that just fell off the front) close it rather than dangle. While
-    // paused, the line is dropped on the floor (the source keeps ticking; a
-    // cancel-then-respawn would also work but this keeps the seq monotonic).
-    if let Event::Message(Message::Line(entry)) = update.event() {
-        if !app.paused {
-            app.entries.push_back(entry.clone());
-            while app.entries.len() > MAX_ENTRIES {
-                let dropped = app.entries.pop_front();
-                if let (Some(dropped), Some(open)) = (dropped, app.detail) {
-                    if dropped.seq == open {
-                        app.detail = None;
+        // A new streamed line: append, bound the window, and (if the modal is open
+        // on an entry that just fell off the front) close it rather than dangle.
+        // While paused, the line is dropped on the floor (the source keeps ticking).
+        if let Event::Message(Message::Line(entry)) = update.event() {
+            if !self.paused {
+                self.entries.push_back(entry.clone());
+                while self.entries.len() > MAX_ENTRIES {
+                    let dropped = self.entries.pop_front();
+                    if let (Some(dropped), Some(open)) = (dropped, self.detail) {
+                        if dropped.seq == open {
+                            self.detail = None;
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Track the filter draft on every edit.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("filter")]) {
-        app.filter = value.clone();
-        // A narrower filter can strand the selection past the new end; reset the
-        // widget's own selection to the top so the highlight is always on a
-        // visible row. The list now renders its own empty state and stays
-        // declared under `key("list")` even with zero matches, so this command
-        // always lands — no is-empty guard needed (the finding-#4 footgun is gone).
-        update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
-    }
+        // Track the filter draft on every edit.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("filter")]) {
+            self.filter = value.clone();
+            // Reset the list's own selection to the top so a narrower filter never
+            // strands the highlight past the new end. The list keeps its `key("list")`
+            // id even with zero matches (built-in empty state), so this command
+            // always lands — no is-empty guard needed (finding-#4 footgun is gone).
+            update.widget::<SelectionList<Vec<String>>>(&[key("list")], |state| state.select(0));
+        }
 
-    if app.detail.is_some() {
-        // Modal is open: Esc or Ctrl-D closes it (Ctrl-C already handled globally
-        // above). Everything beneath is inert because the layer captures input
-        // (ADR 0003).
+        if self.detail.is_some() {
+            // Modal is open: Esc or Ctrl-D closes it (Ctrl-C already handled in
+            // `global`). Everything beneath is inert because the layer captures
+            // input (ADR 0003).
+            if let Event::Input(input) = update.event() {
+                if let Some(k) = input.as_key() {
+                    let ctrl_d = k.key == Key::Char('d') && k.modifiers.ctrl;
+                    if k.key == Key::Escape || ctrl_d {
+                        self.detail = None;
+                    }
+                }
+            }
+            // Honor the one-shot focus request into the modal's close button so the
+            // overlay actually holds focus (a display-only layer takes none).
+            if self.focus_modal {
+                update.focus(&[key("modal"), key("close")]);
+                self.focus_modal = false;
+            }
+            // The modal's Close button (Enter/Space/click) also closes.
+            if update.outcome_for(&[key("modal"), key("close")]) == Some(&Outcome::Activated) {
+                self.detail = None;
+            }
+            return ControlFlow::Continue(());
+        }
+
+        // Base view: Enter or a click on the list opens the selected row's detail
+        // modal; the index comes straight from the list's own state (finding #2).
+        if update.outcome_for(&[key("list")]) == Some(&Outcome::Activated) {
+            let selected = update
+                .widget_state::<SelectionList<Vec<String>>>(&[key("list")])
+                .map_or(0, |state| state.selected());
+            if let Some(entry) = self.visible().into_iter().nth(selected) {
+                self.detail = Some(entry.seq);
+                self.focus_modal = true;
+            }
+        }
+
+        // App-level key bindings, on keys no focused widget consumed. The filter
+        // input eats printables while focused, so app printable bindings are
+        // `consumed()`-guarded. (Ctrl-C quit lives in `global`.)
         if let Event::Input(input) = update.event() {
             if let Some(k) = input.as_key() {
-                let close = k.key == Key::Escape || (k.key == Key::Char('d') && k.modifiers.ctrl);
-                if close {
-                    app.detail = None;
+                // Ctrl-P toggles the source pause (works while the filter focused).
+                if k.key == Key::Char('p') && k.modifiers.ctrl {
+                    self.paused = !self.paused;
+                }
+                match k.key {
+                    Key::Char('q') if !k.modifiers.ctrl && !update.consumed() => {
+                        return ControlFlow::Break(());
+                    }
+                    _ => {}
                 }
             }
         }
-        // Honor the one-shot focus request into the modal's close button so the
-        // overlay actually holds focus (a display-only layer takes none).
-        if app.focus_modal {
-            update.focus(&[key("modal"), key("close")]);
-            app.focus_modal = false;
-        }
-        // The modal's Close button (Enter/Space/click) also closes.
-        if update.outcome_for(&[key("modal"), key("close")]) == Some(&Outcome::Activated) {
-            app.detail = None;
-        }
-        return ControlFlow::Continue(());
+
+        ControlFlow::Continue(())
     }
 
-    // Base view: Enter (or a click) on the list activates the selected row and
-    // opens its detail modal. The selected index is read straight from the list's
-    // own state (dogfood finding #2 — no app-side mirror), resolved against the
-    // current filtered view.
-    if update.outcome_for(&[key("list")]) == Some(&Outcome::Activated) {
-        let selected = update
-            .widget_state::<SelectionList<Vec<String>>>(&[key("list")])
-            .map_or(0, |state| state.selected());
-        if let Some(entry) = app.visible().into_iter().nth(selected) {
-            app.detail = Some(entry.seq);
-            app.focus_modal = true;
-        }
-    }
+    /// Declares the whole view: a filter row, the log list panel, a status/hint
+    /// footer, and — when open — the detail modal layer.
+    fn view(&self, frame: &mut Frame<'_>) {
+        let [filter_area, list_area, status_row, hint_row] = frame.rows([
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ]);
 
-    // App-level key bindings, on keys no focused widget consumed. The filter
-    // input eats printables while focused, so app printable bindings are
-    // `consumed()`-guarded. (Ctrl-C quit is handled once, globally, at the top.)
-    if let Event::Input(input) = update.event() {
-        if let Some(k) = input.as_key() {
-            // Ctrl-P toggles the source pause (works while the filter is focused).
-            if k.key == Key::Char('p') && k.modifiers.ctrl {
-                app.paused = !app.paused;
-            }
-            match k.key {
-                Key::Char('q') if !k.modifiers.ctrl && !update.consumed() => {
-                    return ControlFlow::Break(());
-                }
-                _ => {}
-            }
-        }
-    }
+        // Focus is mirrored into app state (the view cannot read it from the frame).
+        let filter_focused = self.focus == Focus::Filter;
+        let list_focused = self.focus == Focus::List;
 
-    ControlFlow::Continue(())
-}
+        // Filter row: a label plus the input, side by side.
+        let [label_col, input_col] =
+            split_rows_horizontal(filter_area, [Constraint::Length(9), Constraint::Fill(1)]);
+        frame.widget(
+            key("filter_label"),
+            label_col,
+            &Text::new("Filter: ").role(if filter_focused {
+                Role::Accent
+            } else {
+                Role::Muted
+            }),
+        );
+        frame.widget(
+            key("filter"),
+            input_col,
+            &TextInput::new().placeholder("type to filter (Tab to switch focus)…"),
+        );
 
-/// Declares the whole view: a filter row, the log list panel, a status/hint
-/// footer, and — when open — the detail modal layer.
-fn view(app: &App_, frame: &mut Frame<'_>) {
-    let [filter_area, list_area, status_row, hint_row] = frame.rows([
-        Constraint::Length(1),
-        Constraint::Fill(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ]);
+        // The log list, inside a focus-aware panel. The panel is chrome (never
+        // focusable); it reflects the *list's* focus so the border highlights when
+        // the list holds focus.
+        let visible = self.visible();
+        let count = format!(" logs ({}/{}) ", visible.len(), self.entries.len());
+        let panel = Panel::new().title(&count).padding(1).focused(list_focused);
+        frame.widget(key("list_panel"), list_area, &panel);
+        let inner = Panel::inner(list_area, &panel);
 
-    // Focus is mirrored into app state (the view cannot read it from the frame).
-    let filter_focused = app.focus == Focus::Filter;
-    let list_focused = app.focus == Focus::List;
-
-    // Filter row: a label plus the input, side by side.
-    let [label_col, input_col] =
-        split_rows_horizontal(filter_area, [Constraint::Length(9), Constraint::Fill(1)]);
-    frame.widget(
-        key("filter_label"),
-        label_col,
-        &Text::new("Filter: ").role(if filter_focused {
-            Role::Accent
+        // The list uses a lazy source over `visible` (no per-frame `Vec<String>`)
+        // and renders its own built-in empty state, so it stays declared under
+        // `key("list")` even with zero matches — the deferred `select(0)` never misses.
+        let empty = if self.entries.is_empty() {
+            "waiting for logs…"
         } else {
-            Role::Muted
-        }),
-    );
-    frame.widget(
-        key("filter"),
-        input_col,
-        &TextInput::new().placeholder("type to filter (Tab to switch focus)…"),
-    );
+            "no lines match the filter"
+        };
+        let source = rabbitui_widgets::rows_with(&visible, |entry| entry.row());
+        frame.widget(
+            key("list"),
+            inner,
+            &SelectionList::new(source).empty_text(empty),
+        );
 
-    // The log list, inside a focus-aware panel. The panel is chrome (never
-    // focusable); it reflects the *list's* focus so the border highlights when
-    // the list holds focus.
-    let visible = app.visible();
-    let count = format!(" logs ({}/{}) ", visible.len(), app.entries.len());
-    let panel = Panel::new().title(&count).padding(1).focused(list_focused);
-    frame.widget(key("list_panel"), list_area, &panel);
-    let inner = Panel::inner(list_area, &panel);
+        // Status line: the source state and selection, in a role reading state.
+        let (status, status_role) = if self.paused {
+            (
+                "source paused (Ctrl-P to resume)".to_string(),
+                Role::Warning,
+            )
+        } else {
+            (
+                format!("streaming — {} received", self.entries.len()),
+                Role::Success,
+            )
+        };
+        frame.widget(
+            key("status"),
+            status_row,
+            &Text::new(&status).role(status_role),
+        );
 
-    // The list is backed by a lazy source that borrows `visible` and formats only
-    // the painted rows — no per-frame `Vec<String>`. It renders its own empty state
-    // (built-in `empty_text`), so it always stays declared under `key("list")`:
-    // no `key("empty")` swap, so focus and the deferred `select(0)` command never
-    // hit an absent widget.
-    let empty = if app.entries.is_empty() {
-        "waiting for logs…"
-    } else {
-        "no lines match the filter"
-    };
-    let source = rabbitui_widgets::rows_with(&visible, |entry| entry.row());
-    frame.widget(
-        key("list"),
-        inner,
-        &SelectionList::new(source).empty_text(empty),
-    );
+        frame.widget(
+            key("hint"),
+            hint_row,
+            &Text::new("Tab: focus   ↑↓: select   Enter: detail   Ctrl-P: pause   Ctrl-C/q: quit")
+                .role(Role::Muted),
+        );
 
-    // Status line: the source state and selection, in a role that reads the state.
-    let (status, status_role) = if app.paused {
-        (
-            "source paused (Ctrl-P to resume)".to_string(),
-            Role::Warning,
-        )
-    } else {
-        (
-            format!("streaming — {} received", app.entries.len()),
-            Role::Success,
-        )
-    };
-    frame.widget(
-        key("status"),
-        status_row,
-        &Text::new(&status).role(status_role),
-    );
-
-    frame.widget(
-        key("hint"),
-        hint_row,
-        &Text::new("Tab: focus   ↑↓: select   Enter: detail   Ctrl-P: pause   Ctrl-C/q: quit")
-            .role(Role::Muted),
-    );
-
-    // The detail modal, on its own z-layer over the list (the form.rs pattern).
-    // While declared, Tab cycles only its Close button and clicks over it never
-    // reach the base beneath.
-    if let Some(seq) = app.detail {
-        if let Some(entry) = app.entries.iter().find(|entry| entry.seq == seq) {
-            view_detail_modal(frame, entry);
+        // The detail modal, on its own z-layer over the list (the form.rs pattern).
+        // While declared, Tab cycles only its Close button and clicks over it never
+        // reach the base beneath.
+        if let Some(seq) = self.detail {
+            if let Some(entry) = self.entries.iter().find(|entry| entry.seq == seq) {
+                view_detail_modal(frame, entry);
+            }
         }
     }
 }
@@ -640,7 +641,7 @@ mod tests {
 
     #[test]
     fn visible_narrows_to_matching_entries() {
-        let mut app = App_::default();
+        let mut app = LogFollower::default();
         app.entries
             .push_back(entry(1, Level::Info, "http", "GET /api"));
         app.entries.push_back(entry(2, Level::Error, "db", "reset"));
@@ -653,7 +654,7 @@ mod tests {
 
     #[test]
     fn visible_with_blank_filter_is_all_in_order() {
-        let mut app = App_::default();
+        let mut app = LogFollower::default();
         for i in 0..5 {
             app.entries.push_back(entry(i, Level::Debug, "cache", "x"));
         }

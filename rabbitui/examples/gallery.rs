@@ -19,7 +19,7 @@
 use std::ops::ControlFlow;
 
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
@@ -49,16 +49,6 @@ struct Gallery {
     theme_name: &'static str,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (theme, theme_name) = theme_from_env();
-    App::new(Gallery { theme_name }, update, view)
-        .theme(theme)
-        .run()
-        .await?;
-    Ok(())
-}
-
 /// Resolves the startup theme from `GALLERY_THEME`.
 fn theme_from_env() -> (Theme, &'static str) {
     match std::env::var("GALLERY_THEME").as_deref() {
@@ -69,51 +59,68 @@ fn theme_from_env() -> (Theme, &'static str) {
     }
 }
 
-/// Number keys 1–4 switch theme live; `q` / Ctrl-C quit. Tab traversal is a
-/// framework default. All guarded by `consumed()`, so a digit typed into the
-/// focused input edits it rather than switching the theme.
-fn update(app: &mut Gallery, update: Update<'_, ()>) -> ControlFlow<()> {
-    if let Event::Input(input) = update.event()
-        && !update.consumed()
-        && let Some(press) = input.as_key()
-    {
-        match press.key {
-            Key::Char('1') => switch(app, &update, Theme::dark(), "dark"),
-            Key::Char('2') => switch(app, &update, Theme::catppuccin_mocha(), "catppuccin_mocha"),
-            Key::Char('3') => switch(app, &update, Theme::nord(), "nord"),
-            Key::Char('4') => switch(app, &update, Theme::dracula(), "dracula"),
-            Key::Char('q') if !press.modifiers.ctrl => return ControlFlow::Break(()),
-            Key::Char('c') if press.modifiers.ctrl => return ControlFlow::Break(()),
-            _ => {}
+impl App for Gallery {
+    /// Number keys 1–4 switch theme live; `q` / Ctrl-C quit. Tab traversal is a
+    /// framework default. All guarded by `consumed()`, so a digit typed into the
+    /// focused input edits it rather than switching the theme.
+    fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+        if let Event::Input(input) = update.event()
+            && !update.consumed()
+            && let Some(press) = input.as_key()
+        {
+            match press.key {
+                Key::Char('1') => switch(self, &update, Theme::dark(), "dark"),
+                Key::Char('2') => {
+                    switch(self, &update, Theme::catppuccin_mocha(), "catppuccin_mocha")
+                }
+                Key::Char('3') => switch(self, &update, Theme::nord(), "nord"),
+                Key::Char('4') => switch(self, &update, Theme::dracula(), "dracula"),
+                Key::Char('q') if !press.modifiers.ctrl => return ControlFlow::Break(()),
+                Key::Char('c') if press.modifiers.ctrl => return ControlFlow::Break(()),
+                _ => {}
+            }
         }
+        ControlFlow::Continue(())
     }
-    ControlFlow::Continue(())
+
+    /// The whole gallery: a titled panel wrapping the scroll, plus a footer.
+    fn view(&self, frame: &mut Frame<'_>) {
+        let [body, footer] = frame.rows([Constraint::Fill(1), Constraint::Length(1)]);
+
+        let title = format!("rabbitui gallery · {}", self.theme_name);
+        let panel = Panel::new()
+            .title(&title)
+            .padding(spacing::PANEL_PADDING)
+            .focused(true);
+        frame.widget(key("panel"), body, &panel);
+        let inner = Panel::inner(body, &panel);
+        frame.scroll(key("scroll"), inner, showcase);
+
+        let footer_hint = "1–4: theme   Tab: focus   ↑/↓/PgUp/PgDn: scroll   q: quit";
+        frame.widget(
+            key("footer"),
+            footer,
+            &Text::new(footer_hint).role(Role::Muted),
+        );
+    }
+
+    fn config(&self) -> Config {
+        let (theme, _) = theme_from_env();
+        Config::new().theme(theme)
+    }
 }
 
 /// Applies a live theme switch and records its name for the chrome.
-fn switch(app: &mut Gallery, update: &Update<'_, ()>, theme: Theme, name: &'static str) {
+fn switch(app: &mut Gallery, update: &Update<'_>, theme: Theme, name: &'static str) {
     update.set_theme(theme);
     app.theme_name = name;
 }
 
-/// The whole gallery: a titled panel wrapping the scroll, plus a footer.
-fn view(app: &Gallery, frame: &mut Frame<'_>) {
-    let [body, footer] = frame.rows([Constraint::Fill(1), Constraint::Length(1)]);
-
-    let title = format!("rabbitui gallery · {}", app.theme_name);
-    let panel = Panel::new()
-        .title(&title)
-        .padding(spacing::PANEL_PADDING)
-        .focused(true);
-    frame.widget(key("panel"), body, &panel);
-    let inner = Panel::inner(body, &panel);
-    frame.scroll(key("scroll"), inner, showcase);
-
-    frame.widget(
-        key("footer"),
-        footer,
-        &Text::new("1–4: theme   Tab: focus   ↑/↓/PgUp/PgDn: scroll   q: quit").role(Role::Muted),
-    );
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (_, theme_name) = theme_from_env();
+    Gallery { theme_name }.run().await?;
+    Ok(())
 }
 
 /// Declares every showcase item into the scroll column.

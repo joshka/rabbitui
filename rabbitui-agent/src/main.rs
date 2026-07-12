@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rabbitui::App;
 use rabbitui_agent::app::{self, Agent};
 use rabbitui_agent::backend::Backend;
 use rabbitui_agent::backend::anthropic::AnthropicBackend;
@@ -77,8 +78,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let app = build_app(&args, backend)?;
-    app::run_themed(app, theme_config(&args)).await?;
+    let app = build_app(&args, backend)?.with_theme(theme_config(&args));
+    app.run().await?;
     Ok(())
 }
 

@@ -41,7 +41,7 @@ use std::time::Duration;
 use futures_core::Stream;
 use pulldown_cmark::{CodeBlockKind, Event as MdEvent, Parser, Tag, TagEnd};
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui::effect::Command;
 use rabbitui_core::commit::CommitLine;
 use rabbitui_core::frame::Frame;
@@ -174,10 +174,7 @@ impl Agent {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    App::new(Agent::default(), update, view)
-        .mode(Mode::inline(TAIL_HEIGHT))
-        .run()
-        .await?;
+    Agent::default().run().await?;
     Ok(())
 }
 
@@ -185,75 +182,90 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Update
 // ---------------------------------------------------------------------------
 
-/// Folds one update into the app: send prompts, absorb the stream, toggle mode,
-/// scroll, cancel, quit.
-fn update(app: &mut Agent, update: Update<'_, Message>) -> ControlFlow<()> {
-    // Track the composer draft; a submit sends a prompt and spawns the agent.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[composer_key(app)]) {
-        app.draft = value.clone();
-    }
-    if update.outcome_for(&[composer_key(app)]) == Some(&Outcome::Submitted) {
-        submit_prompt(app, &update);
+impl App<Message> for Agent {
+    /// Folds one update into the app: send prompts, absorb the stream, toggle mode,
+    /// scroll, cancel, quit.
+    fn update(&mut self, update: Update<'_, Message>) -> ControlFlow<()> {
+        // Track the composer draft; a submit sends a prompt and spawns the agent.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[composer_key(self)]) {
+            self.draft = value.clone();
+        }
+        if update.outcome_for(&[composer_key(self)]) == Some(&Outcome::Submitted) {
+            submit_prompt(self, &update);
+        }
+
+        // Absorb simulated-agent stream messages and the spinner tick.
+        if let Event::Message(message) = update.event() {
+            handle_message(self, &update, message.clone());
+        }
+
+        // App-level key bindings on keys no focused widget consumed
+        // (Update::consumed — the composer eats printables while focused).
+        if let Event::Input(input) = update.event()
+            && !update.consumed()
+            && let Some(k) = input.as_key()
+        {
+            match k.key {
+                // Ctrl-T: mode toggle that works even while the composer is
+                // focused (printable 'm' below only fires when it is not).
+                Key::Char('t') if k.modifiers.ctrl => {
+                    self.inline = !self.inline;
+                    update.set_mode(if self.inline {
+                        Mode::inline(TAIL_HEIGHT)
+                    } else {
+                        Mode::AltScreen
+                    });
+                }
+                // Ctrl-X: cancel that works while the composer is focused
+                // (lone Esc is currently held by the substrate's parser —
+                // see the requirements handover).
+                Key::Char('x') if k.modifiers.ctrl => {
+                    if self.is_streaming() {
+                        cancel_agent(self, &update);
+                    }
+                }
+                // Toggle inline ↔ alt-screen live. The alt-screen transcript
+                // owns its own scroll via the frame.scroll scope.
+                Key::Char('m') if !k.modifiers.ctrl => {
+                    self.inline = !self.inline;
+                    update.set_mode(if self.inline {
+                        Mode::inline(TAIL_HEIGHT)
+                    } else {
+                        Mode::AltScreen
+                    });
+                }
+                // Esc cancels a streaming response (cancel-previous also covers
+                // re-prompting mid-stream); a no-op when idle.
+                Key::Escape => {
+                    if self.is_streaming() {
+                        cancel_agent(self, &update);
+                    }
+                }
+                // The alt-screen transcript now owns its own scroll: the
+                // `frame.scroll` scope consumes Up/Down/PageUp/PageDown/Home/End
+                // and the wheel while focused, so the app no longer tracks an
+                // offset or handles those keys here.
+                Key::Char('q') if !k.modifiers.ctrl => return ControlFlow::Break(()),
+                Key::Char('c') if k.modifiers.ctrl => return ControlFlow::Break(()),
+                _ => {}
+            }
+        }
+
+        ControlFlow::Continue(())
     }
 
-    // Absorb simulated-agent stream messages and the spinner tick.
-    if let Event::Message(message) = update.event() {
-        handle_message(app, &update, message.clone());
-    }
-
-    // App-level key bindings on keys no focused widget consumed
-    // (Update::consumed — the composer eats printables while focused).
-    if let Event::Input(input) = update.event()
-        && !update.consumed()
-        && let Some(k) = input.as_key()
-    {
-        match k.key {
-            // Ctrl-T: mode toggle that works even while the composer is
-            // focused (printable 'm' below only fires when it is not).
-            Key::Char('t') if k.modifiers.ctrl => {
-                app.inline = !app.inline;
-                update.set_mode(if app.inline {
-                    Mode::inline(TAIL_HEIGHT)
-                } else {
-                    Mode::AltScreen
-                });
-            }
-            // Ctrl-X: cancel that works while the composer is focused
-            // (lone Esc is currently held by the substrate's parser —
-            // see the requirements handover).
-            Key::Char('x') if k.modifiers.ctrl => {
-                if app.is_streaming() {
-                    cancel_agent(app, &update);
-                }
-            }
-            // Toggle inline ↔ alt-screen live. The alt-screen transcript
-            // owns its own scroll via the frame.scroll scope.
-            Key::Char('m') if !k.modifiers.ctrl => {
-                app.inline = !app.inline;
-                update.set_mode(if app.inline {
-                    Mode::inline(TAIL_HEIGHT)
-                } else {
-                    Mode::AltScreen
-                });
-            }
-            // Esc cancels a streaming response (cancel-previous also covers
-            // re-prompting mid-stream); a no-op when idle.
-            Key::Escape => {
-                if app.is_streaming() {
-                    cancel_agent(app, &update);
-                }
-            }
-            // The alt-screen transcript now owns its own scroll: the
-            // `frame.scroll` scope consumes Up/Down/PageUp/PageDown/Home/End
-            // and the wheel while focused, so the app no longer tracks an
-            // offset or handles those keys here.
-            Key::Char('q') if !k.modifiers.ctrl => return ControlFlow::Break(()),
-            Key::Char('c') if k.modifiers.ctrl => return ControlFlow::Break(()),
-            _ => {}
+    /// Declares the frame for the active mode.
+    fn view(&self, frame: &mut Frame<'_>) {
+        if self.inline {
+            view_inline(self, frame);
+        } else {
+            view_alt(self, frame);
         }
     }
 
-    ControlFlow::Continue(())
+    fn config(&self) -> Config {
+        Config::new().mode(Mode::inline(TAIL_HEIGHT))
+    }
 }
 
 /// Sends the composer's draft as a user prompt and spawns the simulated agent.
@@ -420,15 +432,6 @@ fn commit_lines_for(cell: &TranscriptCell) -> Vec<CommitLine> {
 // ---------------------------------------------------------------------------
 // View
 // ---------------------------------------------------------------------------
-
-/// Declares the frame for the active mode.
-fn view(app: &Agent, frame: &mut Frame<'_>) {
-    if app.inline {
-        view_inline(app, frame);
-    } else {
-        view_alt(app, frame);
-    }
-}
 
 /// The inline live tail: a streaming preview (soft-wrapped), the status line, the
 /// composer, and a hint. Everything above is committed history the terminal owns.

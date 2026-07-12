@@ -31,9 +31,9 @@ frameworks:
 The field report frames "inline/scrollback vs. alt-screen" as a differentiator.
 This app is a **browse** app — you scroll a growing list and open modals over it —
 so it runs in the default `Mode::AltScreen`, which gives it a stable full-viewport
-canvas. The inline/scrollback case (a log *emitter* committing lines into native
+canvas. The inline/scrollback case (a log _emitter_ committing lines into native
 terminal scrollback) is covered by the framework's own `stream` example; a log
-*follower* you filter and inspect is the alt-screen case. This is a design axis,
+_follower_ you filter and inspect is the alt-screen case. This is a design axis,
 answered deliberately, not a gap.
 
 ## Running it
@@ -56,9 +56,11 @@ Controls:
 | `q` (list focused) | quit                                          |
 | `Ctrl-C`           | quit (works while the filter is focused)      |
 
-> Note: the log source starts **at launch**, via the one-shot `Event::Started`
-> hook the framework grew after this app first reported the gap (dogfood finding
-> #1). Lines flow immediately — no key press needed.
+> Note: the log source starts **at launch**, from the app's `init` hook — the
+> `App` trait's first-class launch entry. This app used to spawn it from an
+> `Event::Started` match arm inside `update` (dogfood finding #1); the trait's
+> `init` deleted that workaround, so the spawn is now one line with nowhere to
+> misfire. Lines flow immediately — no key press needed.
 
 Verification is green with:
 
@@ -77,9 +79,15 @@ cover the pure filter/selection/state logic only.
 - `Cargo.toml` — a **standalone crate** (an empty `[workspace]` table detaches it
   from the root workspace, mirroring `conformance/`). Path deps on `rabbitui`,
   `rabbitui-core`, `rabbitui-widgets`.
-- `src/main.rs` — the whole app (~430 lines incl. docs and tests): domain types,
-  the `App_` state, `update`, `view`, the modal, a small `CloseButton` widget, the
-  `LogSource` stream, and unit tests over the filter/`visible` logic.
+- `src/main.rs` — the whole app (~680 lines incl. docs and tests): domain types,
+  the `LogFollower` state and its `impl App` (`config` / `init` / `global` /
+  `update` / `view`), the modal, a small `CloseButton` widget, the `LogSource`
+  stream, and unit tests over the filter/`visible` logic. It started as an
+  `App::new(state, update, view)` pair of closures; the trait folded those two
+  functions plus the launch spawn and the always-on Ctrl-C into one `impl` — the
+  `Event::Started` spawn moved to `init`, and the quit chord that used to sit
+  hoisted at the top of `update` moved to `global`, where no early `return` can
+  strand it.
 
 ## Wiring into the workspace later
 

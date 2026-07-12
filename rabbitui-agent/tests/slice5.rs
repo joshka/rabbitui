@@ -8,7 +8,8 @@
 //! is reported consumed (so a modal affordance could never steal it), and the
 //! facade's theme-file path parses the bundled example into a `Theme`.
 
-use rabbitui_agent::app::{self, Agent};
+use rabbitui::App as _;
+use rabbitui_agent::app::Agent;
 use rabbitui_agent::backend::replay::ReplayBackend;
 use rabbitui_agent::keymap::{Action, KEYMAP, base_help_rows};
 use rabbitui_core::geometry::Size;
@@ -28,13 +29,13 @@ fn alt_screen_app() -> Agent {
 #[test]
 fn the_help_overlay_opens_and_lists_bindings_generated_from_the_keymap() {
     let mut app = TestApp::new(Size::new(60, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
     // Before: no help card.
     assert!(!app.buffer_text().contains("toggle inline"));
 
     // Open the overlay (the update closure sets this when the Help chord fires;
     // here we set the state directly, as the reducer-style tests do).
-    app.send(|state| state.showing_help = true, app::view);
+    app.send(|state| state.showing_help = true, Agent::view);
 
     let text = app.buffer_text();
     // The title and rows generated from the keymap table are present.
@@ -82,10 +83,10 @@ fn a_bound_printable_key_reaches_the_focused_composer() {
     // such a printable chord is `consumed()` by the composer when it has focus —
     // so it can never be re-interpreted as an app action while the user is typing.
     let mut app = TestApp::new(Size::new(60, 24), alt_screen_app());
-    app.render(app::view);
+    app.render(Agent::view);
     // Focus the composer, then type a `y`.
     app.set_focus(Some(WidgetId::ROOT.child(key("composer"))));
-    app.render(app::view); // reconcile focus against the frame's facts
+    app.render(Agent::view); // reconcile focus against the frame's facts
     let result = app.send_key(Key::Char('y'));
     assert!(
         result.consumed,

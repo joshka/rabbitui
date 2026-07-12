@@ -14,7 +14,8 @@
 //!   report list moves.
 //! - Re-render from mutated app state (a new todo appears in the list).
 //! - Theme roles end to end (the whole UI is styled by role, re-skinnable with a
-//!   theme file — see `App::theme` / `App::theme_file`).
+//!   theme file — see [`Config::theme`] / [`Config::theme_file`] in
+//!   [`Todo::config`]).
 //!
 //! # Controlled clear via a widget command (slice 6)
 //!
@@ -34,7 +35,7 @@
 use std::ops::ControlFlow;
 
 use rabbitui::App;
-use rabbitui::app::{Event, Update};
+use rabbitui::app::{Config, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
@@ -46,7 +47,7 @@ use rabbitui_widgets::{Panel, SelectionList, Text, TextInput};
 /// The app's owned state: the todos, the current input draft, and the list's
 /// selection.
 #[derive(Default)]
-struct App0 {
+struct Todo {
     todos: Vec<String>,
     /// The current text of the input, tracked from `Changed` outcomes so a
     /// `Submitted` (which carries no payload) can commit it.
@@ -56,109 +57,109 @@ struct App0 {
     selected: usize,
 }
 
+impl App for Todo {
+    /// Folds one update into the app.
+    fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+        // Track the input's draft on every edit; commit it on submit.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
+            self.draft = value.clone();
+        }
+        if update.outcome_for(&[key("input")]) == Some(&Outcome::Submitted) {
+            let todo = self.draft.trim().to_string();
+            if !todo.is_empty() {
+                self.todos.push(todo);
+            }
+            // Clear the field via a widget command (applied between frames) and
+            // reset the draft we track alongside it.
+            update.widget::<TextInput>(&[key("input")], |state| state.clear());
+            self.draft.clear();
+        }
+
+        // Raw-key bindings apply only to events no widget consumed — otherwise
+        // the `d` in a typed "feed" would delete a todo (Update::consumed docs).
+        if let Event::Input(input) = update.event()
+            && !update.consumed()
+        {
+            match input.as_key().map(|k| k.key) {
+                Some(Key::Char('d')) if !self.todos.is_empty() => {
+                    let index = self.selected.min(self.todos.len() - 1);
+                    self.todos.remove(index);
+                    self.selected = self.selected.min(self.todos.len().saturating_sub(1));
+                }
+                Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
+                _ => {}
+            }
+        }
+
+        // Mirror the list's selection so `d` deletes the right row.
+        if let Some(Outcome::Selected(index)) = update.outcome_for(&[key("list")]) {
+            self.selected = *index;
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    /// Declares the input, the list, and the status line inside a centered panel.
+    ///
+    /// The panel is capped at a sensible width so the list does not stretch
+    /// across a wide terminal, and reads as focused because one of its two
+    /// widgets always holds focus.
+    fn view(&self, frame: &mut Frame<'_>) {
+        // A centered panel, capped in width and given most of the screen's height.
+        let full = frame.area();
+        let width = full.size.width.min(56);
+        let height = full.size.height.saturating_sub(4).clamp(10, 24);
+        let area = center(full, width, height);
+        let panel = Panel::new().title("todo").padding(1).focused(true);
+        frame.widget(key("panel"), area, &panel);
+
+        let inner = Panel::inner(area, &panel);
+        let [input_row, _gap, list_area, status_row, hint_row] = split_rows(
+            inner,
+            [
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ],
+        );
+
+        // A stable key: the field is cleared on submit by a widget command, not
+        // by re-keying, so its identity (and thus focus) survives across submits.
+        frame.widget(
+            key("input"),
+            input_row,
+            &TextInput::new().placeholder("Add a todo…"),
+        );
+
+        // The list borrows the app's todos as its source.
+        frame.widget(
+            key("list"),
+            list_area,
+            &SelectionList::new(self.todos.clone()),
+        );
+
+        let status = format!("{} todo(s)", self.todos.len());
+        frame.widget(
+            key("status"),
+            status_row,
+            &Text::new(&status).role(Role::Accent),
+        );
+
+        let hint = "Tab: focus   Enter: add   d: delete (list)   Ctrl-C: quit";
+        frame.widget(key("hint"), hint_row, &Text::new(hint).role(Role::Muted));
+    }
+
+    /// A pretty preset by default; pass a path to [`Config::theme_file`] to
+    /// hot-reload a TOML theme in debug builds.
+    fn config(&self) -> Config {
+        Config::new().theme(Theme::catppuccin_mocha())
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // A pretty preset by default; pass a path to `theme_file` to hot-reload a
-    // TOML theme in debug builds.
-    App::new(App0::default(), update, view)
-        .theme(Theme::catppuccin_mocha())
-        .run()
-        .await?;
+    Todo::default().run().await?;
     Ok(())
-}
-
-/// Folds one update into the app.
-fn update(app: &mut App0, update: Update<'_>) -> ControlFlow<()> {
-    // Track the input's draft on every edit; commit it on submit.
-    if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("input")]) {
-        app.draft = value.clone();
-    }
-    if update.outcome_for(&[key("input")]) == Some(&Outcome::Submitted) {
-        let todo = app.draft.trim().to_string();
-        if !todo.is_empty() {
-            app.todos.push(todo);
-        }
-        // Clear the field via a widget command (applied between frames) and reset
-        // the draft we track alongside it.
-        update.widget::<TextInput>(&[key("input")], |state| state.clear());
-        app.draft.clear();
-    }
-
-    // Raw-key bindings apply only to events no widget consumed — otherwise the
-    // `d` in a typed "feed" would delete a todo (Update::consumed docs).
-    if let Event::Input(input) = update.event()
-        && !update.consumed()
-    {
-        match input.as_key().map(|k| k.key) {
-            Some(Key::Char('d')) if !app.todos.is_empty() => {
-                let index = app.selected.min(app.todos.len() - 1);
-                app.todos.remove(index);
-                app.selected = app.selected.min(app.todos.len().saturating_sub(1));
-            }
-            Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
-            _ => {}
-        }
-    }
-
-    // Mirror the list's selection so `d` deletes the right row.
-    if let Some(Outcome::Selected(index)) = update.outcome_for(&[key("list")]) {
-        app.selected = *index;
-    }
-
-    ControlFlow::Continue(())
-}
-
-/// Declares the input, the list, and the status line inside a centered panel.
-///
-/// The panel is capped at a sensible width so the list does not stretch across a
-/// wide terminal, and reads as focused because one of its two widgets always
-/// holds focus.
-fn view(app: &App0, frame: &mut Frame<'_>) {
-    // A centered panel, capped in width and given most of the screen's height.
-    let full = frame.area();
-    let width = full.size.width.min(56);
-    let height = full.size.height.saturating_sub(4).clamp(10, 24);
-    let area = center(full, width, height);
-    let panel = Panel::new().title("todo").padding(1).focused(true);
-    frame.widget(key("panel"), area, &panel);
-
-    let inner = Panel::inner(area, &panel);
-    let [input_row, _gap, list_area, status_row, hint_row] = split_rows(
-        inner,
-        [
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ],
-    );
-
-    // A stable key: the field is cleared on submit by a widget command, not by
-    // re-keying, so its identity (and thus focus) survives across submits.
-    frame.widget(
-        key("input"),
-        input_row,
-        &TextInput::new().placeholder("Add a todo…"),
-    );
-
-    // The list borrows the app's todos as its source.
-    frame.widget(
-        key("list"),
-        list_area,
-        &SelectionList::new(app.todos.clone()),
-    );
-
-    let status = format!("{} todo(s)", app.todos.len());
-    frame.widget(
-        key("status"),
-        status_row,
-        &Text::new(&status).role(Role::Accent),
-    );
-
-    frame.widget(
-        key("hint"),
-        hint_row,
-        &Text::new("Tab: focus   Enter: add   d: delete (list)   Ctrl-C: quit").role(Role::Muted),
-    );
 }

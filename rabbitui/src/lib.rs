@@ -131,27 +131,22 @@
 //! Widgets reference semantic *roles* (`accent`, `surface`, `danger`, …) rather
 //! than hard-coded colors (`docs/adr/0007-styling-theming.md`); a
 //! [`Theme`](rabbitui_core::theme::Theme) maps each role to a concrete style, so
-//! one theme swap re-skins the whole catalog. Set it on the builder form,
-//! [`App`], and (in debug builds) hot-reload a TOML file:
+//! one theme swap re-skins the whole catalog. Set it in your app's
+//! [`Config`] — with (in debug builds) a hot-reloaded TOML file:
 //!
 //! ```no_run
-//! # use std::ops::ControlFlow;
-//! # use rabbitui::App;
-//! # use rabbitui::app::Update;
-//! # use rabbitui_core::frame::Frame;
+//! # use rabbitui::app::Config;
 //! # use rabbitui_core::theme::Theme;
-//! # async fn demo() -> rabbitui::app::Result<()> {
-//! App::new(
-//!     (),
-//!     |_: &mut (), _: Update<'_>| ControlFlow::Continue(()),
-//!     |_: &(), _: &mut Frame<'_>| {},
-//! )
-//! .theme(Theme::catppuccin_mocha())
-//! .theme_file("theme.toml") // debug builds re-read this on change
-//! .run()
-//! .await
+//! # fn config() -> Config {
+//! Config::new()
+//!     .theme(Theme::catppuccin_mocha())
+//!     .theme_file("theme.toml") // debug builds re-read this on change
 //! # }
 //! ```
+//!
+//! Trait apps return that from [`App::config`]; closure apps
+//! chain [`with_theme`](app::FnApp::with_theme) /
+//! [`with_theme_file`](app::FnApp::with_theme_file) on [`from_fn`].
 //!
 //! See [`rabbitui_core::theme`] for roles and presets, and [`theme`] for the file
 //! grammar.
@@ -170,7 +165,7 @@
 //! # Logging
 //!
 //! rabbitui integrates [`tracing`](https://docs.rs/tracing): with the default-on
-//! `tracing` feature, [`App::tracing`](app::App::tracing) installs a
+//! `tracing` feature, [`Config::tracing`](app::Config::tracing) installs a
 //! [`log::Collector`] as the global-default subscriber — debug builds on, release
 //! off — that formats events into a bounded ring the runtime owns. Nothing is
 //! written to the terminal while the app owns it; on close, `WARN` and above flush
@@ -188,7 +183,7 @@
 //! (the classic full-app takeover) or **inline** (a bounded live tail at the
 //! bottom of the primary screen, plus an append-once commit channel into native
 //! scrollback via [`Update::commit`](app::Update::commit)). Both are selectable
-//! at startup ([`App::mode`]) and switchable at runtime
+//! at startup ([`Config::mode`](app::Config::mode)) and switchable at runtime
 //! ([`Update::set_mode`](app::Update::set_mode)). See [`rabbitui_core::mode`].
 //!
 //! # Testing
@@ -250,5 +245,5 @@ mod terminal;
 #[cfg(feature = "themes")]
 pub mod theme;
 
-pub use app::App;
+pub use app::{App, Config, FnApp, from_fn};
 pub use terminal::Terminal;
