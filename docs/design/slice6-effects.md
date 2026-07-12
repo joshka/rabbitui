@@ -15,17 +15,17 @@ the default.
 
 ## Commands (ADR 0005: commands-only, no subscriptions)
 
-`Cmd<M>` in the facade (it owns tokio):
+`Command<M>` in the facade (it owns tokio):
 
-- `Cmd::future(async move -> M)` — one message.
-- `Cmd::stream(impl Stream<Item = M>)` — many messages; ends when the stream does (a "subscription"
+- `Command::future(async move -> M)` — one message.
+- `Command::stream(impl Stream<Item = M>)` — many messages; ends when the stream does (a "subscription"
   is just a long stream the app chose to start).
-- `Cmd::timeout(Duration, impl FnOnce() -> M)` — sugar over `future`.
+- `Command::timeout(Duration, impl FnOnce() -> M)` — sugar over `future`.
 - `.group(&str)` — **cancel-previous**: spawning into a group aborts the group's previous task
   (Textual `@work(exclusive=True)` semantics; the debounced-search pattern). Ungrouped commands run
   to completion.
 
-Issued via `Update::spawn(Cmd<M>)` (buffered like `commit`, drained by the runtime after `update`
+Issued via `Update::spawn(Command<M>)` (buffered like `commit`, drained by the runtime after `update`
 returns). Results re-enter the loop mailbox and arrive as `Event::Message(M)` in order of
 completion. The effect runtime (spawn tables, group abort, mailbox) is an `Effects<M>` struct
 separable from the render loop and unit-tested directly under `#[tokio::test]` — the loop itself
@@ -125,7 +125,7 @@ Recorded during implementation; decisions favor the simplest option consistent w
   `Ctrl-L` and `TextInput` (which already ignores ctrl chords) leaves it for the app. This is a
   behavior change: `Ctrl-C` etc. now reach the app instead of being dropped. `Ctrl-I`/`Ctrl-M` stay
   Tab/Enter (byte-identical, as in every terminal).
-- **`Cmd::stream` bound is `futures_core::Stream`; no `tokio-stream`/`async-stream`.** The stream
+- **`Command::stream` bound is `futures_core::Stream`; no `tokio-stream`/`async-stream`.** The stream
   task hand-rolls a `poll_fn` forwarding loop; the fetch ticker hand-rolls a `Ticker: Stream` over
   `tokio::time::Interval::poll_tick` (~15 lines), exactly as specified.
 - **Panic text extraction.** `Effects::watch` distinguishes a cancel-previous abort

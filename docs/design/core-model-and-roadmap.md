@@ -56,12 +56,12 @@ where
     M: Send + 'static,
 {
     // The two required methods — the declared-frame contract, unchanged.
-    fn update(&mut self, cx: Update<'_, M>) -> ControlFlow<()>;
+    fn update(&mut self, update: Update<'_, M>) -> ControlFlow<()>;
     fn view(&self, frame: &mut Frame<'_>);
 
     // Lifecycle hooks — defaulted. This is the extensibility win.
-    fn init(&mut self) -> Cmd<M> { Cmd::none() }                    // finding #1
-    fn global(&mut self, _cx: &Update<'_, M>) -> ControlFlow<()> {  // finding #7
+    fn init(&mut self) -> Command<M> { Command::none() }                    // finding #1
+    fn global(&mut self, _update: &Update<'_, M>) -> ControlFlow<()> {  // finding #7
         ControlFlow::Continue(())
     }
 
@@ -97,13 +97,13 @@ so the trait is _more_ faithful to the declared-frame goal, not less.
    is startup-only.
 4. **`init` vs `Event::Started`: both, deliberately.** `Event::Started` stays as the loop
    truth — `from_fn` apps cannot override trait hooks, so the event is their only init path.
-   The loop calls `self.init()` once, spawns the returned `Cmd`, _then_ delivers `Started`
+   The loop calls `self.init()` once, spawns the returned `Command`, _then_ delivers `Started`
    through `global`/`update`. Trait apps use `init()`; closure apps match on `Started`; no
-   conflict. Requires `Cmd::none()` (new; a `Kind::None` the spawn path skips).
+   conflict. Requires `Command::none()` (new; a `Kind::None` the spawn path skips).
 5. **`global` semantics pinned** (the questions finding #7 deferred): runs before `update`
    for _every_ event (Started/Input/Resize/Message/EffectFailed), receiving `&Update` —
    all `Update` methods take `&self`, so `global` can spawn/commit/focus. Routing has
-   already run, so `cx.consumed()` and `cx.action(&KEYMAP)` (with the printable-chord
+   already run, so `update.consumed()` and `update.action(&KEYMAP)` (with the printable-chord
    guard) work. `Break` exits the loop without calling `update`; pending effects still
    drain.
 6. **Cut from v1: `on_error`, `on_suspend`/`on_resume`.** `Event::EffectFailed` already
@@ -132,7 +132,7 @@ closure form is a strict _subset_ expressible as a trait impl. Nothing is lost.
 - Migration is mechanical: 10 examples + the flagship + `tests/e2e_headless.rs` flip from
   `App::new(…)` to `impl App`. A day, doable non-breaking (add trait, keep `from_fn`).
 - This touches only the **top-level packaging**. ADR 0001 §6 reserved exactly this: the
-  declared-frame _contract_ (identity, facts, outcomes, Cmd-effects) is untouched; the
+  declared-frame _contract_ (identity, facts, outcomes, Command-effects) is untouched; the
   Elm-style and Xilem-style shells were always meant to sit _above_ core. Low architectural
   risk; high teaching + extensibility payoff. **Recommend doing this first, as an ADR 0001
   amendment, before more catalog work accretes against the closure signature.**
@@ -153,7 +153,7 @@ Each line: capability _(consensus, home)_ — current status.
   facts.
 - **Event loop / async runtime** _(unanimous core; facade)_ — **Have**: `run_loop`, tokio
   `select!`.
-- **Async effects, commands-only** _(unanimous core; facade)_ — **Have**: `Cmd`
+- **Async effects, commands-only** _(unanimous core; facade)_ — **Have**: `Command`
   future/stream/timeout/group, panic-catch.
 - **Testing harness** _(unanimous core; testing)_ — **Have**: `TestApp` + `VtScreen` +
   FakeDevice e2e.

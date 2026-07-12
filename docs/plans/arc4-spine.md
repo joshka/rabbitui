@@ -19,7 +19,7 @@ error _values_ for expected failures.
 **Positions:** (a) Panics in `view`/`update` are bugs — let them crash; the panic-restore hook
 already guarantees terminal restoration, which is the whole contract. Do not `catch_unwind` app
 code (it hides bugs and corrupts state assumptions). (b) Effect-task panics are already contained
-per ADR 0005 — standardize the surfacing: a `Cmd` whose future panics or errors delivers a typed
+per ADR 0005 — standardize the surfacing: a `Command` whose future panics or errors delivers a typed
 `EffectFailed { group, error }` message to `update`, and the docs show the match-arm pattern.
 (c) Ship an `ErrorBanner` widget (Danger role, dismissible, top layer) as the recommended UX for
 recoverable failures, used by the flagship's error cells. **Acceptance:** a doc page (when things
@@ -28,7 +28,7 @@ pattern; test that an effect panic restores the terminal and delivers EffectFail
 
 ## 2. Suspend / $EDITOR handoff
 
-**Position:** API is `Cmd::suspend(f)` where `f: FnOnce() -> T` runs with the terminal restored to
+**Position:** API is `Command::suspend(f)` where `f: FnOnce() -> T` runs with the terminal restored to
 cooked mode + primary screen (engine writes its leave frame, raw mode off), then re-enters and
 schedules a full repaint, delivering `T` as a message. Implementation **waits on qwertty
 R-SES-5/6 (RestoreHandle)** — write the API sketch and a `docs/design/` note now; wire it when
@@ -58,7 +58,7 @@ update baselines intentionally.
 
 ## 5. Accessibility groundwork
 
-**Position:** minimal recording, no exporter yet. `RenderCtx` gains `semantic_role(SemanticRole)`
+**Position:** minimal recording, no exporter yet. `RenderContext` gains `semantic_role(SemanticRole)`
 (Button/TextInput/List/Dialog/Log/…) and `label(&str)`; both are recorded into frame facts next to
 areas/focus. Widgets in the catalog set them. The a11y _exporter_ (AT-SPI etc.) is out of scope —
 the point (per both field reports) is that the facts already carry what an exporter needs, which

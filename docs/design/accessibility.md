@@ -18,7 +18,7 @@ a _consumer of existing data_, not a re-plumbing of the render path. The facts a
 
 ## What was added
 
-Two render-time declarations on [`RenderCtx`](../../rabbitui-core/src/widget.rs), mirroring the
+Two render-time declarations on [`RenderContext`](../../rabbitui-core/src/widget.rs), mirroring the
 existing `focusable` / `request_visibility` readback pattern (the frame reads them back after
 `render` and records them onto the widget's fact):
 
@@ -81,7 +81,7 @@ is enough that adding the exporter never touches a widget.
 
 ## Tests
 
-- `rabbitui-core`: `RenderCtx` role/label default off and are settable (`widget.rs`); the a11y enum's
+- `rabbitui-core`: `RenderContext` role/label default off and are settable (`widget.rs`); the a11y enum's
   stable identifiers (`a11y.rs`).
 - `rabbitui-widgets`: `tests/a11y_facts.rs` — a facts snapshot over a one-of-each catalog gallery
   asserting every widget's recorded role and label, and that the dump surfaces them.

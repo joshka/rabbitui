@@ -42,7 +42,7 @@ before it's treated as publishable.
 reset before erase, Accent-vs-Highlight), idiomatic snippets for the ten commonest tasks, and the
 trap list from our own build logs (the bugs agents actually shipped: unguarded printables, missing
 initial focus, BCE). Evals: five task prompts (add a widget to an example, add a binding, theme a
-panel, write a snapshot test, add a Cmd) run against a fresh agent with and without the skill;
+panel, write a snapshot test, add a Command) run against a fresh agent with and without the skill;
 record pass/fail in the skill's design note. **Acceptance:** skill file + eval results committed;
 eval failures feed doc fixes, not just skill fixes.
 

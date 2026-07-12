@@ -60,7 +60,7 @@ matters — do not guess).
 or `Spans(Cow<'a, [Span]>)` (core::text::Span, as committed lines use). One internal iterator yields
 `(grapheme, Style)` for both paint and wrap paths, so wrap works styled — fixing the flagship's
 monochrome live tail and the "styling pops at commit" strain. Role-based default style still applies
-where a span's style is empty (`Style::new()` merges under the widget style). `Attrs` gains
+where a span's style is empty (`Style::new()` merges under the widget style). `Attributes` gains
 `remove`, `BitAnd`, `Not`, `insert` for completeness.
 
 ## Logging seam
@@ -92,7 +92,7 @@ machinery for it.
 
 ## Implementation deltas (part 1)
 
-Part 1 (intrinsic measurement, ScrollView, styled-span Text, Attrs ops) shipped; the logging seam
+Part 1 (intrinsic measurement, ScrollView, styled-span Text, Attributes ops) shipped; the logging seam
 and benchmarks (part 2) are not built. What landed, and where it diverged from or refined the note
 above:
 
@@ -123,7 +123,7 @@ above:
   `container_state`/`put_container_state` (clone-out/write-back retained state before deciding what
   to declare), `register_container::<W>` (push a focusable fact + handler thunk for a scope's own
   id), `paint_absolute` (a container paints the scrollbar in absolute coords, unlike a widget's
-  area-relative `RenderCtx`), and `visibility_len`/`visibility_since` (find the requests a scope's
+  area-relative `RenderContext`), and `visibility_len`/`visibility_since` (find the requests a scope's
   own children added this frame).
 
 - **Routing / focus integration decisions.** The scroll scope registers itself as a focusable
@@ -157,9 +157,9 @@ above:
   leading space). `Text::content()` now returns `&Content` (was `&str`); callers use
   `.to_plain_string()`.
 
-- **Attrs ops.** `insert`, `remove` (both `const`), `BitAnd`, `BitAndAssign`, `Not` (masked to a new
-  `Attrs::ALL` so a complement never yields an undefined flag). The flagship's hand-rolled `remove`
-  (rebuild-from-known-flags) is retired for `Attrs::remove`.
+- **Attributes ops.** `insert`, `remove` (both `const`), `BitAnd`, `BitAndAssign`, `Not` (masked to a new
+  `Attributes::ALL` so a complement never yields an undefined flag). The flagship's hand-rolled `remove`
+  (rebuild-from-known-flags) is retired for `Attributes::remove`.
 
 - **Example rework.** `examples/agent.rs`'s alt-screen transcript is now `frame.scroll` + measured
   cells (`Text` for user/assistant, collapsed `Collapsible` for tool), retiring the fixed-slot stack

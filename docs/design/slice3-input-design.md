@@ -16,10 +16,10 @@ type** (no `&self`), so no spec instance is needed:
 ```rust
 pub trait Widget {
     type State: Default + 'static;
-    fn render(&self, state: &mut Self::State, ctx: &mut RenderCtx<'_>);
+    fn render(&self, state: &mut Self::State, ctx: &mut RenderContext<'_>);
     /// Handles an event routed to this widget. Associated fn — runs without a
     /// spec, against retained state only. Default: ignore everything.
-    fn handle(state: &mut Self::State, event: &InputEvent, ctx: &mut HandleCtx<'_>) -> Handled {
+    fn handle(state: &mut Self::State, event: &InputEvent, ctx: &mut HandleContext<'_>) -> Handled {
         let _ = (state, event, ctx);
         Handled::No
     }
@@ -27,7 +27,7 @@ pub trait Widget {
 ```
 
 `Frame::widget` registers `W::handle` type-erased
-(`fn(&mut dyn Any, &InputEvent, &mut HandleCtx) -> Handled`, one wrapper per `W`, stored in a
+(`fn(&mut dyn Any, &InputEvent, &mut HandleContext) -> Handled`, one wrapper per `W`, stored in a
 per-frame `HandlerMap: HashMap<WidgetId, Handler>` that the runtime keeps alongside the facts of the
 frame it came from).
 
@@ -62,7 +62,7 @@ Queries: `get(id)`, `hit(Position) -> Option<&FactEntry>` (last declared contain
 declaration order approximates z until layers land), `focus_order() -> impl Iterator` (declaration
 order, focusable only), `path_to(id) -> Vec<WidgetId>` (root→target via parent links).
 
-`Frame` collects facts while declaring; `RenderCtx` gains `ctx.focusable(bool)` (marks the current
+`Frame` collects facts while declaring; `RenderContext` gains `ctx.focusable(bool)` (marks the current
 entry, per-instance so a disabled control can opt out) and `ctx.is_focused() -> bool` (render-time
 focus query, for painting focus styles).
 
@@ -88,7 +88,7 @@ For each core `InputEvent`:
 4. **Framework defaults**: unconsumed Tab/BackTab → focus traversal.
 5. Everything still unconsumed → passed to the app's `update` as `Event::Input`.
 
-`HandleCtx` carries: the phase, the entry's area, `emit(Outcome)`, `request_focus()`, and `&mut`
+`HandleContext` carries: the phase, the entry's area, `emit(Outcome)`, `request_focus()`, and `&mut`
 access nothing else (no buffer — handlers do not paint).
 
 ## Outcomes
@@ -148,10 +148,10 @@ Deviations made during the slice-3 implementation, with rationale:
   `Event::Input` does not expose a `consumed` bit; if an app ever needs it, that is an additive
   change.
 
-- **`RenderCtx::new` gained a `focused: bool` parameter** (was `(buffer, area)`, now
+- **`RenderContext::new` gained a `focused: bool` parameter** (was `(buffer, area)`, now
   `(buffer, area, focused)`). The spec says "Frame gains access to a focus snapshot so
-  `RenderCtx::is_focused` works" but fixes no signature; threading the verdict in at construction is
-  the least-surprising shape and keeps `RenderCtx` self-contained. `Frame::widget` computes
+  `RenderContext::is_focused` works" but fixes no signature; threading the verdict in at construction is
+  the least-surprising shape and keeps `RenderContext` self-contained. `Frame::widget` computes
   `focus == Some(id)` and passes it.
 
 - **Focus reconciliation is a named step (`Focus::reconcile`) run after each render, before routing

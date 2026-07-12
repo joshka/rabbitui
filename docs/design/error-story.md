@@ -25,7 +25,7 @@ enum Msg {
 }
 
 // in the effect:
-Cmd::future(async move {
+Command::future(async move {
     match fetch().await {
         Ok(data) => Msg::Loaded(data),
         Err(error) => Msg::Failed(error.to_string()),

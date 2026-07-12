@@ -8,7 +8,7 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 
 | #   | Finding                       | Status | Landed as                                              |
 | --- | ----------------------------- | ------ | ------------------------------------------------------ |
-| 1   | startup/init `Cmd` hook       | done   | `Event::Started` (one-shot, pre-first-input)           |
+| 1   | startup/init `Command` hook   | done   | `Event::Started` (one-shot, pre-first-input)           |
 | 2   | widget-state reader           | done   | `Update::widget_state::<W>(path)`                      |
 | 3   | `view` can't read focus       | done   | `Frame::is_focused` / `Frame::focused`                 |
 | 4   | declare-then-command panic    | done   | `Update::try_focus` / `try_command` + `apply_guarded`  |
@@ -21,9 +21,9 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 
 1. **No startup/init command hook.** `App::run` never calls `update` until the first
    input/resize (the first frame draws from `view`). A self-starting stream therefore
-   can't begin at launch — the app had to spawn its `Cmd::stream` lazily on the first
+   can't begin at launch — the app had to spawn its `Command::stream` lazily on the first
    `update` behind a `started` flag and tell the user "press a key to start." **Want:**
-   a builder `.init(|| Cmd)` or an `Event::Started` delivered once before first input.
+   a builder `.init(|| Command)` or an `Event::Started` delivered once before first input.
 
 2. **Widget state is write-only from the app.** `Update::widget::<W>(path, |s| …)` mutates
    between frames but there is no _reader_. To know a `SelectionList`'s selected row the

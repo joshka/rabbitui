@@ -87,14 +87,14 @@ send_key), plus that `send_key` returns a `RouteResult` and does not paint.
 
 ---
 
-## EVAL-5 — Add a Cmd (async effect)
+## EVAL-5 — Add a Command (async effect)
 
-> In `rabbitui/examples/fetch.rs`, add a `Cmd` that runs when the user presses `Ctrl-R`: after a
+> In `rabbitui/examples/fetch.rs`, add a `Command` that runs when the user presses `Ctrl-R`: after a
 > simulated 500ms delay it should deliver a message that sets the results list to a single row,
 > `"reloaded"`. Reuse the existing `Msg` enum (add a variant if needed) and the existing message
 > handling in `update`. The debounced-search behaviour must keep working.
 
-**Pass condition.** A `Cmd::future(async move { sleep(...).await; Msg::... })` is spawned via
+**Pass condition.** A `Command::future(async move { sleep(...).await; Msg::... })` is spawned via
 `update.spawn(...)` from a `Ctrl-R` arm; a matching `Event::Message(...)` arm in `update` sets
 `app.results`; the example compiles and the search still works. **Fail signatures:** doing the sleep
 synchronously in `update` (blocking the loop) instead of inside the future; mutating state from

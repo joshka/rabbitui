@@ -9,7 +9,7 @@ Working design note for slice 4 (ROADMAP.md), implementing ADR 0007 (theming) an
   `Warning`, `Danger`, `Border`, `Highlight` — and `Theme` mapping roles to `Style`s
   (`Theme::style(Role) -> Style`, `Theme::default()` = a restrained dark default). Presets as const
   fns: `theme::catppuccin_mocha()` ships this slice (Nord/Dracula later).
-- `Frame` carries `&Theme`; `RenderCtx::style(Role) -> Style` is how widgets ask. Widgets never
+- `Frame` carries `&Theme`; `RenderContext::style(Role) -> Style` is how widgets ask. Widgets never
   hardcode colors — Button and Text migrate to roles (Button focused = `Highlight`, label = `Text`;
   Text default = `Text`).
 - Capability degradation (truecolor→256→16) stays deferred until the capability probe exists (ADR

@@ -13,11 +13,11 @@ gates). Everything below happens in `/Users/joshka/local/rabbitui/work/default`.
 Replace the two-closure top-level shape (`App::new(state, update, view)` + builder soup)
 with an idiomatic, extensible `trait App` — keeping a zero-ceremony closure adapter
 (`from_fn`). Packaging only: the declared-frame contract (identity, facts, outcomes,
-`Cmd`-effects) is untouched. Nothing is published, so no deprecation dance.
+`Command`-effects) is untouched. Nothing is published, so no deprecation dance.
 
 ## Files you will touch
 
-- `rabbitui/src/effect.rs` — add `Cmd::none()`.
+- `rabbitui/src/effect.rs` — add `Command::none()`.
 - `rabbitui/src/app.rs` — the trait, `Config`, `FnApp`, `from_fn`, loop rewiring. The bulk.
 - `rabbitui/src/lib.rs` — re-exports.
 - Call-site migration: `rabbitui/examples/*.rs` (9 files), `rabbitui/tests/e2e_headless.rs`,
@@ -27,9 +27,9 @@ with an idiomatic, extensible `trait App` — keeping a zero-ceremony closure ad
   (it teaches `App::new` — must be updated or the agent skill goes stale),
   `docs/adr/0001-programming-model.md` amendment (§ Step 8).
 
-## Step 1 — `Cmd::none()` (green step, commit alone)
+## Step 1 — `Command::none()` (green step, commit alone)
 
-In `rabbitui/src/effect.rs`: `Cmd<M>` wraps a private `enum Kind<M>` (line ~104). Add a
+In `rabbitui/src/effect.rs`: `Command<M>` wraps a private `enum Kind<M>` (line ~104). Add a
 `None` variant, a constructor, and a spawn no-op:
 
 ```rust
@@ -38,10 +38,10 @@ pub fn none() -> Self { Self { kind: Kind::None } }   // adapt to actual field n
 
 - In `Effects::spawn`, early-return on `Kind::None` (spawn nothing, no mailbox entry).
 - If `.group(name)` is called on a `None` cmd, keep it `None` (group of nothing is nothing).
-- Unit tests (in effect.rs `mod tests`): `spawn(Cmd::none())` leaves `group_count` at 0 and
-  `try_recv` empty; `Cmd::none().group("x")` also spawns nothing.
+- Unit tests (in effect.rs `mod tests`): `spawn(Command::none())` leaves `group_count` at 0 and
+  `try_recv` empty; `Command::none().group("x")` also spawns nothing.
 - Gate: `cargo test -p rabbitui`, clippy, fmt. Commit:
-  `feat(effect): Cmd::none() — the no-op command (trait App init hook default)`.
+  `feat(effect): Command::none() — the no-op command (trait App init hook default)`.
 
 ## Step 2 — `Config` struct
 
@@ -79,11 +79,11 @@ pub trait App<M = ()>: Sized
 where
     M: Send + 'static,
 {
-    fn update(&mut self, cx: Update<'_, M>) -> ControlFlow<()>;
+    fn update(&mut self, update: Update<'_, M>) -> ControlFlow<()>;
     fn view(&self, frame: &mut Frame<'_>);
 
-    fn init(&mut self) -> Cmd<M> { Cmd::none() }
-    fn global(&mut self, _cx: &Update<'_, M>) -> ControlFlow<()> {
+    fn init(&mut self) -> Command<M> { Command::none() }
+    fn global(&mut self, _update: &Update<'_, M>) -> ControlFlow<()> {
         ControlFlow::Continue(())
     }
     fn config(&self) -> Config { Config::default() }
@@ -134,7 +134,7 @@ Inside `run_loop` (now generic over `A: App<M>` instead of `S, U, V`):
    `Update` methods take `&self` (RefCell pending), so `global` can spawn/commit/focus.
    On `global` Break, `update` is _not_ called; pending still drains (same code path).
 3. **init**: in the `Wake::Started` arm, _before_ constructing the Started `Update`:
-   `effects.spawn(app.init());` (a `Cmd::none()` default is a no-op by Step 1). Then
+   `effects.spawn(app.init());` (a `Command::none()` default is a no-op by Step 1). Then
    deliver `Event::Started` exactly as today — both idioms coexist by design (§1 №4).
 4. **`deliver_effect`** takes `app: &mut A` instead of `state`+`update`; apply the same
    global-then-update sequence there.
@@ -160,7 +160,7 @@ where
 impl<S, U, V, M> App<M> for FnApp<S, U, V, M>
 where /* same bounds */
 {
-    fn update(&mut self, cx: Update<'_, M>) -> ControlFlow<()> { (self.update)(&mut self.state, cx) }
+    fn update(&mut self, update: Update<'_, M>) -> ControlFlow<()> { (self.update)(&mut self.state, update) }
     fn view(&self, frame: &mut Frame<'_>) { (self.view)(&self.state, frame) }
     fn config(&self) -> Config { self.config.clone() }
 }
@@ -183,7 +183,7 @@ convert to `impl App` (move the two fns into the impl; state struct becomes `Sel
 - `examples/fetch.rs`, `stream.rs`, `agent.rs` — `impl App<Msg> for X`; move any
   first-event/startup workarounds into `fn init`.
 - `comparisons/rabbitui/src/main.rs` — `impl App<Msg> for App_`; move the stream spawn from
-  the `Event::Started` match into `fn init` (`Cmd::stream(LogSource::new()).group("source")`),
+  the `Event::Started` match into `fn init` (`Command::stream(LogSource::new()).group("source")`),
   and hoisted global Ctrl-C from the top of `update` into `fn global`. Update the README
   friction notes accordingly.
 - `rabbitui-agent/src/app.rs` — `impl App<Msg>`; `fn global` takes the Ctrl-C/quit chord
@@ -204,7 +204,7 @@ clippy, and `cargo +nightly fmt --all`. Commit Steps 2–6 together:
 In `rabbitui/tests/e2e_headless.rs`, add a trait-shaped test app alongside the closure one:
 
 - `init_cmd_arrives_before_input`: `fn init` returns
-  `Cmd::future(async { Msg::Seeded })`; app renders a marker when `Seeded` lands;
+  `Command::future(async { Msg::Seeded })`; app renders a marker when `Seeded` lands;
   `wait_for` that marker with **no input fed** — proves init spawns at startup.
 - `global_break_quits_even_when_update_would_return_early`: give the app a "modal open"
   state under which its `update` early-returns before its quit branch; put quit

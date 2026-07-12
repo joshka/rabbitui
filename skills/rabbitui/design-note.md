@@ -16,7 +16,7 @@ rather than rediscovering the declared-frame shape and re-shipping the bugs the 
 Every snippet and signature is taken from **current source**, not invented. Primary grounding:
 
 - **Examples** (`rabbitui/examples/`): `hello`, `counter`, `todo`, `form`, `stream`, `fetch`,
-  `agent`. These are the executable spec; the skeleton, key-binding, outcome, focus, `Cmd`, and
+  `agent`. These are the executable spec; the skeleton, key-binding, outcome, focus, `Command`, and
   commit snippets are lifted from them near-verbatim.
 - **ADRs** (`docs/adr/`): 0001 (declared frame), 0006 (input/focus, incl. the two 2026-07-07
   amendments that added `Update::consumed()` and `Update::is_focused`), 0007 (theming/roles), 0008
@@ -54,8 +54,8 @@ entry points, EVAL-1 the basic declare-a-widget path, EVAL-5 the effects-are-mes
 
 The following were inferred or simplified; verify before relying on them externally.
 
-1. **`Cmd::cancel_group` turbofish.** The skill notes it "may need a turbofish where the message type
-   cannot be inferred" (`Cmd::<Msg>::cancel_group("agent")`). This matches `examples/agent.rs`
+1. **`Command::cancel_group` turbofish.** The skill notes it "may need a turbofish where the message type
+   cannot be inferred" (`Command::<Msg>::cancel_group("agent")`). This matches `examples/agent.rs`
    (which uses the turbofish) versus `examples/fetch.rs` (which does not, because the surrounding
    `update.spawn` fixes the type). The guidance is correct but the phrasing "may need" is a
    heuristic, not a compiler rule — worth a glance.
@@ -84,7 +84,7 @@ The following were inferred or simplified; verify before relying on them externa
 
 6. **No custom-widget deep-dive.** The skill points at the `SubmitButton` in `examples/form.rs` as
    the reference for implementing `rabbitui_core::widget::Widget` rather than reproducing the full
-   trait surface (`render`, `handle`, `desired_height`, `RenderCtx`, `HandleCtx`, `Handled`,
+   trait surface (`render`, `handle`, `desired_height`, `RenderContext`, `HandleContext`, `Handled`,
    `Phase`). This keeps the skill focused on app-authoring (the common case) over widget-authoring;
    a
    dedicated widget-authoring skill or section is a reasonable future addition if agents are asked to

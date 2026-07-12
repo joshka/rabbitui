@@ -3,7 +3,7 @@ name: rabbitui
 description: >-
   Build and modify terminal UI apps with the rabbitui Rust framework. Use when adding a
   widget to a view, binding a key, theming a panel, writing a snapshot test, spawning an
-  async effect (Cmd), or working with inline vs alt-screen mode. Covers the declared-frame
+  async effect (Command), or working with inline vs alt-screen mode. Covers the declared-frame
   mental model, the load-bearing invariants (consumed-guard on printable keys, never DIM,
   SGR reset before erase, Accent-vs-Highlight roles), idiomatic snippets, and the traps that
   bit real builds.
@@ -14,7 +14,7 @@ description: >-
 rabbitui is a Rust TUI framework built on the **declared-frame** model: the app owns plain
 state, a `view` function declares widgets by key each frame, input routes through the
 previous frame's facts, widgets return typed **outcomes**, and effects are app-owned async
-`Cmd`s. There is no retained widget tree and no `Rc<RefCell>` web — identity, focus, and
+`Command`s. There is no retained widget tree and no `Rc<RefCell>` web — identity, focus, and
 scroll live in a framework-owned per-id store, addressed by `WidgetId`.
 
 This skill grounds every snippet in the current API (crates `rabbitui`, `rabbitui-core`,
@@ -34,8 +34,8 @@ doubt, read an example — they are the executable spec.
   (`Changed(String)`, `Submitted`, `Activated`, `Selected(usize)`, `Toggled(bool)`,
   `Dismissed`). The app reads them in `update` via `update.outcome_for(&[key("input")])` and
   folds them into its own state. No widget ever holds `&mut App`.
-- **Commands (`Cmd`) are the only effect primitive.** Async work is `Cmd::future` /
-  `Cmd::stream`, spawned via `update.spawn(cmd)`; results re-enter the loop as
+- **Commands (`Command`) are the only effect primitive.** Async work is `Command::future` /
+  `Command::stream`, spawned via `update.spawn(cmd)`; results re-enter the loop as
   `Event::Message(M)`. There are no subscriptions — a subscription is just a long stream you
   chose to start.
 - **Two screen modes.** `Mode::AltScreen` (default, full-screen buffer) and
@@ -265,14 +265,14 @@ This is how you clear an input on submit, set a value, or move a list's selectio
 programmatically. Commanding a widget that was never declared trips a `debug_assert` (an app
 bug). This replaces any "re-key to reset" workaround — keep the key stable.
 
-### 9. Spawn an async effect (`Cmd`)
+### 9. Spawn an async effect (`Command`)
 
-Define a message type `M`, spawn a `Cmd<M>` with `update.spawn`, handle results as
+Define a message type `M`, spawn a `Command<M>` with `update.spawn`, handle results as
 `Event::Message(M)`. `App<S, M>` and `Update<'_, M>` carry the type; message-less apps use the
 `()` default.
 
 ```rust
-use rabbitui::effect::Cmd;
+use rabbitui::effect::Command;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -291,18 +291,18 @@ match update.event() {
     _ => {}
 }
 
-fn fake_fetch(query: String) -> Cmd<Msg> {
-    Cmd::future(async move {
+fn fake_fetch(query: String) -> Command<Msg> {
+    Command::future(async move {
         tokio::time::sleep(Duration::from_millis(300)).await;
         Msg::Results { query, rows: vec![] }
     })
 }
 ```
 
-Effect constructors: `Cmd::future(async move -> M)` (one message), `Cmd::stream(impl
-Stream<Item = M>)` (many; a "subscription"), `Cmd::timeout(Duration, FnOnce -> M)`,
-`Cmd::cancel_group(&str)` (stop a group's stream for good; may need a turbofish where the
-message type cannot be inferred, e.g. `Cmd::<Msg>::cancel_group("agent")`). `.group(&str)` makes a command
+Effect constructors: `Command::future(async move -> M)` (one message), `Command::stream(impl
+Stream<Item = M>)` (many; a "subscription"), `Command::timeout(Duration, FnOnce -> M)`,
+`Command::cancel_group(&str)` (stop a group's stream for good; may need a turbofish where the
+message type cannot be inferred, e.g. `Command::<Msg>::cancel_group("agent")`). `.group(&str)` makes a command
 cancel-previous within that group. Effect panics are contained and surface as
 `Event::EffectFailed` — they never crash the loop. Expected failures should be _values_ (a
 `Msg` variant), not panics.
@@ -395,7 +395,7 @@ frames. Regenerate golden snapshots with `UPDATE_SNAPSHOTS=1 cargo test` and rev
 
 - `rabbitui/examples/` is the executable spec: `hello.rs`/`counter.rs` (skeleton),
   `todo.rs` (input + list + consumed-guard), `form.rs` (focus, arrow-nav, modal layer, custom
-  widget), `stream.rs` (inline mode + commit), `fetch.rs` (`Cmd` future/stream, groups, widget
+  widget), `stream.rs` (inline mode + commit), `fetch.rs` (`Command` future/stream, groups, widget
   command, effect failure), `agent.rs` (the flagship: streaming transcript, both modes).
 - ADRs under `docs/adr/`: 0001 (declared frame), 0006 (input/focus), 0007 (theming), 0008
   (widget contract), 0013 (screen modes). Read the relevant ADR before changing behavior — they

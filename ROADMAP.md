@@ -63,7 +63,7 @@ theme live.
 | `desired_height(width)` intrinsic measurement in the widget contract + layout                                                                             | ✅     |
 | ScrollView container (consumes visibility requests; keyboard+wheel; scrollbar)                                                                            | ✅     |
 | Styled-span Text (unify core::text spans with widget text; wrap included)                                                                                 | ✅     |
-| Attrs::remove / BitAnd / Not                                                                                                                              | ✅     |
+| Attributes::remove / BitAnd / Not                                                                                                                         | ✅     |
 | Logging/tracing seam: `tracing` subscriber writing into a framework buffer + an overlay                                                                   | ✅     |
 | Benchmark harness: view-construction + full-frame + diff costs on large synthetic views (tests ADR 0001's "microseconds" claim — its own revisit trigger) | ✅     |
 | Block-level early commit for bounded inline tails (moved to the deferred ledger)                                                                          | ⬜     |
@@ -144,7 +144,7 @@ wheel normalization, hardware-cursor via facts, WidthPolicy seam (waits on qwert
 kitty-shaped KeyEvent adaptation (pre-pin blocker), macOS /dev/tty workaround upstreaming. Slice-8
 strain findings (slice-9 inputs): variable-height measurement + a real scroll container (the
 fixed-slot Collapsible stack wastes rows), styled-span soft wrap (Text takes one style while commits
-are `Vec<Span>` — styling pops at commit), Attrs::remove, block-level early commit for bounded
+are `Vec<Span>` — styling pops at commit), Attributes::remove, block-level early commit for bounded
 tails.
 
 ## Slice 0 — Substrate smoke (`examples/smoke.rs`)

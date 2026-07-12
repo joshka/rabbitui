@@ -54,7 +54,7 @@ container work (catalog phase) has its contract. Tested at the facts level.
 - `Pending` gains `extend(Pending)` and the runtime holds an _unapplied remainder_ across one frame:
   commands/focus that missed this frame's facts retry once against the next frame's before the
   debug_assert — closing the declare-then-focus edge properly.
-- `Cmd::cancel_group(name)`: a spawnable that aborts a group without starting a replacement (the
+- `Command::cancel_group(name)`: a spawnable that aborts a group without starting a replacement (the
   stream-stop primitive; fetch.rs's ticker toggle uses it instead of ignoring a running stream).
 
 ## examples/form.rs

@@ -34,7 +34,7 @@ flow with headless tests — no network code. Plan: `docs/plans/arc3-agent-clien
   which `TestApp`'s buffer does not model, so tests render in **alt-screen** mode and assert the
   buffer. This split is the load-bearing testability decision and should carry through every later
   slice.
-- **`EventStream` is `Send`, owned, `'static`.** The app spawns the backend stream as a `Cmd::stream`
+- **`EventStream` is `Send`, owned, `'static`.** The app spawns the backend stream as a `Command::stream`
   effect that outlives the `send` call, so `send` returns an owned stream (the replay backend clones
   its turn out; slice 2's HTTP backend boxes a `reqwest` stream) rather than borrowing the backend.
 - **Tool events deferred to slice 4 (as planned), but the `StreamEvent` tool variants exist now** so

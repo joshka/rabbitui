@@ -9,14 +9,14 @@ preset) needs retuning for legibility. Plan item: `docs/plans/arc2a-aesthetics.m
 Swept `rabbitui-core/src`, `rabbitui/src`, `rabbitui/examples`, `rabbitui-widgets/src`, and
 `rabbitui-agent/src` for `Color::`, `Style::new().fg/bg(...)`, and hex literals. **No conversions
 needed.** Every live-frame `render()`/`view()` resolves colors exclusively via
-`RenderCtx::style(Role)` / `.role(Role)`. The only literal colors in running code are the three
+`RenderContext::style(Role)` / `.role(Role)`. The only literal colors in running code are the three
 documented, legitimate exceptions:
 
 1. **Preset definitions** in `rabbitui-core/src/theme.rs` — the four presets are where concrete
    colors belong.
 2. **The inline-commit path** — `rabbitui-agent/src/{transcript,markdown}.rs` and the equivalent
    `commit_lines_for`/`MarkdownRender` in `rabbitui/examples/agent.rs`. These build `CommitLine`s
-   written straight to native scrollback and have no `Theme`/`RenderCtx` handle, so concrete styles
+   written straight to native scrollback and have no `Theme`/`RenderContext` handle, so concrete styles
    are unavoidable (documented in `transcript.rs`).
 3. **The encode layer and the facade TOML theme parser** (`rabbitui/src/{encode,theme}.rs`) — the
    SGR encoder matches every `Color` variant, and the theme-file parser turns `#rrggbb` strings into

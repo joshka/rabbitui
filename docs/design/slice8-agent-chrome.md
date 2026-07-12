@@ -25,7 +25,7 @@ message's accumulated source per frame — small, no incremental parsing needed.
 
 ## Streaming vs append-once
 
-The simulated agent streams chunks via `Cmd::stream`. Rules:
+The simulated agent streams chunks via `Command::stream`. Rules:
 
 - The **in-progress** message renders in the live tail from accumulated source, soft-wrapped to
   width. `Text` gains `wrap(bool)` (grapheme-correct soft wrap via the core width oracle) — a
@@ -54,12 +54,12 @@ cells is fine; the ListSource seam is the recorded path when it matters).
 Layout (both modes): transcript region (live tail in inline; scrolling view in alt) / status line
 (mode, agent state, spinner while streaming) / prompt composer (TextInput; Enter sends, spawns the
 simulated agent response; composer stays focused). `m` toggles mode; `q`/Ctrl-C quits; Esc cancels a
-streaming response (`Cmd::cancel_group("agent")` — cancel-previous also covers re-prompting
+streaming response (`Command::cancel_group("agent")` — cancel-previous also covers re-prompting
 mid-stream).
 
 ## Simulated agent
 
-A `Cmd::stream` emitting: chunked markdown prose (realistic pacing via interval), then a tool-call
+A `Command::stream` emitting: chunked markdown prose (realistic pacing via interval), then a tool-call
 start/finish pair (with a sleep), then more prose, then completion. Deterministic content (seeded
 from the prompt text) so the integration test can assert the transcript.
 
@@ -90,16 +90,16 @@ once a full app leaned on it. These feed ADR corrections before slice 9.
   collapsed state retained by identity, `default_collapsed(bool)` applied once on first render then
   never re-clobbered (an `initialized` flag in the retained state).
 - `examples/agent.rs`: the full chrome, both modes off one `cells: Vec<TranscriptCell>`, markdown →
-  spans over `pulldown-cmark` (dev-dep), a deterministic `Cmd::stream` agent,
+  spans over `pulldown-cmark` (dev-dep), a deterministic `Command::stream` agent,
   `cancel_group("agent")` on Esc / re-prompt, a spinner ticker stream.
 
 ### Where the design strained (the honest findings)
 
-1. **`Attrs` is a write-only bitset — nested inline markdown needs removal.** The markdown renderer
+1. **`Attributes` is a write-only bitset — nested inline markdown needs removal.** The markdown renderer
    must clear `BOLD` when a `Strong` span ends while a surrounding heading keeps its own `BOLD`. But
-   `Attrs` exposes only `|`/`|=` and `contains`; there is no `remove`/`&`/`!`. Both the example and
+   `Attributes` exposes only `|`/`|=` and `contains`; there is no `remove`/`&`/`!`. Both the example and
    the integration test had to reconstruct the complement by iterating the known flags — a smell
-   that recurs for any nested-styling consumer. **Correction for slice 9:** give `Attrs` `remove`,
+   that recurs for any nested-styling consumer. **Correction for slice 9:** give `Attributes` `remove`,
    `BitAnd`, and `Not` (or a `toggle`), the minimal closure of a real bitset. Low-risk, additive.
 
 2. **Variable-height cells have no measurement, so the alt transcript is a hand-rolled fixed-slot
@@ -142,7 +142,7 @@ once a full app leaned on it. These feed ADR corrections before slice 9.
    start/stop is bookkeeping the app carries (`ticking` flag + `cancel_group` on every exit path,
    including Esc and error). ADR 0005's "a subscription is just a stream you chose to start" is true
    but understates the manual lifecycle coupling when one stream's end must stop another. Not a
-   correction so much as a documented cost; a `Cmd` that ends when a predicate over state flips
+   correction so much as a documented cost; a `Command` that ends when a predicate over state flips
    would remove it.
 
 7. **The inline/alt asymmetry is correct but stark.** Committed scrollback is immutable, so the same
@@ -151,7 +151,7 @@ once a full app leaned on it. These feed ADR corrections before slice 9.
    because the flagship makes the asymmetry the first thing a user notices when they press `m`,
    which is exactly the thesis (one state, two philosophies) landing as designed.
 
-Net: the multi-span commit lift (item 1's `Attrs` gap aside) and `Collapsible` are sound. The design
+Net: the multi-span commit lift (item 1's `Attributes` gap aside) and `Collapsible` are sound. The design
 under-provisioned **layout for variable-height retained content** (#2) and **styled text wrapping**
 (#3/#4); both are catalog-phase work the transcript cannot be production-quality without. Those two
 are the corrections slice 9 should absorb before the widget catalog is called done.
