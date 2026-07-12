@@ -190,3 +190,56 @@ height, and that is the intended seam.
 Findings 1–4 are the strongest candidates to feed into framework work; 4 in particular
 generalizes the declare-then-focus lesson into a policy question about the whole
 declare-then-X contract.
+
+## Betamax tape fragility — focus-dependent `Wait+Screen` sentinels (2026-07-12)
+
+**Open question resolved: composer-focused-at-startup is _intended_, not a Wave A
+regression.** The `agent` tape hung at `Wait+Screen "prompt"` because the only place
+the word "prompt" appears is the composer's placeholder ("Tab, type a prompt, Enter…"),
+and a focused empty `TextInput` hides its placeholder to show the cursor instead
+(`text_input.rs`, guarded by `!ctx.is_focused()`; test
+`placeholder_shows_only_when_empty_and_unfocused`). The composer is focused on the
+first frame because `Focus::reconcile` focuses the first focusable when nothing is
+focused yet (`routing.rs`, the `None =>` branch) — added deliberately in commit
+`084d268` (2026-07-07 00:35, "auto-focus + Update::consumed — bugs found by betamax
+tapes") so an app's first keystroke lands somewhere instead of silently falling
+through to `update` until the user presses Tab.
+
+Evidence it is **pre-existing, not Wave A**: both the auto-focus branch and the
+placeholder-hides-when-focused rule were already present at commit `8eede8b`
+(2026-07-07 03:02) — the last commit before the on-disk `agent.gif`'s Jul-7 03:10
+mtime. `git diff 8eede8b HEAD -- rabbitui-core/src/routing.rs` is **empty**: Wave A
+(2026-07-08+) refactored the run loop and `Terminal<D>` but never touched focus
+reconciliation. The Jul-7 gif is a stale artifact, not proof the tape passed under
+today's code. For a chat composer, focus-at-startup is the _right_ UX (type
+immediately, no Tab) — so we keep it and fix the tapes.
+
+The real defect is in the tapes: **a `Wait+Screen` sentinel must never key on
+focus-dependent text.** A placeholder is present exactly when the field is _un_focused,
+so any tape that both (a) waits on the placeholder and (b) then types immediately
+(relying on the field being focused) is internally contradictory and will hang.
+
+- `agent.tape` — was failing. Sentinel `"prompt"` → `"idle"` (the status word, always
+  rendered). Also: bare `Type "m"`/`Type "q"` were being _swallowed by the focused
+  composer_ (verified — "m" landed in the input, mode never toggled), so the alt-screen
+  screenshot was a lie; switched to `Ctrl+T` (mode) and `Ctrl+C` (quit), which the app
+  binds precisely because the composer eats printables.
+- `todo.tape` — **was also failing** (same cause; the task brief only knew about
+  `agent`). Sentinel `"Add a todo"` (placeholder) → `"todo(s)"` (the status count).
+- `fetch.tape` — passes, but only by luck: its sentinel `"search"` matches the hint line
+  (`"search   Ctrl-L: clear …"`), not the placeholder ("Tab, then search…"). Left as-is;
+  the match is focus-independent. Its placeholder wording is stale (no Tab needed) but is
+  an example-polish item, out of scope for the tape fix.
+- All other tapes (`counter`, `focus`, `form`, `stream`, `hello`, `ratatui_interop`,
+  `gallery-*`) key on titles/hints/status text and are focus-independent — verified green.
+
+Example-side follow-ups landed with the tape fix: `examples/agent.rs` placeholder reworded
+to "Type a prompt, Enter to send…" (drop the stale "Tab,"), and the module doc's
+substrate-gap note rewritten to say the composer starts focused and that `Ctrl-T`/`Ctrl-X`
+exist so mode/cancel work while it holds focus.
+
+**Latent want (not filed):** `Frame::is_focused` already lets a _view_ read focus, but a
+`Wait+Screen`-style harness has no analogous stable, semantic "app is ready" marker — tape
+authors reach for whatever text they see, which is often the placeholder. A convention
+(always render a status token like `idle`/`ready`) or a betamax `Wait+State` predicate over
+the captured `State` JSON would make these sentinels robust by construction.

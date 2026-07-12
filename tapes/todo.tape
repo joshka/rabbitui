@@ -16,7 +16,10 @@ Wait+Screen "TAPE_BUILD_READY"
 Type "./target/debug/examples/todo"
 Show
 Enter
-Wait+Screen "Add a todo"
+# The input is focused at startup (type immediately), which hides its
+# placeholder — wait on the always-visible status count, never on the
+# focus-dependent placeholder ("Add a todo…").
+Wait+Screen "todo(s)"
 Sleep 200ms
 Type "buy carrots"
 Sleep 200ms
