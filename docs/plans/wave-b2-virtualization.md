@@ -1,5 +1,7 @@
 # Wave B2 — variable-height virtualization + Table (implementation spec)
 
+Lane claimed: wave-b2 workspace, 2026-07-11.
+
 Written 2026-07-11 on Fable. This is the differentiation bet
 (`docs/design/core-model-and-roadmap.md` §3.1): the survey's most-failed capability
 (Textual's 800× DataTable; Toolong bypassing its own framework's scrollables; Brick's
@@ -170,6 +172,42 @@ numbered findings, same format).
   on the top/bottom rows misroutes — test 2 covers this; don't weaken it.
 - `Cow<'_, str>` on `cell()` keeps zero-copy for stored strings while allowing formatted
   cells; resist `String` (allocates per painted cell per frame).
+
+## Corrections (dated)
+
+- Part 3 deferred to coordinator landing (Wave A owns comparisons concurrently),
+  2026-07-11.
+- `Frame::widget` grows a `pub(crate)` masked variant in `frame.rs` (additive only),
+  2026-07-11. Evidence: the `RenderContext` is constructed inside `Frame::widget`, and
+  `Frame`'s fields are module-private, so the window-fill pass cannot construct a
+  `hidden_top` context from `scroll.rs` without a frame-side seam. Wave A's file list
+  touches no `rabbitui-core` file, so no lane conflict is possible; flagged for the
+  coordinator anyway.
+- `ScrollState` carries the `MeasureCache` behind an `Rc<RefCell<…>>` handle and drops
+  `Copy`/`PartialEq`, 2026-07-11. The container-state seam (`Frame::container_state`)
+  clones the state every frame; a by-value `Vec<Option<u16>>` would memcpy O(len) per
+  frame, violating this plan's own no-O(n)-per-frame adjudication. The handle keeps the
+  clone O(1) and keeps `invalidate()` reachable through widget commands. No external
+  caller relied on `Copy` or `offset()` (verified 2026-07-11); `anchor()` replaces
+  `offset()`.
+- Event-time scrolling queues row deltas (`pending` fields) applied at the next render,
+  2026-07-11: anchor normalization needs item heights, and measure closures exist only
+  while the scope closure runs. Observable behavior after the next render is identical
+  to the old immediate-offset semantics.
+- Overscan is _measure_ overscan (the cache pre-measures one item beyond each window
+  edge), not declare overscan, 2026-07-11: declaring a fully-hidden widget paints
+  nothing and pollutes facts/hit-testing; pre-measuring is what makes the next wheel
+  step cheap. The facts-count bound (≤ visible + 2) is unchanged.
+- `nest` keeps its area-shrink top clipping, 2026-07-11: a nested scroll is a viewport
+  declared through `Frame::scroll(area, …)`, not a widget render, so the offset+mask
+  context does not flow through it. Its content is itself scroll-positioned, so the
+  wrong-slice bug this plan pins concerns widget items only.
+- `split_columns` is const-generic (`[Constraint; N]`); `Table` computes runtime column
+  widths with a slice-based equivalent local to `table.rs` (same cumulative exact-share
+  math), 2026-07-11. Lifting a slice variant into `layout.rs` is a coordinator
+  follow-up (out of this lane).
+- `Table`'s lazy-source constructors are `table_from_fn`/`table_rows_with`, 2026-07-11:
+  the crate root already re-exports the list's `from_fn`/`rows_with`.
 
 ## What good looks like (beyond the acceptance gates)
 
