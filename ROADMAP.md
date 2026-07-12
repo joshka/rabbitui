@@ -88,7 +88,7 @@ gates live there).
 | Item                                                                                                                                                               | Status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
 | Error story: update/view panic policy, EffectFailed UX pattern, ErrorBanner widget + effect-panic restore-hook guard                                               | ✅     |
-| Suspend/resume + $EDITOR handoff surface (qwertty RestoreHandle now delivered; suspend API is qwertty M6, in flight — our wiring waits on it)                      | ⬜     |
+| Suspend/resume + $EDITOR handoff surface (qwertty 0.1.x shipped suspend + run_detached — wiring specced in docs/plans/wave-d-qwertty-adoption.md)                  | ⬜     |
 | Keybinding/config layer: declarative keymap, user remapping, help overlay generated from it                                                                        | 🔨     |
 | Performance: budget assertions in CI from the 2B harness; CompactString cell optimization                                                                          | 🔨     |
 | Accessibility groundwork: roles/labels on specs recorded into facts (the a11y export needs them; both field reports name a11y the likely architectural tiebreaker) | ✅     |
@@ -102,7 +102,8 @@ flagship's in-app keymap (Arc 3 slice 5); the framework generalization is still 
 🔨 = iai-callgrind benches + CI workflow authored but **unverified locally** (valgrind is Linux-only).
 **qwertty adoption** 🔨 = typed mouse events adopted in the input bridge; the KeyEvent/TextPayload
 migration and `/dev/tty` backstop removal are next — unblocked now that qwertty delivered
-RestoreHandle/FakeDevice and froze the event vocabulary (ADR 0019). **Suspend** waits on qwertty M6.
+RestoreHandle/FakeDevice and froze the event vocabulary (ADR 0019). **Suspend** is unblocked:
+qwertty 0.1.x shipped suspend/resume + run_detached (`docs/plans/wave-d-qwertty-adoption.md`).
 
 ### Arc 5 — field leadership (what the field reports say would move the field)
 

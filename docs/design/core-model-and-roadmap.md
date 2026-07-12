@@ -43,8 +43,8 @@ config as builder methods (`theme`/`mode`/`mouse`/`tracing`/`log_handle`). It wo
   plumbing, because there is nowhere to put an `init` closure without changing `new`'s arity.
 - **global chords** (dogfood finding #7) → resolved "by pattern" and an `App::on_global`
   hook was _explicitly deferred_ because a boxed always-runs closure was ugly.
-- **suspend/resume** (Arc 4, waits on qwertty M6) → wants `on_suspend`/`on_resume`; same
-  shape, no home.
+- **suspend/resume** (Arc 4; qwertty 0.1.x shipped suspend — Wave D wires it) → wants
+  `on_suspend`/`on_resume`; same shape, no home.
 
 Each is a one-line default method on a trait. The closure API cannot take them gracefully.
 
@@ -107,8 +107,8 @@ so the trait is _more_ faithful to the declared-frame goal, not less.
    guard) work. `Break` exits the loop without calling `update`; pending effects still
    drain.
 6. **Cut from v1: `on_error`, `on_suspend`/`on_resume`.** `Event::EffectFailed` already
-   serves errors; suspend waits on qwertty M6. Defaulted methods are non-breaking to add
-   later — dead hooks now buy nothing (YAGNI).
+   serves errors; suspend wiring is Wave D (qwertty 0.1.x shipped it). Defaulted methods
+   are non-breaking to add later — dead hooks now buy nothing (YAGNI).
 
 ### Keep the one-liner (the std pattern)
 
@@ -139,6 +139,102 @@ closure form is a strict _subset_ expressible as a trait impl. Nothing is lost.
 - Full step-by-step implementation spec (for any-model execution):
   `docs/plans/wave-a-trait-app.md`. Wave B specs: `wave-b1-flagship-e2e.md`,
   `wave-b2-virtualization.md`. Wave C: `wave-c-forms-catalog.md`.
+
+## 1.5 The async boundary (adjudicated 2026-07-11)
+
+The question the trait forces: where does async live? Three candidate shapes — pervasive
+async-first (`async fn update`), synchronous app logic on an async core, or no async at
+all. The evidence picks the middle one decisively, and names two escape hatches.
+
+### The evidence
+
+- **Textual ran the pervasive-async experiment.** Its `async def` event handlers run on
+  the one event loop, so an await in a handler _freezes the app_ — which is why Textual
+  had to add `@work` workers as the escape hatch. An async `update` recreates exactly
+  that footgun as the default path: updates are serialized (that is what kills data races
+  by construction), so awaiting inside one stalls input, repaints, everything.
+- **`view` is per-frame.** It re-runs at up to 60fps against the frame budget; an async
+  view means unbounded frame latency. Every surveyed framework keeps views pure/sync.
+  Loading UI is _state_ ("loading…"), rendered synchronously.
+- **qwertty models the answer one level down** (`qwertty::docs::async_model`): async-first
+  at the surface, but the parts that interpret bytes are a **sans-io pure core** — no I/O,
+  no clock, no threads — with two drivers over the _identical_ core: `TokioTerminalSession`
+  (Tokio readiness) and `TerminalSession` (blocking poll loop, no runtime at all). "Only
+  who feeds bytes and time differs."
+
+rabbitui already has the same layering one level up, and should keep it deliberately:
+
+- `rabbitui-core` (update fold, layout, paint, facts, routing) is the sans-io analogue:
+  pure state machines, no I/O, no clock, `!Send` (ADR 0005).
+- The facade's `run_loop` is the driver (Tokio readiness today); the effects mailbox is
+  the **only** `Send` surface. Async enters at exactly three edges: input (substrate),
+  effects (`Command`), and the paint timer.
+- App hooks (`update`/`view`/`init`/`global`) are synchronous **by design**, not by
+  omission: they run inside the serialized fold where an await is a frozen UI.
+
+### What each archetype actually needs (why sync hooks don't hurt)
+
+Every archetype's async need is the same shape — _start work, keep the UI alive, fold the
+result back in_ — which is `Command`, not `await`:
+
+- Agent CLI: token stream in → `Command::stream` (proven in the flagship).
+- Log follower: tail a file → `Command::stream` (proven in the comparison app).
+- Dashboard / monitor: interval fetch → self-reissuing `Command`/stream.
+- Picker: filesystem scan → `Command::future` + incremental `Message`s.
+- Forms: async validation → `Command::future` per field edit (grouped, cancel-previous).
+- Editor-ish load/save: `Command::future(async { fs work })`; note `tokio::fs` is
+  `spawn_blocking` underneath — plain `std::fs` inside `spawn_blocking` is the honest
+  pattern for heavy filesystem work.
+
+None of these needs to await _inside_ `update`; all of them break if `update` awaits.
+
+### The real pain, and the v1 answer
+
+The genuine ceremony cost of commands is the `Message`-enum round trip: one variant + one
+match arm per one-shot async result. The **closure-message idiom** collapses that to a
+single variant, today, with zero framework machinery:
+
+```rust
+enum Message {
+    Apply(Box<dyn FnOnce(&mut MyApp) + Send>),   // the one variant
+    // …plus real variants where matching matters (streams, cancellation)
+}
+// one-shot load, no per-operation variant:
+update.spawn(Command::future(async move {
+    let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path)).await;
+    Message::Apply(Box::new(move |app| app.file = text.ok()))
+}));
+```
+
+Document this idiom in the `effect` module and one example. **Future shape (not v1):** a
+first-class `Outbox::Apply(Box<dyn FnOnce(&mut dyn Any) + Send>)` variant — post-Wave-A
+the loop knows the concrete `A: App` and can downcast — giving `spawn_then(future, |app,
+out| …)` without the enum entirely. Add it only if the idiom proves insufficient (YAGNI).
+
+### The "no async" tertiary shape
+
+A `run_blocking()` driver over qwertty's **synchronous** `TerminalSession` is genuinely
+buildable — the app core is already sync, and qwertty proved the dual-driver shape works
+(same core, blocking poll loop, no runtime). Honest caveat: `Command` is future-based, so
+a sync driver either restricts apps to no-effects or embeds a current-thread runtime for
+the mailbox. Recorded as a roadmap option for the embedded/simple-tool archetype, gated on
+demand; the async-core default stands.
+
+### Trait hooks × archetypes (the forward frame)
+
+- `init` → self-starting archetypes (agent, log follower, dashboard) spawn their opening
+  stream with no first-keypress hack.
+- `global` → every archetype's always-on chords (quit/help/suspend).
+- `config` → mode per archetype: inline for agent CLIs, alt-screen for browse apps;
+  grows fields (e.g. scroll behavior, paste mode) without trait churn.
+- `update` + `Command` → all async work, serialized fold, race-free by construction.
+- `view` → sync forever; per-frame.
+- `run_over_device` → the testing archetype (harness, CI).
+- **Now unblocked by qwertty 0.1.x** (shipped: suspend/resume around `SIGTSTP`/`SIGCONT`,
+  `run_detached` $EDITOR handoff, `ResizeStream`, lone-Esc flush control, crates.io
+  publish): `on_suspend`/`on_resume` hooks + `Event::Resize` becoming push-based — specced
+  in `docs/plans/wave-d-qwertty-adoption.md`, added to the trait as defaulted methods
+  (non-breaking) when Wave D lands.
 
 ## 2. The fundamental library — capability tiers and current status
 
@@ -178,8 +274,9 @@ Each line: capability _(consensus, home)_ — current status.
 - **Devtools** _(Textual-strong; testing)_ — **Have-ish**: `FactsInspector`, `facts::dump`.
 
 Missing **hooks**: `global` lands with the §1 trait; `on_suspend`/`on_resume` follow as
-defaulted methods when qwertty M6 ships (non-breaking); `on_error` is cut —
-`Event::EffectFailed` already serves it. `init` = trait hook + `Event::Started` (§1 №4).
+defaulted methods in Wave D — qwertty 0.1.x shipped suspend/resume (non-breaking);
+`on_error` is cut — `Event::EffectFailed` already serves it. `init` = trait hook +
+`Event::Started` (§1 №4).
 
 The boundary is already crisp in the ADRs and should stay that way:
 
@@ -265,9 +362,10 @@ Form builder + `derive(Form)` + validation; virtualized `Table`; extract agent-c
 widgets (transcript/tool-cell/composer) from the flagship into `rabbitui-widgets`.
 
 **Wave D — substrate adoption (qwertty).**
-KeyEvent/TextPayload pre-pin migration; drop the `/dev/tty` backstop; width/grapheme
-negotiation (mode 2027); suspend/resume when qwertty M6 lands; begin IME/preedit (the named
-v0.1 gap — only the facts anchor is reserved today).
+Fully specced in `docs/plans/wave-d-qwertty-adoption.md` now that qwertty shipped 0.1.x:
+version dep + CI, suspend/resume + $EDITOR hooks, push-based resize, lone-Esc timing,
+KeyEvent pre-pin migration, `/dev/tty` backstop removal, width negotiation (mode 2027);
+begin IME/preedit (the named v0.1 gap — only the facts anchor is reserved today).
 
 **Wave E — accessibility export (the forcing-function).**
 Consume the roles/labels already in facts → an AccessKit-style export behind a feature. This
