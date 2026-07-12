@@ -172,8 +172,9 @@ facts for the eventual decision, recorded without deciding:
   would supersede that amendment and its three rationale points, which should be argued against
   explicitly rather than silently dropped.
 - The name `rabbitui` became semi-public on 2026-07-10 (author's r/rust comment), which raises the
-  cost of a later rename and adds a pre-publish task: a crates.io availability/collision check
-  (an abandoned `maxmindlin/rabbitui` GitHub repo exists).
+  cost of a later rename. The crates.io question is resolved: the author published six `0.0.0`
+  name-reservation crates on 2026-07-11 (GitHub repo public, reservation-only) — the name is held
+  either way the decision goes.
 
 The decision itself remains in the author queue (`docs/plans/00-execution-playbook.md`), blocking
 0.1.

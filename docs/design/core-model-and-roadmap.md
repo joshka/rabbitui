@@ -360,8 +360,8 @@ ROADMAP.md's tracker; this list is forward-only.)
   retained tree. Start exploratory once B/C stabilize the facts shape.
 - **Wave F — 0.1 polish**: buffer-level layer compositing, styled-span soft-wrap,
   block-level early commit, cargo-semver-checks + release automation, **the naming
-  decision** (incl. crates.io availability check — see "What rabbitui is"), concept
-  docs, `examples/simple.rs` + size budgets (appendix B).
+  decision** (crates.io names reserved 2026-07-11 — six `0.0.0` placeholder crates
+  live; see ADR 0014), concept docs, `examples/simple.rs` + size budgets (appendix B).
 - **Wave G — archetype showcase** (`wave-g-archetype-showcase.md`): faked-out archetype
   pairs (picker, form, dashboard, inline streamer) built identically in rabbitui and
   honest idiomatic ratatui, with a metrics script (LoC, plumbing, framework-ownable

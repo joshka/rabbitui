@@ -86,6 +86,41 @@ flag** — check substrate-status.md before starting it.
   sections that fill in depth, with detail pushed to appendices or plan files. A doc that
   grew by accretion gets restructured, not appended to.
 
+## Multi-session parallel execution (added 2026-07-11)
+
+For running several Claude threads concurrently on the wave plans. Two safe modes; never
+mix them on the same files.
+
+**Mode 1 — one session, parallel subagents (the proven default).** The coordinator
+session owns `work/default` and the jj working copy; subagents edit **disjoint file
+sets** (assigned from the wave's file list); only the coordinator runs jj commands and
+commits path-scoped. This is how Arcs 1–3 were built, including crash recovery. Use it
+whenever the lanes fit one session's attention.
+
+**Mode 2 — one session per wave, one jj workspace per session.** For genuinely
+concurrent threads: each session runs `jj workspace add ../wave-<x>` (sibling of
+`work/default`) and works only there. Rules:
+
+- **Never** run `jj workspace update-stale` without confirming which directory owns the
+  record (the two data-loss incidents were workspace contention; the repo root's renamed
+  `working_copy.stale-bak` is deliberate).
+- A session claims its lane by writing its workspace name + wave + date into the wave
+  plan's header before starting; the lane matrix in `core-model-and-roadmap.md` (and the
+  file lists in each plan) define what it may touch. Anything outside the list needs the
+  coordinator.
+- **Landing is serialized through the coordinator**: the wave session leaves its work as
+  committed changes in its workspace; the coordinator rebases lanes onto trunk in
+  dependency order (A before B1/C/D2-D3; B2 parts 1–2 anytime; B2 part 3 after A),
+  reruns the full gates after each rebase, and only then advances trunk. No wave session
+  ever rebases another's work.
+- Merge conflicts are expected only where the lane matrix predicted overlap; a conflict
+  outside the matrix means a session left its lane — investigate before resolving.
+
+**Integration gates at every landing** (Mode 1 or 2): full workspace + standalone-crate
+suites, clippy, nightly fmt, e2e 5×, markdownlint on touched docs; betamax visual pass
+flagged for the coordinator when anything visible changed. CI is the backstop, not the
+integration mechanism — the coordinator's rebase-and-regate is.
+
 ## Definition of done (global; wave plans add specifics)
 
 "Done" is not "compiles and the listed tests pass." Every wave item meets ALL of:
