@@ -139,6 +139,49 @@ of this lane; noted for the coordinator. (B2 also flagged two private
 `truncate_to_width` twins and a slice-based `split_lengths` — both internal to
 `rabbitui-widgets`; neither bit the app.)
 
+## Form adoption (2026-07-12) — findings 12–14
+
+Rewriting `examples/form.rs` onto the new `form`/`FormScope` declaration helper
+(Wave C1) deleted the hand-rolled layout: the 10-band `split_rows`, the two
+inline status-line role/text computations, and the manual field/status/gap rows
+all went away, leaving one `form.field(...)` call per row that reads as a
+description of the form. Validation moved out of the view and into `update`
+(two `validate_*` rules storing `Option<String>`), which is where the app-land
+contract wants it. These are the edges the adoption surfaced.
+
+**12. The spec's `Role::Error` does not exist — the role is `Role::Danger`.** The
+C1 spec (and the execution brief) named `Role::Error` for the error line and the
+required marker, but `rabbitui-core::theme::Role` has no `Error` variant; the
+danger semantic role is `Role::Danger` (the four presets — default,
+catppuccin_mocha, nord, dracula — all populate it). Implemented against
+`Role::Danger` throughout. **Not a framework gap**, just a naming slip in the
+spec; noted so a future `#[derive(Form)]` pass (C2) and any doc that repeats
+"`Role::Error`" get corrected to `Role::Danger`.
+
+**13. Single-pass layout forces the label width up front — the caller measures
+its own labels.** `form` takes an `FnOnce` closure (matching the spec), so it
+cannot two-pass to discover the widest label the way `ScrollScope` re-runs its
+`Fn` closure; the label-column width must be known before the first field
+declares. The adjudicated shape (caller-supplied `label_width`, a `measure`-style
+helper) is honored with a `label_width(labels)` free fn, but the call site must
+name its labels twice — once in the `label_width([...])` call and once per
+`FieldSpec::new(...)`. In the example a `const LABELS` array is the single source
+that feeds the width helper, which keeps it honest but still duplicates each
+label string into its `field` call. **Want (deferred to C2):** the `#[derive(Form)]`
+pass, which owns the field set, can compute the width without the caller naming
+labels twice — the derive is the natural home for the auto-width `ScrollScope`
+could not give a single-pass helper.
+
+**14. A footer below the form needs the form's consumed height.** `form` returns
+the number of rows it consumed, which the example uses to place a one-line
+hint/result row just beneath the fields. That is the right primitive (the form
+owns its own vertical extent and reports it), but it is the one bit of geometry
+the caller still touches — `inner.origin.y + used`. It reads cleanly and is
+strictly better than the old code (which hard-coded row indices into a fixed
+`split_rows`), so this is a **note, not a want**: any content a form does not own
+(a trailing status line, a section between two forms) composes off the returned
+height, and that is the intended seam.
+
 ## Also noted
 
 - The detail modal's `message` value rendered thin in one screenshot — a minor layout

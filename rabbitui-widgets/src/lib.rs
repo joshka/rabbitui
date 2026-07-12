@@ -47,6 +47,12 @@
 //!   Because widgets cannot nest yet, it paints behind content declared into its
 //!   [`Panel::inner`] area (the pre-composition pattern; the catalog arc turns it
 //!   into a real container).
+//! - [`form`](fn@form) — not a widget but a *declaration helper* (widgets do not
+//!   nest): [`form`](fn@form) opens a scope and [`FormScope`] lays out
+//!   label-aligned fields down an area, displaying app-supplied validation errors
+//!   in [`Role::Danger`](rabbitui_core::theme::Role::Danger). Validation stays
+//!   app-land (ADR 0001); the form only displays. The
+//!   [`ScrollScope`](rabbitui_core::scroll::ScrollScope) pattern applied to forms.
 //! - `FactsInspector` — a read-only devtools overlay that renders the previous
 //!   frame's [`FrameFacts`](rabbitui_core::facts::FrameFacts) tree (id path, area,
 //!   layer, focusable, visibility, focus marker) in a themed panel, matching the
@@ -76,6 +82,7 @@ pub mod collapsible;
 pub mod error_banner;
 #[cfg(feature = "devtools")]
 pub mod facts_inspector;
+pub mod form;
 pub mod help_overlay;
 #[cfg(feature = "tracing")]
 pub mod log_overlay;
@@ -91,6 +98,7 @@ pub use collapsible::Collapsible;
 pub use error_banner::ErrorBanner;
 #[cfg(feature = "devtools")]
 pub use facts_inspector::FactsInspector;
+pub use form::{FieldSpec, FormScope, form, label_width};
 pub use help_overlay::HelpOverlay;
 #[cfg(feature = "tracing")]
 pub use log_overlay::LogOverlay;

@@ -1,5 +1,10 @@
 # Wave C — forms + catalog extraction (implementation spec)
 
+> **Lane claim:** C1 claimed by workspace `wave-c1` (Wave C1 session), 2026-07-12.
+> Touching `rabbitui-widgets/src/form.rs` + `lib.rs` exports + widget tests,
+> `rabbitui/examples/form.rs`, `docs/design/dogfood-findings.md`, and this file's
+> C1 section. Landing serialized through the coordinator.
+
 Written 2026-07-11 on Fable. "The catalog is the product"; forms are the sharpest catalog
 sub-gap (`core-model-and-roadmap.md` §4, `recent-rust-tui-wave.md` §2). C1 is fully
 specced; C2/C3 are scoped with their design constraints pinned so a later pass can spec
@@ -61,6 +66,28 @@ any friction.
 
 Acceptance: workspace suites + clippy + fmt green; `form` example visually verified
 (coordinator betamax); commit `feat(widgets): FormScope — declared-frame forms`.
+
+**Completed 2026-07-12 (workspace `wave-c1`).** Landed `rabbitui-widgets/src/form.rs`
+(`FieldSpec`, `FormScope` with `field`/`gap`/`buttons`, the `form(frame, key, area,
+label_width, f) -> u16` entry, and a `label_width(labels)` helper), re-exported from
+`lib.rs`; rewrote `rabbitui/examples/form.rs` onto it (deleted the 10-band
+`split_rows`, both inline status-line computations, and the manual field/status/gap
+rows — validation moved into `update`). Eight in-module tests cover label-column
+alignment, error line appears/disappears, error+marker in the danger role, focus
+order = declaration order, `desired_height` accounting, `gap`/`buttons` cursor
+advance, and input-under-field-key. All gates green: `cargo test --workspace`,
+clippy zero, `+nightly fmt --check`, `RUSTDOCFLAGS=-D warnings cargo doc`,
+markdownlint. Two spec corrections, dated in `dogfood-findings.md` (findings 12–14):
+
+- **`Role::Error` → `Role::Danger`.** `rabbitui-core::theme::Role` has no `Error`
+  variant; the error line and required `*` marker paint in `Role::Danger` (populated
+  by all four presets). The "Role::Error" mentions above are read as `Role::Danger`.
+- **`label_width` is caller-supplied via the `label_width(labels)` helper** (the
+  adjudicated `measure`-style option), because `form`'s `FnOnce` closure cannot
+  two-pass for auto-width the way `ScrollScope`'s `Fn` closure does. Auto-width is
+  deferred to the C2 derive, which owns the field set.
+
+Visual acceptance (betamax `form` tape) is the coordinator's — flagged.
 
 ## C2 — `#[derive(Form)]` (scoped, needs its own spec pass)
 

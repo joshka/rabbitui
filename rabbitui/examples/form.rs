@@ -1,48 +1,60 @@
-//! Overlays, forms, and mouse: a validated form with a modal confirm — the
-//! slice-7 flagship (`docs/design/slice7-overlays-mouse.md`).
+//! A validated form with a modal confirm, declared with the [`form`] helper.
 //!
-//! Demonstrates, end to end:
+//! The layout is not hand-rolled: [`form`] lays out each field — a right-aligned
+//! label column, the input beside it, an error line below — so the [`view`] reads
+//! top to bottom as a *description* of the form, one [`field`](FormScope::field)
+//! call per row. What the example still owns is what a framework must never own:
 //!
-//! - **A real form.** Name and email [`TextInput`]s plus a small notes
-//!   [`SelectionList`], with a Submit [`Button`]. Each field shows an inline
-//!   validation status line, styled by [`Role`] — [`Role::Danger`] while invalid,
-//!   [`Role::Success`] when it passes. Submit is enabled only when both fields
-//!   validate (a disabled button declares itself non-focusable, so Tab skips it).
+//! - **Validation, in `update`.** The app validates each field on its
+//!   [`Changed`]/[`Submitted`] outcome and stores an `Option<String>` error; the
+//!   form only *displays* it (ADR 0001). The required `*` markers are hints the
+//!   form draws; the *rules* live here.
 //! - **A modal on a z-layer.** Submitting opens a confirm modal declared with
-//!   [`Frame::layer`](rabbitui_core::frame::Frame::layer): while it is open, Tab
-//!   provably cycles only its two buttons (Ok / Cancel) — the base form is inert
-//!   — and Esc dismisses it. Focus moves into the modal via a declare-then-focus
-//!   request the moment it appears (the one-frame retry closes that edge).
-//! - **Mouse routing through facts.** Click a field to focus it, click Ok/Cancel
-//!   in the modal, and use the wheel over the notes list to move its selection —
-//!   all routed through the same [`route`](rabbitui_core::routing::route) path as
-//!   keys, hit-testing the previous frame's facts (layer-aware, so a click over
-//!   the modal never reaches the base beneath it).
+//!   [`Frame::layer`]: while it is open Tab cycles only its two buttons and Esc
+//!   dismisses it, and focus moves into it via a declare-then-focus request.
+//! - **Mouse routing through facts.** Clicking a field focuses it, clicking a
+//!   button activates it, and the wheel over the notes list moves its selection —
+//!   all routed by the framework against the previous frame's facts, layer-aware,
+//!   with no mouse code in the example.
 //!
-//! Run with `cargo run --example form`. Tab between fields; type a name and an
-//! email; click Submit (or press it while focused) to open the confirm modal;
-//! Ok submits and clears, Cancel or Esc dismisses; `q` (with no field focused)
-//! or Ctrl-C quits.
+//! Run with `cargo run --example form`. Tab/↑↓ between fields; type a name and an
+//! email; press Submit (or Enter in a field) to open the confirm modal; Ok
+//! submits and clears, Cancel or Esc dismisses; `q` (no field focused) or Ctrl-C
+//! quits.
+//!
+//! [`form`]: rabbitui_widgets::form::form
+//! [`FormScope::field`]: rabbitui_widgets::form::FormScope::field
+//! [`field`]: rabbitui_widgets::form::FormScope::field
+//! [`view`]: rabbitui::App::view
+//! [`Changed`]: rabbitui_core::outcome::Outcome::Changed
+//! [`Submitted`]: rabbitui_core::outcome::Outcome::Submitted
+//! [`Frame::layer`]: rabbitui_core::frame::Frame::layer
 
 use std::ops::ControlFlow;
 
 use rabbitui::App;
 use rabbitui::app::{Event, Update};
 use rabbitui_core::frame::Frame;
+use rabbitui_core::geometry::{Position, Rect, Size};
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
 use rabbitui_core::layout::{Constraint, center, split_rows};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
+use rabbitui_widgets::form::{FieldSpec, form, label_width};
 use rabbitui_widgets::{Button, Panel, SelectionList, Text, TextInput};
 
-/// The form's owned state.
+/// The form's owned state — including the validation errors the form displays.
 #[derive(Default)]
 struct Form {
     /// The current name draft, tracked from the name field's `Changed` outcomes.
     name: String,
     /// The current email draft, tracked from the email field's `Changed` outcomes.
     email: String,
+    /// The name field's validation error, recomputed in `update` (app-land).
+    name_error: Option<String>,
+    /// The email field's validation error, recomputed in `update` (app-land).
+    email_error: Option<String>,
     /// Whether the confirm modal is open.
     confirming: bool,
     /// Whether a focus request into the modal is still owed (set when the modal
@@ -52,21 +64,41 @@ struct Form {
     submitted: Option<String>,
 }
 
+/// The field labels, in declaration order — the single source for the label
+/// column width, so the layout stays arithmetic-free.
+const LABELS: [&str; 3] = ["Name", "Email", "Notes"];
+
+/// The notes options — a small list to prove wheel-over-list routing.
+const NOTES: &[&str] = &[
+    "Follow up by email",
+    "Add to newsletter",
+    "No further contact",
+];
+
 impl Form {
-    /// Whether the name is non-empty.
-    fn name_ok(&self) -> bool {
-        !self.name.trim().is_empty()
+    /// Validates the name: non-empty. Returns the error to display, if any — the
+    /// app's rule, called on the name field's edits.
+    fn validate_name(name: &str) -> Option<String> {
+        name.trim()
+            .is_empty()
+            .then(|| "name is required".to_string())
     }
 
-    /// Whether the email looks like an address (contains `@` with text around it).
-    fn email_ok(&self) -> bool {
-        let email = self.email.trim();
-        email.contains('@') && !email.starts_with('@') && !email.ends_with('@')
+    /// Validates the email: looks like an address (an `@` with text around it).
+    fn validate_email(email: &str) -> Option<String> {
+        let email = email.trim();
+        if email.is_empty() {
+            Some("email is required".to_string())
+        } else if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
+            Some("email must contain @".to_string())
+        } else {
+            None
+        }
     }
 
-    /// Whether the form is submittable (both fields valid).
+    /// Whether the form is submittable (both fields currently valid).
     fn valid(&self) -> bool {
-        self.name_ok() && self.email_ok()
+        Self::validate_name(&self.name).is_none() && Self::validate_email(&self.email).is_none()
     }
 
     /// Closes the modal and clears the transient focus request.
@@ -76,23 +108,19 @@ impl Form {
     }
 }
 
-/// The notes options — a small list to prove wheel-over-list routing.
-const NOTES: &[&str] = &[
-    "Follow up by email",
-    "Add to newsletter",
-    "No further contact",
-];
-
 impl App for Form {
-    /// Folds one update into the form: track field edits, open/close the modal,
-    /// and quit.
+    /// Folds one update into the form: track field edits, **validate** them, open
+    /// or close the modal, and quit.
     fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
-        // Track the two text fields' edits (uncontrolled inputs report via Changed).
-        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("name")]) {
+        // Track and validate the two text fields (uncontrolled inputs report via
+        // Changed). Validation is the app's — the form only displays the result.
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("form"), key("name")]) {
             self.name = value.clone();
+            self.name_error = Self::validate_name(&self.name);
         }
-        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("email")]) {
+        if let Some(Outcome::Changed(value)) = update.outcome_for(&[key("form"), key("email")]) {
             self.email = value.clone();
+            self.email_error = Self::validate_email(&self.email);
         }
 
         if self.confirming {
@@ -120,26 +148,29 @@ impl App for Form {
                 self.focus_modal = false;
             }
         } else {
-            // Base form: the Submit button, or Enter inside either field (the
-            // web-form convention — a field's Submitted outcome attempts the form
-            // submit), opens the confirm modal when the form is valid. Enter in a
-            // field of an invalid form focuses the first invalid field instead,
-            // whose status line already says what is wrong.
-            let button = update.outcome_for(&[key("submit")]) == Some(&Outcome::Activated);
-            let field_enter = update.outcome_for(&[key("name")]) == Some(&Outcome::Submitted)
-                || update.outcome_for(&[key("email")]) == Some(&Outcome::Submitted);
+            // Base form: the Submit button, or Enter inside a text field (the
+            // web-form convention), opens the confirm modal when the form is
+            // valid. On an invalid submit, surface every field's error and focus
+            // the first offender.
+            let button =
+                update.outcome_for(&[key("form"), key("submit")]) == Some(&Outcome::Activated);
+            let field_enter = update.outcome_for(&[key("form"), key("name")])
+                == Some(&Outcome::Submitted)
+                || update.outcome_for(&[key("form"), key("email")]) == Some(&Outcome::Submitted);
             if button || field_enter {
                 if self.valid() {
                     self.confirming = true;
                     self.focus_modal = true;
                     self.submitted = None;
-                } else if field_enter {
-                    let invalid = if self.name.trim().is_empty() {
+                } else {
+                    self.name_error = Self::validate_name(&self.name);
+                    self.email_error = Self::validate_email(&self.email);
+                    let first_invalid = if self.name_error.is_some() {
                         "name"
                     } else {
                         "email"
                     };
-                    update.focus(&[key(invalid)]);
+                    update.focus(&[key("form"), key(first_invalid)]);
                 }
             }
         }
@@ -160,10 +191,10 @@ impl App for Form {
                 };
                 let at = order
                     .iter()
-                    .position(|name| update.is_focused(&[key(name)]));
+                    .position(|name| update.is_focused(&[key("form"), key(name)]));
                 if let (Some(step), Some(at)) = (step, at) {
                     let next = (at as i32 + step).rem_euclid(order.len() as i32) as usize;
-                    update.focus(&[key(order[next])]);
+                    update.focus(&[key("form"), key(order[next])]);
                 }
             }
         }
@@ -182,13 +213,10 @@ impl App for Form {
         ControlFlow::Continue(())
     }
 
-    /// Declares the form and, when confirming, the modal layer over it.
+    /// Declares the form and, when confirming, the modal layer over it. The field
+    /// layout is the `form` helper's job; this reads as a list of fields.
     fn view(&self, frame: &mut Frame<'_>) {
-        // A centered form panel at a sensible width — a form shouldn't sprawl
-        // across a wide terminal. Its border highlights while a field (not the
-        // modal) holds focus; while the modal is up, the base reads as inert
-        // (unfocused border).
-        let area = center(frame.area(), 60, 16);
+        let area = center(frame.area(), 60, 18);
         let panel = Panel::new()
             .title("form")
             .padding(1)
@@ -196,86 +224,55 @@ impl App for Form {
         frame.widget(key("panel"), area, &panel);
         let inner = Panel::inner(area, &panel);
 
-        let [
-            name_row,
-            name_status,
-            _gap1,
-            email_row,
-            email_status,
-            _gap2,
-            notes_area,
-            _gap3,
-            submit_row,
-            result_row,
-        ] = split_rows(
-            inner,
-            [
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(NOTES.len() as u16),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Fill(1),
-            ],
-        );
+        // The whole form, declared as fields: label alignment, the error lines,
+        // and the focus order all fall out of the declaration order below.
+        let used = form(frame, key("form"), inner, label_width(LABELS), |form| {
+            form.field(
+                key("name"),
+                FieldSpec::new("Name")
+                    .required()
+                    .error(self.name_error.as_deref()),
+                &TextInput::new().placeholder("Name"),
+            );
+            form.field(
+                key("email"),
+                FieldSpec::new("Email")
+                    .required()
+                    .error(self.email_error.as_deref()),
+                &TextInput::new().placeholder("Email"),
+            );
+            form.field(
+                key("notes"),
+                FieldSpec::new("Notes"),
+                &SelectionList::new(NOTES),
+            );
+            form.gap(1);
+            form.buttons(|frame, row| {
+                let label = if self.valid() {
+                    "[ Submit ]"
+                } else {
+                    "[ Submit (fill fields) ]"
+                };
+                frame.widget(
+                    key("submit"),
+                    row,
+                    &SubmitButton {
+                        label,
+                        enabled: self.valid(),
+                    },
+                );
+            });
+        });
 
-        // Name field + its validation status.
-        frame.widget(key("name"), name_row, &TextInput::new().placeholder("Name"));
-        let (name_msg, name_role) = if self.name.is_empty() {
-            ("  name: required".to_string(), Role::Muted)
-        } else if self.name_ok() {
-            ("  name: ok".to_string(), Role::Success)
-        } else {
-            ("  name: must not be blank".to_string(), Role::Danger)
-        };
-        frame.widget(
-            key("name_status"),
-            name_status,
-            &Text::new(&name_msg).role(name_role),
+        // A result / hint line, placed just under the form (its reported height
+        // is the only geometry the caller needs — no field arithmetic).
+        let [result_row] = split_rows(
+            Rect::new(
+                Position::new(inner.origin.x, inner.origin.y + used),
+                Size::new(inner.size.width, 1),
+            ),
+            [Constraint::Length(1)],
         );
-
-        // Email field + its validation status.
-        frame.widget(
-            key("email"),
-            email_row,
-            &TextInput::new().placeholder("Email"),
-        );
-        let (email_msg, email_role) = if self.email.is_empty() {
-            ("  email: required".to_string(), Role::Muted)
-        } else if self.email_ok() {
-            ("  email: ok".to_string(), Role::Success)
-        } else {
-            ("  email: must contain @".to_string(), Role::Danger)
-        };
-        frame.widget(
-            key("email_status"),
-            email_status,
-            &Text::new(&email_msg).role(email_role),
-        );
-
-        // Notes: a small selection list (proves wheel-over-list routing).
-        frame.widget(key("notes"), notes_area, &SelectionList::new(NOTES));
-
-        // Submit: focusable/clickable only when the form validates.
-        let submit_label = if self.valid() {
-            "[ Submit ]"
-        } else {
-            "[ Submit (fill fields) ]"
-        };
-        frame.widget(
-            key("submit"),
-            submit_row,
-            &SubmitButton {
-                label: submit_label,
-                enabled: self.valid(),
-            },
-        );
-
-        // A result / hint line.
         let result = match &self.submitted {
             Some(message) => Text::new(message).role(Role::Success),
             None => Text::new("Tab/↑↓: move  Enter: submit  Ctrl-C: quit").role(Role::Muted),
@@ -283,10 +280,7 @@ impl App for Form {
         frame.widget(key("result"), result_row, &result);
 
         // The confirm modal, on a higher layer. While declared, Tab cycles only
-        // its two buttons and clicks over it never reach the base (facts
-        // hit-test prefers the top layer). It is its own centered, focused panel
-        // floating over the form — the overlay reads as a distinct surface, not
-        // text over text.
+        // its two buttons and clicks over it never reach the base.
         if self.confirming {
             let modal_area = center(frame.area(), 44, 8);
             frame.layer(key("modal"), |modal| {
@@ -356,9 +350,7 @@ impl rabbitui_core::widget::Widget for SubmitButton<'_> {
         use rabbitui_core::widget::Handled;
         // A disabled button never renders focusable, so the router won't target it
         // for keys; it can still be *clicked*, so guard the mouse path too by only
-        // activating on a left press (a disabled button emits nothing because the
-        // app checks `valid()` before opening the modal, but activating on click is
-        // still the button contract).
+        // activating on a left press.
         if let Some(mouse) = event.as_mouse() {
             if mouse.button == MouseButton::Left && mouse.kind == MouseKind::Down {
                 ctx.emit(Outcome::Activated);
