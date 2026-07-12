@@ -1,8 +1,10 @@
-# CI scaffolding. NOTE: the workspace lives at work/default and depends on
-# qwertty as a path dependency three levels up; until qwertty publishes (see
-# RELEASE-CHECKLIST.md) CI clones it to the expected sibling location. If the
-# clone is unavailable this workflow fails visibly — that is the checklist
-# item, not a CI bug.
+# CI scaffolding. NOTE: the published tree has the crate workspace at the repo
+# root, but the root Cargo.toml keeps a local jj-layout path dependency on
+# qwertty at `../../../qwertty/work/default` (see docs/adr/0012-terminal-substrate.md
+# and RELEASE-CHECKLIST.md) so local `work/*` workspaces build unchanged. Until
+# qwertty publishes to crates.io, CI clones it into exactly that expected
+# location so the path dependency resolves. If the clone is unavailable this
+# workflow fails visibly — that is the checklist item, not a CI bug.
 name: CI
 
 on:
@@ -12,7 +14,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  WORKSPACE: work/default
+  # The workspace is at the repo root in a fresh checkout (the local `work/default`
+  # jj workspace path does not exist here).
+  WORKSPACE: .
 
 jobs:
   test:
@@ -20,7 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../qwertty-shim" && ln -sfn "$GITHUB_WORKSPACE/../qwertty-shim" ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -49,7 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
         with:
@@ -71,7 +79,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -99,7 +109,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -131,7 +143,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -149,5 +163,5 @@ jobs:
       - uses: DavidAnson/markdownlint-cli2-action@v18
         with:
           globs: |
-            work/default/**/*.md
-            !work/default/target/**
+            **/*.md
+            !target/**

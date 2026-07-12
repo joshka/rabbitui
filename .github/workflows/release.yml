@@ -30,7 +30,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  WORKSPACE: work/default
+  # The workspace is at the repo root in a fresh checkout (the local `work/default`
+  # jj workspace path does not exist here).
+  WORKSPACE: .
   # GUARD: keep this "true". A real publish is blocked on qwertty (see header).
   DRY_RUN: "true"
 
@@ -42,7 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -70,7 +74,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

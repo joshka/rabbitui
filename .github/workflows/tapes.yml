@@ -29,7 +29,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  WORKSPACE: work/default
+  # The workspace is at the repo root in a fresh checkout (the local `work/default`
+  # jj workspace path does not exist here).
+  WORKSPACE: .
 
 jobs:
   tapes:

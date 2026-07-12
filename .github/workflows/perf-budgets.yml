@@ -10,9 +10,10 @@
 # (rabbitui/benches/frame_iai.rs) is authored but disabled in the manifest on dev
 # machines and enabled here. See that file's header.
 #
-# NOTE: same qwertty path-dependency caveat as ci.yml — the workspace lives at
-# work/default and depends on qwertty three levels up; CI clones it to the expected
-# sibling location.
+# NOTE: same qwertty path-dependency caveat as ci.yml — the crate workspace is at
+# the repo root in a fresh checkout, but the root Cargo.toml keeps the local
+# jj-layout path dependency on qwertty at ../../../qwertty/work/default; CI clones
+# qwertty into exactly that location so the path dependency resolves.
 #
 # Updating a baseline intentionally: iai-callgrind stores baselines under
 # target/iai. A deliberate change to a hot path will trip the threshold; regenerate
@@ -29,7 +30,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  WORKSPACE: work/default
+  # The workspace is at the repo root in a fresh checkout (the local `work/default`
+  # jj workspace path does not exist here).
+  WORKSPACE: .
 
 jobs:
   iai-callgrind:
@@ -37,7 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone qwertty to the path-dependency location
-        run: git clone --depth 1 https://github.com/joshka/qwertty ../../qwertty || true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - name: Install valgrind
         run: sudo apt-get update && sudo apt-get install -y valgrind
       - uses: dtolnay/rust-toolchain@stable
