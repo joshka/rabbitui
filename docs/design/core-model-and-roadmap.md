@@ -31,6 +31,45 @@ ecosystem and stall (`rooibos`: a complete signals+taffy+async synthesis, five s
 So the differentiation is **not** the programming model. It is: the boring correct middle,
 a real catalog, a runnable test harness, and being first to a credible accessibility export.
 
+## 0.5 The size question (it will be the first question at announcement)
+
+Evidence: r/rust, 2026-07-10 — "Looking for a simple TUI framework (smaller than
+Ratatui?)". rabbitui was publicly name-dropped in that thread ("not smaller but it is
+cuter"), so this exact question now has our name attached. The thread decomposes into
+three different demands wearing one word, and each gets a different answer:
+
+1. **Cognitive size (the OP's actual complaint).** The asker wanted tile layout, a few
+   keybinds, and a modal with a text input — "am I using 10% of ratatui?" That is not a
+   bytes problem; it is _ceremony_: they want the missing middle with less setup, which is
+   this document's whole thesis. The thread recommends Cursive because it is
+   batteries-included — validating that "smaller" often means "higher-level."
+   **Answer: an `examples/simple.rs` that implements literally the OP's app** (grid
+   tiles, a couple of chords, a modal with a `TextInput`) in as few lines as the trait
+   model allows — an acceptance artifact and the announcement's opening code block.
+2. **Actual weight (dependencies, binary, compile time).** Measured 2026-07-11:
+   `rabbitui-core` = **3 crates** (the sans-io core is genuinely tiny);
+   `rabbitui-widgets` = 4; the facade = **51 unique crates**, almost entirely the tokio
+   tax (mio, signal-hook, macros, futures-core); `hello` release binary = 2.5 MB
+   (~2.0 MB stripped) — comfortably inside the thread's own hosted-app calibration
+   ("full app with sqlite + audio < 5 MB") and irrelevant to flash budgets. **Answer:
+   publish these numbers honestly; budget them in CI** (dep-count + stripped-size
+   assertions on `hello`, alongside the existing perf budgets) so they never regress
+   silently; keep default features lean (`tracing` debug-profile, `themes`/`devtools`/
+   `harness` opt-in). The §1.5 `run_blocking` tertiary is also the dep-weight answer:
+   a sync driver would cut the facade's tree roughly in half for the simple-tool
+   archetype — demand-gated, but now with a second constituency.
+3. **Embedded / no_std (<64 KB RAM, <1 MB flash: ESP8266, STM32, RP Pico serial TUIs).**
+   A real constituency in the thread (serial debug panels, snake-over-BLE), already
+   served by tuit (no_std no_alloc), Mousefood, and ratatui-core's no_std support.
+   **Answer: stays an explicit non-goal** — rabbitui targets hosted terminals; say so in
+   the README so the embedded reader bounces fast to the right tool instead of slowly to
+   disappointment.
+
+Allocation-consciousness (the thread's `ArrayString`/`set_stringn`/`SmallVec` list) is
+already partially encoded (Cow-returning sources, lazy `ListSource`, the planned
+`CompactString` cell work in Arc 4); treat that list as review heuristics for hot paths,
+not a rewrite mandate.
+
 ## 1. The core model — a trait `App`, not two closures (high priority)
 
 ### The problem with the current shape
@@ -374,7 +413,13 @@ is the strategic bet; start exploratory once B/C stabilize the facts shape.
 **Wave F — polish to 0.1.**
 Buffer-level layer compositing (retire Clear+overpaint), styled-span soft-wrap, block-level
 early commit for bounded tails, cargo-semver-checks + release automation, the naming
-decision, concept docs once the API stops moving.
+decision (incl. a crates.io availability check — the r/rust thread surfaced an abandoned
+`maxmindlin/rabbitui` repo, and the name is now publicly teased), concept docs once the
+API stops moving. Plus the §0.5 size story:
+`examples/simple.rs` (the r/rust asker's app — grid, chords, modal input — in minimal
+lines), CI budgets for dep count and stripped `hello` size (baseline 2026-07-11: facade 51
+crates, 2.0 MB stripped), and README positioning for the three size demands (ceremony,
+weight, embedded non-goal).
 
 ### Known deferred (tracked, not lost)
 
