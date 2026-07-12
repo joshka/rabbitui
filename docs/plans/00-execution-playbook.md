@@ -148,7 +148,21 @@ starting, self-review against it before committing.
 
 ## Author decision queue (do not decide these yourself)
 
-- ADR 0014: ship as `rabbitui` vs a ratatui-* name (author holds the reservations) — blocks 0.1.
-- Flagship binary name (`rabbit` is the placeholder in ROADMAP).
+In deadline order (updated 2026-07-11; briefing with tradeoffs delivered in-session):
+
+1. **Before Wave A starts**: trait config shape — one `fn config() -> Config` struct (as
+   specced) vs individual `fn mode()/theme()/…` methods. Small; specced as Config.
+2. **Before spinning threads**: execution mode — serial / Mode 1 (one session,
+   subagents) / Mode 2 (workspace per session), and how many lanes (token-budget aware).
+3. **Before Wave D1**: qwertty dependency mode in CI — registry-only vs patched-HEAD vs
+   both jobs.
+4. **Before Wave G publishes numbers**: who performs the ratatui-version honesty review
+   and eval grading (author vs strong-model + author spot-check).
+5. **Before 0.1, cheaper sooner**: ADR 0014 name (`rabbitui` / `ratatui-framework` /
+   `qwertty-tui`) + publish cadence rider (reservation-only vs rolling 0.0.x pre-releases).
+   Flagship binary name (`rabbit` placeholder) rides with it.
+
+Standing author-only chores:
+
 - Deleting `work/stale-root-checkout/` and `.jj/working_copy.stale-bak` (author cleanup).
-- Publishing cadence with qwertty (path dep must become a version dep before crates.io).
+- Publishing cadence with qwertty (now decision 3 above; path dep → version dep is Wave D1).
