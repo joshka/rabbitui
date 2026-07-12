@@ -1,5 +1,8 @@
 # Wave B1 — flagship e2e tests over FakeDevice (implementation spec)
 
+> **Lane claim:** workspace `wave-b1`, Wave B1, claimed 2026-07-12. Working only in
+> `work/wave-b1`; landing serialized through the coordinator per the playbook.
+
 Written 2026-07-11 on Fable. The harness exists and is proven
 (`rabbitui/tests/e2e_headless.rs`, `docs/design/fakedevice-e2e-harness.md` — read both
 first). This wave points it at the flagship: the three bug classes that motivated the
@@ -110,6 +113,55 @@ Determinism rules from the existing suite apply: never a bare sleep — always
   `contents()` — mixing them up makes test 2 flaky.
 - If the replay backend needs real time to emit turns, prefer a fixture that emits
   immediately; the pump's 2ms tick is wall-clock.
+
+## Completion note (2026-07-12, workspace `wave-b1`)
+
+Landed all three steps.
+
+- **Step 1** — promoted the pump `Harness` into `rabbitui/src/harness.rs` behind a
+  new `harness` feature (`harness = ["dep:rabbitui-testing"]`, `rabbitui-testing`
+  added as an optional regular dep). The type is generic over the run future only
+  (M-agnostic). `launch_with` opens the `FakeDevice` pair internally. The facade's
+  own `tests/e2e_headless.rs` was rewritten onto it via the crate's self dev-dep
+  (`rabbitui = { path = ".", features = ["harness"] }`) — cargo accepted the
+  self-dep, so no `required-features` workaround was needed. Its module doc keeps
+  the "why a pump, not a spawn" note and a copy-pasteable example.
+- **Step 2** — factored `pub fn build_app(model, backend) -> Agent` into
+  `rabbitui-agent/src/app.rs` (a thin, named wrapper over `Agent::new`); `main`'s
+  session-attaching `build_app` now routes its base construction through it, so
+  `main` and the tests share one path. **Deviation from the spec signature:** the
+  spec wrote `build_app(backend)`; the flagship `Agent` needs a model id, and
+  `main` passes a configurable one, so the shared entry takes `(model, backend)`.
+  Tests pass `"test-model"`. `rabbitui = { workspace = true, features =
+  ["harness"] }` added to the agent's dev-deps.
+- **Step 2 fixture** — authored `tests/fixtures/tool_turn.jsonl`: one text delta,
+  a `list_dir(".")` `tool_use` stop, then a closing text turn. `list_dir(".")` was
+  chosen over the existing `tool_use.jsonl` (`read_file("hello.txt")`) because it
+  succeeds against **any** cwd, so the Tool cell reaches `Ok`/`✓` — `read_file`
+  would fail in the test cwd and settle to `✗`, missing the freeze bug's shape.
+  Loaded via `include_str!`, so the fixture path is cwd-independent (only the
+  tool's own `list_dir` reads the process cwd, and any non-empty dir succeeds).
+- **Step 3** — the three tests in `rabbitui-agent/tests/e2e.rs`. Green 5×
+  consecutively.
+
+### Bug-reintroduction spot-check (acceptance gate 3)
+
+Reverted the help-overlay display-only fix by adding
+`update.focus(&[key("help"), key("panel")])` to the `Action::Help` arm in
+`rabbitui-agent/src/app.rs` (focusing the overlay's non-focusable Panel — the
+original declare-then-focus footgun). `help_overlay_opens_closes_and_loop_survives`
+then **FAILED** with:
+
+> focus request for WidgetId(…): not present-and-focusable in the frame after the
+> request (declare-then-focus failed — check the path) — `rabbitui-core/src/pending.rs:241`
+
+The change was reverted immediately; the suite is green again. The guard catches
+the exact panic class it was written for.
+
+### Verification flagged for the coordinator
+
+No visible chrome changed (tests only), so there is nothing new for betamax; the
+existing tapes still cover the flagship's appearance.
 
 ## What good looks like (beyond the acceptance gates)
 

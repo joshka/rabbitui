@@ -238,6 +238,8 @@ pub mod app;
 pub mod effect;
 mod encode;
 pub mod engine;
+#[cfg(feature = "harness")]
+pub mod harness;
 pub mod input;
 #[cfg(feature = "tracing")]
 pub mod log;

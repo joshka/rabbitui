@@ -21,8 +21,16 @@ futures-core.workspace = true
 toml = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+# Optional: only the `harness` feature pulls it in (the pump harness parses the
+# emitted bytes with `rabbitui_testing::vt::VtScreen`). Direction facade → testing
+# → core, no cycle (ADR 0011: nothing depends on the facade).
+rabbitui-testing = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Self dev-dep with `harness` on, so the crate's own integration tests reach the
+# `harness` module (a crate may depend on itself as a dev-dep to enable a feature
+# only for its tests). rabbitui-agent enables the same feature in its dev-deps.
+rabbitui = { path = ".", features = ["harness"] }
 rabbitui-widgets.workspace = true
 rabbitui-testing.workspace = true
 # `test-util` gives the Effects unit tests a paused clock so timeout/stream
@@ -56,6 +64,11 @@ harness = false
 
 [features]
 default = ["themes", "tracing", "devtools"]
+# The headless FakeDevice pump harness (`harness` module): drives the real run
+# loop over a `qwertty::FakeDevice` and parses emitted bytes with a `VtScreen`.
+# Off by default; a consumer enables it in dev-dependencies to reach the pump from
+# its own tests (rabbitui-agent was the first). Pulls in `rabbitui-testing`.
+harness = ["dep:rabbitui-testing"]
 # Devtools name capture and inspector plumbing (ADR arc4 §6/§7): turns on
 # `rabbitui-core/devtools`, so `Key` retains its source name and the frame builds
 # the `id → name` side table the `FactsInspector` renders. In `default` so a plain

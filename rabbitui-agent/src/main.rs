@@ -94,19 +94,24 @@ fn theme_config(args: &Args) -> app::ThemeConfig {
 }
 
 /// Assembles the [`Agent`], resuming or creating a session as the flags direct.
+///
+/// The base app is built through [`app::build_app`] — the same construction path
+/// the headless e2e tests use — then a [`Session`] is layered on for persistence.
 fn build_app(args: &Args, backend: Box<dyn Backend>) -> Result<Agent, Box<dyn std::error::Error>> {
-    if let Some(path) = &args.resume {
-        let (session, history) = Session::resume(path)?;
-        return Ok(Agent::new(args.model.clone(), backend).with_session(session, history));
-    }
-    if args.continue_latest
+    let app = app::build_app(args.model.clone(), backend);
+    let (session, history) = if let Some(path) = &args.resume {
+        Session::resume(path)?
+    } else if args.continue_latest
         && let Some(path) = Session::latest()?
     {
-        let (session, history) = Session::resume(path)?;
-        return Ok(Agent::new(args.model.clone(), backend).with_session(session, history));
-    }
-    let session = Session::create(args.model.clone(), now_seconds())?;
-    Ok(Agent::new(args.model.clone(), backend).with_session(session, Vec::new()))
+        Session::resume(path)?
+    } else {
+        (
+            Session::create(args.model.clone(), now_seconds())?,
+            Vec::new(),
+        )
+    };
+    Ok(app.with_session(session, history))
 }
 
 /// Seconds since the Unix epoch, for stamping a fresh session file.
