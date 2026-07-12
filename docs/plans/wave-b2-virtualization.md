@@ -227,6 +227,47 @@ numbered findings, same format).
 - `Table`'s lazy-source constructors are `table_from_fn`/`table_rows_with`, 2026-07-11:
   the crate root already re-exports the list's `from_fn`/`rows_with`.
 
+## Completion summary (wave-b2 workspace, 2026-07-11)
+
+Parts 1 and 2 are done and committed in the `wave-b2` jj workspace; Part 3 is deferred
+(see Corrections). Commits, in landing order:
+
+1. `docs: claim wave-b2 lane and record dated corrections` — this file's claim +
+   corrections.
+2. `feat(core): anchor-based scroll virtualization with measure cache and hidden-top
+   mask` — `scroll.rs` rewrite (anchor state, `MeasureCache`, settle/declare passes,
+   pending-movement handler, item-fraction scrollbar, 25 unit tests),
+   `widget.rs` (`RenderContext::with_hidden_top` + mask tests), `frame.rs` (additive
+   `pub(crate) widget_masked` seam only), `benches/core.rs` + `tests/bench_smoke.rs`
+   (1M-item structural bench: ≤ 64 measure callbacks per 24-row frame, asserted, never
+   wall-clock).
+3. `feat(widgets): virtualized Table with pinned header over a TableSource` —
+   `table.rs` (trait + adapters + `table_from_fn`/`table_rows_with`, `Column`,
+   `TableState` mirroring `SelectionListState`, 20 unit tests incl. cell-count bounds
+   at 10k and 1M rows), `lib.rs` exports.
+4. `chore: Cargo.lock picks up qwertty 0.1.2` — path-dep version moved upstream while
+   this wave ran; drop this commit at landing if it conflicts.
+
+Gates at hand-off: `cargo test --workspace` green (0 failures), clippy zero warnings,
+`cargo +nightly fmt --all --check` clean, markdownlint clean on this file. `cargo doc`
+has two pre-existing warnings in out-of-lane files (`log.rs` unresolved `Collector`,
+`help_overlay.rs` redundant link) — untouched, flagged here.
+
+Flags for the coordinator:
+
+- **Betamax/visual**: the scrollbar thumb geometry changed (item-fraction
+  approximation) and partial items now render their bottom slice — `gallery` and any
+  scroll-visible tape need the visual pass.
+- **Consumed-once (DoD #3)**: `Table` has no in-tree consumer yet — that is exactly
+  deferred Part 3 (comparisons log-follower adoption + dogfood findings), which Wave A
+  owns the file for. The 1M-row `from_fn` demo ("What good looks like") should ride
+  that adoption.
+- **`frame.rs` seam**: one additive `pub(crate)` method (`widget_masked`); `widget()`
+  is now a one-line delegate. No other out-of-lane source was touched.
+- Possible follow-ups recorded in Corrections: slice-based `split_lengths` in
+  `layout.rs`, unifying the two private `truncate_to_width` helpers, a
+  `SemanticRole::Table` variant (Table declares as `List` for now).
+
 ## What good looks like (beyond the acceptance gates)
 
 - The virtualization property is asserted structurally (measure-callback counts, facts
