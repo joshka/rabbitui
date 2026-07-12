@@ -18,6 +18,48 @@ in vertical slices ([ROADMAP.md](ROADMAP.md)). Nothing is published yet.
   2024–26 framework wave, and Codex's tui2)
 - [docs/field-report.md](docs/field-report.md) — a shareable state-of-the-field synthesis
 
+## What it looks like
+
+An app is a type implementing `App`: your struct is the state, `update` folds events into it,
+`view` declares the UI. Defaulted hooks (`init`, `global`, `config`) cover startup effects,
+app-wide chords, and launch configuration; a `from_fn` closure adapter keeps one-liners terse.
+
+```rust
+use std::ops::ControlFlow;
+
+use rabbitui::app::{App, Event, Update};
+use rabbitui_core::{frame::Frame, id::key, input::Key};
+use rabbitui_widgets::Text;
+
+#[derive(Default)]
+struct Counter {
+    count: i64,
+}
+
+impl App for Counter {
+    fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+        if let Event::Input(input) = update.event() {
+            match input.as_key().map(|k| k.key) {
+                Some(Key::Char('+')) => self.count += 1,
+                Some(Key::Char('q')) => return ControlFlow::Break(()),
+                _ => {}
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn view(&self, frame: &mut Frame<'_>) {
+        let text = format!("count: {} (+ to add, q to quit)", self.count);
+        frame.widget(key("count"), frame.area(), &Text::new(&text));
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> rabbitui::app::Result<()> {
+    Counter::default().run().await
+}
+```
+
 ## Gallery
 
 Every widget and every theme role on one screen — run `cargo run --example gallery`, or pick a

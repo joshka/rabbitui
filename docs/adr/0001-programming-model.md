@@ -203,3 +203,31 @@ additive, not a rewrite.
   ms/frame in user view construction on a realistic model") remains untripped by an order of
   magnitude at realistic sizes. Numbers and method: docs/design/arc2b-measurement-scroll.md §
   Benchmark results.
+
+- **2026-07-11 (the app-facing shape is a trait):** The top-level entry — originally
+  `App::new(state, update, view)`, two closures plus a state value with config as builder
+  methods — is now `trait App<M = ()>`: `Self` is the state, `update`/`view` are the two
+  required methods, and lifecycle hooks are defaulted methods. The closure form failed three
+  growth tests in sequence, each wanting a hook the two-closure arity had no home for: the
+  **init hook** (dogfood finding \#1) shipped as an `Event::Started` enum variant plus loop
+  plumbing because there was nowhere to put an `init` closure; **global chords** (dogfood
+  finding \#7) were resolved "by pattern" after an `on_global` hook was explicitly deferred as
+  an ugly boxed always-runs closure; and **suspend/resume** (Arc 4; the substrate side shipped
+  in qwertty 0.1.x) wants `on_suspend`/`on_resume` with the same no-home problem. Each of these
+  is a one-line defaulted trait method.
+
+  The trait ships with `init` (returns the opening `Command`; `Command::none()` default),
+  `global` (runs before `update` for every event; `Break` quits without calling `update`), and
+  `config` (one method returning a `#[non_exhaustive]` `Config` struct — startup-only; runtime
+  switching stays on `Update`). Zero-ceremony closure apps survive behind the
+  `rabbitui::from_fn(state, update, view)` adapter (`FnApp`, std `iter::from_fn` naming); the
+  closure form is a strict subset expressible as a trait impl, so nothing is lost. `init` and
+  `Event::Started` coexist deliberately — `from_fn` apps cannot override hooks, so the event
+  remains their init path.
+
+  This changes only the packaging of this ADR's decision: the declared-frame contract
+  (identity, facts, outcomes, `Command`-effects) is untouched, and the "shells layer above"
+  stance is unchanged — the trait _is_ the raw declared-frame API, not a shell. The six
+  resolved design decisions (naming, `M` as a defaulted generic parameter, the `Config` shape,
+  init/Started coexistence, `global` semantics, v1 hook cuts) are recorded in
+  `docs/design/core-model-and-roadmap.md` §1.

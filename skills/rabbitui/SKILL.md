@@ -45,48 +45,63 @@ doubt, read an example — they are the executable spec.
 
 ## The app skeleton
 
-Two entry points. Use `app::run` for the simplest apps (no theme/mode config); use the
-`App::new(...)` builder when you need a theme, an inline mode, a log handle, or a message type.
+The idiom is a type implementing `trait App`: your struct **is** the state, `update` folds
+events into it, `view` declares its UI. Defaulted hooks cover the lifecycle — `init` (the
+opening `Command`, spawned before `Event::Started`), `global` (runs before `update` for every
+event; the home for app-wide chords), and `config` (launch-only settings: theme, mode, mouse,
+tracing).
 
 ```rust
 use std::ops::ControlFlow;
-use rabbitui::app::{self, Event, Update};
+use rabbitui::app::{App, Config, Event, Update};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
 
+#[derive(Default)]
+struct Counter {
+    count: i64,
+}
+
+impl App for Counter {
+    fn update(&mut self, update: Update<'_>) -> ControlFlow<()> {
+        let Event::Input(input) = update.event() else {
+            return ControlFlow::Continue(());
+        };
+        match input.as_key().map(|k| k.key) {
+            Some(Key::Char('+' | ' ')) => self.count += 1,
+            Some(Key::Char('-')) => self.count -= 1,
+            Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn view(&self, frame: &mut Frame<'_>) { /* declare widgets — see below */ }
+
+    // Optional: launch config (drop this to take the defaults).
+    fn config(&self) -> Config {
+        Config::new()
+            .theme(rabbitui_core::theme::Theme::catppuccin_mocha())
+            .mode(rabbitui_core::mode::Mode::inline(3)) // default is AltScreen
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    app::run(0i64, update, view).await?;   // (initial_state, update, view)
+    Counter::default().run().await?;
     Ok(())
 }
-
-fn update(count: &mut i64, update: Update<'_>) -> ControlFlow<()> {
-    let Event::Input(input) = update.event() else {
-        return ControlFlow::Continue(());
-    };
-    match input.as_key().map(|k| k.key) {
-        Some(Key::Char('+' | ' ')) => *count += 1,
-        Some(Key::Char('-')) => *count -= 1,
-        Some(Key::Char('q') | Key::Escape) => return ControlFlow::Break(()),
-        _ => {}
-    }
-    ControlFlow::Continue(())
-}
-
-fn view(count: &i64, frame: &mut Frame<'_>) { /* declare widgets — see below */ }
 ```
 
-Builder form (theme + inline mode + a message type all shown; drop what you do not need):
+An app with a message type is `impl App<Msg> for X`; its `fn init(&mut self) -> Command<Msg>`
+returns the opening command (a stream to start, a load to kick off) instead of waiting for the
+first event.
 
-```rust
-use rabbitui::App;
-App::new(MyState::default(), update, view)
-    .theme(rabbitui_core::theme::Theme::catppuccin_mocha())   // optional
-    .mode(rabbitui_core::mode::Mode::inline(3))               // optional; default AltScreen
-    .run()
-    .await?;
-```
+For tests, demos, and one-screen tools, the closure shorthand skips the trait: free
+`app::run(state, update, view)`, or `rabbitui::from_fn(state, update, view)` with
+`.with_theme(...)` / `.with_mode(...)` builders when it needs config (both need
+`use rabbitui::App;` in scope only for a `.run()` call on `from_fn`'s result).
 
 `update` returns `ControlFlow<()>`: `Break(())` quits the loop, `Continue(())` keeps running.
 `update.event()` returns `&Event<M>` (a reference — match by ref): `Event::Input(InputEvent)`,
@@ -205,7 +220,7 @@ Role semantics that matter (see Traps for the invariants):
 
 Presets ship as theme data: `Theme::default()` (dark), `Theme::catppuccin_mocha()`,
 `Theme::nord()`, `Theme::dracula()`. TOML theme files hot-reload in debug builds via
-`App::theme_file(path)`.
+`Config::theme_file(path)` in your app's `fn config`.
 
 ### 6. Lay out an area
 
@@ -268,8 +283,9 @@ bug). This replaces any "re-key to reset" workaround — keep the key stable.
 ### 9. Spawn an async effect (`Command`)
 
 Define a message type `M`, spawn a `Command<M>` with `update.spawn`, handle results as
-`Event::Message(M)`. `App<S, M>` and `Update<'_, M>` carry the type; message-less apps use the
-`()` default.
+`Event::Message(M)`. `App<M>` (`impl App<Msg> for X`) and `Update<'_, M>` carry the type;
+message-less apps use the `()` default. An app's _opening_ command belongs in
+`fn init(&mut self) -> Command<M>` rather than a first-event workaround.
 
 ```rust
 use rabbitui::effect::Command;
@@ -302,7 +318,8 @@ fn fake_fetch(query: String) -> Command<Msg> {
 Effect constructors: `Command::future(async move -> M)` (one message), `Command::stream(impl
 Stream<Item = M>)` (many; a "subscription"), `Command::timeout(Duration, FnOnce -> M)`,
 `Command::cancel_group(&str)` (stop a group's stream for good; may need a turbofish where the
-message type cannot be inferred, e.g. `Command::<Msg>::cancel_group("agent")`). `.group(&str)` makes a command
+message type cannot be inferred, e.g. `Command::<Msg>::cancel_group("agent")`), and
+`Command::none()` (the no-op — `init`'s default). `.group(&str)` makes a command
 cancel-previous within that group. Effect panics are contained and surface as
 `Event::EffectFailed` — they never crash the loop. Expected failures should be _values_ (a
 `Msg` variant), not panics.
