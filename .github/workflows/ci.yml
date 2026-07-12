@@ -131,6 +131,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone qwertty to the path-dependency location
+        # `cargo fmt --all` runs `cargo metadata`, which must resolve the qwertty
+        # path dependency to enumerate workspace members — so this job needs the
+        # clone too, even though formatting itself does not build qwertty.
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/../../../qwertty/work"
+          git clone --depth 1 https://github.com/joshka/qwertty "$GITHUB_WORKSPACE/../../../qwertty/work/default"
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
