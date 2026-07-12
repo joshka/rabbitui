@@ -1,0 +1,10 @@
+[package]
+name = "rabbitui-ratatui"
+description = "Ratatui interop for the rabbitui terminal UI framework (early development; this release reserves the crate name)"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true

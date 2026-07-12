@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = [
+    "rabbitui",
+    "rabbitui-agent",
+    "rabbitui-core",
+    "rabbitui-ratatui",
+    "rabbitui-testing",
+    "rabbitui-widgets",
+]
+
+# Name-reservation placeholders. 0.0.0 so the real 0.1.0 release is a clean
+# upgrade from every placeholder; no code, no dependencies, `#![no_std]`.
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/joshka/rabbitui"
+categories = ["command-line-interface"]
+keywords = ["tui", "terminal", "ui"]
