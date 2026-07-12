@@ -1,0 +1,8 @@
+{"type":"text_delta","text":"Let me list the working directory.\n"}
+{"type":"tool_use_start","id":"toolu_01","name":"list_dir"}
+{"type":"tool_use_input_delta","id":"toolu_01","json":"{\"path\":"}
+{"type":"tool_use_input_delta","id":"toolu_01","json":"\".\"}"}
+{"type":"tool_use_stop","id":"toolu_01"}
+{"type":"message_done","stop_reason":"tool_use","usage":{"input_tokens":20,"output_tokens":8}}
+{"type":"text_delta","text":"Done listing the directory."}
+{"type":"message_done","stop_reason":"end_turn","usage":{"input_tokens":40,"output_tokens":6}}

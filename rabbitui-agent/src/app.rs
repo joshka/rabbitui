@@ -67,6 +67,20 @@ pub struct Awaiting {
     pub continuations: usize,
 }
 
+/// Builds the flagship [`Agent`] over `backend` in its default (fresh, inline, no
+/// persistence) state — the one construction path `main` and the headless e2e
+/// tests share.
+///
+/// `main` calls this and then layers a [`Session`] and [`ThemeConfig`] on top
+/// (`with_session`/`with_theme`); tests call it and drive the result over a
+/// `FakeDevice` with no session, so a test never writes a session file. It is a
+/// thin wrapper over [`Agent::new`] so there is a single named entry point for
+/// "construct the app from a backend".
+#[must_use]
+pub fn build_app(model: impl Into<String>, backend: Box<dyn Backend>) -> Agent {
+    Agent::new(model, backend)
+}
+
 /// The whole app's owned state.
 pub struct Agent {
     /// The committed transcript, in order — the same cells both modes render.

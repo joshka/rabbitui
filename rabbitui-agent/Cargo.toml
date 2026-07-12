@@ -33,4 +33,7 @@ reqwest.workspace = true
 
 [dev-dependencies]
 rabbitui-testing.workspace = true
+# The `harness` feature exposes rabbitui's FakeDevice pump harness, which the
+# flagship e2e tests (tests/e2e.rs) drive the real run loop through.
+rabbitui = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
