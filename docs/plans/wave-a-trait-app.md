@@ -2,6 +2,14 @@
 
 Lane claimed: wave-a workspace, 2026-07-11.
 
+Corrections (2026-07-11, execution):
+
+- Step 8 assumed `README.md` had a front-page code snippet to update; it had none. Added a
+  "What it looks like" section with the `impl App` counter instead.
+- The pre-existing `cargo doc` warnings in `rabbitui/src/log.rs` (links to the old `App`
+  builder methods) were fixed as part of Step 5's rewiring; `cargo doc -p rabbitui` is now
+  warning-free.
+
 Written 2026-07-11 on Fable, after the core-model research pass
 (`docs/design/core-model-and-roadmap.md` §1 carries the rationale and the resolved design
 decisions). **The design is adjudicated — execute it; don't re-litigate.** If reality
@@ -237,6 +245,65 @@ Run 5× for flake check (pattern from this file's header).
 5. e2e suite (`--test e2e_headless`) 5× stable, including the two new hook tests.
 6. Flag for the coordinator: betamax visual smoke of the flagship + gallery over a real
    TTY (TestApp/headless cannot prove the visible loop; this session's standing rule).
+
+## Completion (2026-07-11, wave-a workspace)
+
+**Landed.** Steps 1–8 complete; all acceptance gates green. Commits (oldest first,
+in the `wave-a` workspace, awaiting the coordinator's rebase onto trunk):
+
+- `topoxswl` — docs(plans): claim Wave A lane
+- `mmszuupk` — feat(effect): `Command::none()` — the no-op command (Step 1, committed alone)
+- `qzmlwqwu` — feat(app)!: trait App core model — `from_fn` adapter, `Config`,
+  init/global hooks (Steps 2–7: the trait, `Config`, `FnApp`/`from_fn`, the rewired
+  loop, all 15 call-site migrations, and the two new e2e hook tests)
+- `yqntsqzm` — docs(app): teach trait App shape — README, SKILL, ADR 0001 amendment (Step 8)
+- (this file's completion note commits last)
+
+**Gates run, all green:** `cargo check --workspace --all-targets`; `cargo test --workspace`
+(all suites, incl. 96 workspace doc-tests); the comparisons suite
+(`cargo test --manifest-path comparisons/rabbitui/Cargo.toml` — 7 passed); `cargo clippy
+--workspace --all-targets` and the comparisons clippy — zero warnings; `cargo +nightly fmt
+--all --check` (and the comparisons crate) — clean; `--test e2e_headless` 5× — 4/4 stable
+every run, including `init_cmd_arrives_before_input` and
+`global_break_quits_even_when_update_would_return_early`; markdownlint-cli2 on every touched
+doc — clean. `cargo doc -p rabbitui --no-deps` is warning-free (the pre-existing `log.rs`
+links to old builder methods were fixed during Step 5).
+
+**Net-diff smell test (met).** `global`/`init` deleted real code where the plan predicted:
+the flagship (`rabbitui-agent`) collapsed a Ctrl-C quit check that had been **duplicated
+across three early-return paths** (help arm, confirm branch, base bindings) into one 3-line
+`fn global`, and dropped `run`/`run_themed` entirely — `app.rs` net −3 lines despite gaining
+a field, a builder, `config`, and `global`. The comparisons log-follower moved its stream
+spawn out of an `Event::Started` match arm into `fn init` and hoisted its Ctrl-C into
+`fn global`. Examples run +0 to +7 lines each (the `struct` + `impl App` wrapper and one
+extra indentation level); `hello.rs` stays closure-shaped and unchanged; `focus.rs` is
+exactly equal. `agent.rs` was kept lean by reverting all but `update`/`view`/`config` to free
+functions.
+
+**Corrections logged** (also under the header): README had no front-page snippet to update
+(added a "What it looks like" `impl App` section instead); the pre-existing `log.rs` doc
+warnings were fixed as part of Step 5.
+
+**Deviations from the letter of the plan (both correct):**
+
+- Step 6 lists `todo_flow.rs`, `agent_flow.rs`, `set_theme.rs` for a `from_fn` wrap, but they
+  drive `rabbitui_testing::TestApp` (a reducer harness, not the run loop) and never touched
+  the old `App::new` — they already compiled and passed against the new API, so they were
+  left untouched (a `from_fn` wrap would be a behavior-changing rewrite). The `App::new`
+  matches in them are `TestApp::new`.
+- `form.rs` and `gallery.rs` were found already broken against the pre-migration tree (they
+  called `App::new(...).theme(...)`, and `rabbitui::App` now names the trait) — the migration
+  fixed them.
+
+**Flagged for the coordinator (not attempted here, per the standing rule):** betamax visual
+smoke of the flagship + gallery over a real TTY — TestApp/headless cannot prove the visible
+loop. Nothing visible changed by intent, but the migrations moved the flagship's launch
+wiring and every example's shape, so a visual pass is warranted before trunk.
+
+**Lane hygiene:** only the files in this session's allowed set were touched;
+`rabbitui-core`/`rabbitui-widgets` (Wave B2's lane) were not. The `Cargo.lock` qwertty
+0.1.1→0.1.2 bump is forced drift from the on-disk substrate path dep, not a change this lane
+made. `jj st` is clean after the final commit.
 
 ## Sizing & parallelization
 
