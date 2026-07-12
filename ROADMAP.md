@@ -130,6 +130,14 @@ docs/harness work for gaps between build slices. **Session hand-off note:** the 
 plans in `docs/plans/` (start with `00-execution-playbook.md`) carry the pre-made design decisions
 and working method — read the playbook first in every new session.
 
+**Forward waves (added 2026-07-11):** the core-model research pass produced
+`docs/design/core-model-and-roadmap.md` (the why-a-framework thesis, capability tiers, and
+differentiation bets) plus four adjudicated, fully-specced execution plans:
+`docs/plans/wave-a-trait-app.md` (trait `App` core model — do first),
+`wave-b1-flagship-e2e.md`, `wave-b2-virtualization.md` (anchor scrolling + `Table` — the
+differentiation bet), and `wave-c-forms-catalog.md`. Where these overlap the arc tables above,
+the wave plans are the current word.
+
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
 wheel normalization, hardware-cursor via facts, WidthPolicy seam (waits on qwertty Phase 3),
