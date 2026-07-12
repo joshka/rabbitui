@@ -108,6 +108,8 @@ enum Kind<M> {
     Stream(BoxStream<M>),
     /// Abort the named group's live task, if any, and start nothing.
     Cancel,
+    /// Do nothing: spawn no task, deliver no message, touch no group.
+    None,
 }
 
 /// An async effect the app hands to the runtime: a future or a stream of
@@ -206,6 +208,29 @@ impl<M: Send + 'static> Command<M> {
         }
     }
 
+    /// The command that does nothing: no task, no message, no group interaction.
+    ///
+    /// The identity element of the command vocabulary, and the default returned
+    /// by the `App` trait's `init` hook so apps that need no startup effect
+    /// override nothing. Spawning it is a true no-op — no task starts and
+    /// no mailbox entry is made — and [`group`](Self::group)ing it stays a no-op
+    /// (a group of nothing is nothing; it never aborts the group's live task).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rabbitui::effect::Command;
+    ///
+    /// let nothing: Command<u32> = Command::none();
+    /// let _ = nothing;
+    /// ```
+    pub fn none() -> Self {
+        Self {
+            kind: Kind::None,
+            group: None,
+        }
+    }
+
     /// Tags this command with a **cancel-previous** group.
     ///
     /// Spawning a command into a group aborts the group's previous task before
@@ -277,6 +302,12 @@ impl<M: Send + 'static> Effects<M> {
     pub fn spawn(&mut self, cmd: Command<M>) {
         let Command { kind, group } = cmd;
 
+        // A no-op command spawns nothing and touches no group — even a grouped
+        // one never aborts the group's live task (a group of nothing is nothing).
+        if let Kind::None = kind {
+            return;
+        }
+
         // A cancel-group command aborts the group's live task and starts nothing.
         // Removing the entry lets the group be re-armed later by a fresh spawn.
         if let Kind::Cancel = kind {
@@ -330,8 +361,9 @@ impl<M: Send + 'static> Effects<M> {
                 })
                 .await;
             }),
-            // Handled above with an early return; the match cannot reach here.
+            // Handled above with early returns; the match cannot reach here.
             Kind::Cancel => unreachable!("Kind::Cancel is handled before spawning a task"),
+            Kind::None => unreachable!("Kind::None is handled before spawning a task"),
         };
 
         // Watch the task: on a panic, surface an `EffectError` on the mailbox so
@@ -524,6 +556,27 @@ mod tests {
         effects.spawn(Command::cancel_group("nope"));
         assert_eq!(effects.group_count(), 0);
         assert!(effects.try_recv().is_none());
+    }
+
+    #[tokio::test]
+    async fn none_spawns_nothing() {
+        let mut effects = Effects::<u32>::new();
+        effects.spawn(Command::none());
+        assert_eq!(effects.group_count(), 0);
+        assert!(effects.try_recv().is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn grouped_none_spawns_nothing_and_leaves_the_group_alone() {
+        let mut effects = Effects::new();
+        // A live grouped task…
+        effects.spawn(Command::timeout(Duration::from_millis(300), || "result").group("x"));
+        assert_eq!(effects.group_count(), 1);
+        // …survives a grouped none: a group of nothing is nothing.
+        effects.spawn(Command::none().group("x"));
+        assert_eq!(effects.group_count(), 1);
+        tokio::time::advance(Duration::from_millis(300)).await;
+        assert_eq!(effects.recv().await, Some(Outbox::Message("result")));
     }
 
     #[tokio::test]
