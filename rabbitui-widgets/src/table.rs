@@ -9,8 +9,8 @@ use rabbitui_core::layout::Constraint;
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+
+use crate::text_util::truncate_to_width;
 
 /// A lazy, cell-addressable source of table rows.
 ///
@@ -624,28 +624,6 @@ fn column_widths(total: u16, constraints: &[Constraint]) -> Vec<u16> {
         }
     }
     lengths
-}
-
-/// Returns the longest prefix of `text` whose display width does not exceed
-/// `max`, split on grapheme boundaries so a wide grapheme never straddles the
-/// limit.
-///
-/// The same shape as `panel.rs`'s private twin (a coordinator may unify these
-/// into one width oracle later): walk graphemes, advance by the display width
-/// clamped to `1..=2`, and cut before the grapheme that would exceed `max` — so a
-/// wide grapheme straddling the limit is dropped whole.
-fn truncate_to_width(text: &str, max: usize) -> &str {
-    let mut width = 0usize;
-    let mut end = 0usize;
-    for grapheme in text.graphemes(true) {
-        let advance = UnicodeWidthStr::width(grapheme).clamp(1, 2);
-        if width + advance > max {
-            break;
-        }
-        width += advance;
-        end += grapheme.len();
-    }
-    &text[..end]
 }
 
 /// Handles a mouse event for the table: a left press selects the clicked body

@@ -63,8 +63,9 @@ use rabbitui_core::layout::inset;
 use rabbitui_core::style::Style;
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{RenderContext, Widget};
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use crate::text_util::truncate_to_width;
 
 /// The light box-drawing set `Panel` frames with.
 mod box_chars {
@@ -367,23 +368,6 @@ fn draw_title(ctx: &mut RenderContext<'_>, size: Size, title: &str, style: Style
     // would land on the corner cell.
     let clipped = truncate_to_width(&text, available);
     ctx.set_string(Position::new(1, 0), clipped, style);
-}
-
-/// Returns the longest prefix of `text` whose display width does not exceed
-/// `max`, split on grapheme boundaries so a wide grapheme never straddles the
-/// limit.
-fn truncate_to_width(text: &str, max: usize) -> &str {
-    let mut width = 0usize;
-    let mut end = 0usize;
-    for grapheme in text.graphemes(true) {
-        let advance = UnicodeWidthStr::width(grapheme).clamp(1, 2);
-        if width + advance > max {
-            break;
-        }
-        width += advance;
-        end += grapheme.len();
-    }
-    &text[..end]
 }
 
 #[cfg(test)]

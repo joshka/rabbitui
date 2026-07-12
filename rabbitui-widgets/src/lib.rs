@@ -84,6 +84,7 @@ pub mod selection_list;
 pub mod table;
 pub mod text;
 pub mod text_input;
+mod text_util;
 
 pub use button::Button;
 pub use collapsible::Collapsible;
