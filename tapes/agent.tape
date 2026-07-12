@@ -16,7 +16,10 @@ Wait+Screen "TAPE_BUILD_READY"
 Type "./target/debug/examples/agent"
 Show
 Enter
-Wait+Screen "prompt"
+# The composer is focused at startup (so you can type immediately), which hides
+# its placeholder — so wait on the always-visible status word "idle", never on
+# focus-dependent placeholder text.
+Wait+Screen "idle"
 Sleep 200ms
 Type "hello rabbit"
 Enter
@@ -25,10 +28,12 @@ Screenshot target/betamax/agent-streaming.png
 Sleep 5s
 Screenshot target/betamax/agent-done-inline.png
 State target/betamax/agent-done-inline.json
-Type "m"
+# Ctrl-T toggles mode: bare "m" would be swallowed by the focused composer.
+Ctrl+T
 Sleep 500ms
 Screenshot target/betamax/agent-altscreen.png
-Type "m"
+Ctrl+T
 Sleep 500ms
-Type "q"
+# Ctrl-C quits (bare "q" is swallowed by the focused composer).
+Ctrl+C
 Sleep 300ms

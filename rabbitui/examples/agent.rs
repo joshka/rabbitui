@@ -25,12 +25,16 @@
 //! dev-dependency): rendering markdown is not the framework's job until the
 //! catalog grows a real widget (the design note's deliberate boundary).
 //!
-//! Run with `cargo run --example agent`, type a prompt, and press `m` to compare
-//! the two histories.
+//! Run with `cargo run --example agent`, type a prompt, and press `Ctrl-T` to
+//! compare the two histories (`m` also toggles once focus is off the composer).
 //!
-//! Note (substrate gap): the composer is reached via Tab; while focused it
-//! consumes printable keys, so `m`/`q` and the transcript scroll keys require
-//! Tab-ing focus away first. `Esc` and Enter work regardless.
+//! Note: the composer is focused at startup — the framework focuses the first
+//! focusable so the first keystroke lands in the field, which is what a chat
+//! composer wants (`Focus::reconcile`'s empty-focus default, ADR 0006). While
+//! focused it consumes printable keys, so the app binds `Ctrl-T` (mode) and
+//! `Ctrl-X` (cancel) for the actions that must work with the composer focused;
+//! bare `m`/`q` only reach the app when focus is elsewhere (the alt-screen
+//! transcript, reached via Tab). `Esc` and Enter work regardless.
 
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
@@ -468,7 +472,7 @@ fn view_inline(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(
         composer_key(app),
         composer_row,
-        &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
+        &TextInput::new().placeholder("Type a prompt, Enter to send…"),
     );
     frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
 }
@@ -502,7 +506,7 @@ fn view_alt(app: &Agent, frame: &mut Frame<'_>) {
     frame.widget(
         composer_key(app),
         composer_row,
-        &TextInput::new().placeholder("Tab, type a prompt, Enter…"),
+        &TextInput::new().placeholder("Type a prompt, Enter to send…"),
     );
     frame.widget(key("hint"), hint_row, &Text::new(HINT).role(Role::Muted));
 }
