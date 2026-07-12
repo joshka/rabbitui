@@ -444,10 +444,8 @@ impl<S: TableSource> Widget for Table<S> {
 
     fn render(&self, state: &mut TableState, ctx: &mut RenderContext<'_>) {
         ctx.focusable(true);
-        // A11y groundwork (ADR arc4 §5): there is no SemanticRole::Table variant
-        // yet, so a table declares as a List (a selectable set of rows). Adding a
-        // Table variant to `rabbitui-core` is out of this lane.
-        ctx.semantic_role(SemanticRole::List);
+        // A11y groundwork (ADR arc4 §5): a grid with a selectable row.
+        ctx.semantic_role(SemanticRole::Table);
 
         let len = self.source.len();
         state.clamp(len);
