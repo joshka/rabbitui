@@ -1,5 +1,7 @@
 # Wave A — `trait App` core model (full implementation spec)
 
+Lane claimed: wave-a workspace, 2026-07-11.
+
 Written 2026-07-11 on Fable, after the core-model research pass
 (`docs/design/core-model-and-roadmap.md` §1 carries the rationale and the resolved design
 decisions). **The design is adjudicated — execute it; don't re-litigate.** If reality
