@@ -132,12 +132,24 @@ plans in `docs/plans/` (start with `00-execution-playbook.md`) carry the pre-mad
 and working method — read the playbook first in every new session.
 
 **Forward waves (added 2026-07-11):** the core-model research pass produced
-`docs/design/core-model-and-roadmap.md` (the why-a-framework thesis, capability tiers, and
-differentiation bets) plus four adjudicated, fully-specced execution plans:
-`docs/plans/wave-a-trait-app.md` (trait `App` core model — do first),
-`wave-b1-flagship-e2e.md`, `wave-b2-virtualization.md` (anchor scrolling + `Table` — the
-differentiation bet), and `wave-c-forms-catalog.md`. Where these overlap the arc tables above,
-the wave plans are the current word.
+`docs/design/core-model-and-roadmap.md` (the why-a-framework thesis, nine pillars, capability
+tiers, differentiation bets) plus fully-specced execution plans in `docs/plans/wave-*.md`
+(A trait App, B1 flagship-e2e, B2 virtualization+Table, C forms, D qwertty-adoption, G
+archetype-showcase). Where these overlap the arc tables above, the wave plans are the current
+word.
+
+**Landed 2026-07-11 (Mode 2, two concurrent sessions, coordinator-integrated):**
+
+- **Wave A — trait `App`** ✅: `impl App` with `init`/`global`/`config` hooks + `from_fn`
+  closure adapter; all 15 call sites migrated; two new e2e hook tests. `App::new` is gone.
+- **Wave B2 — virtualization + `Table`** ✅: anchor-based variable-height scrolling with a
+  measure cache (O(window), verified structurally at 1M rows), the `hidden_top` render mask
+  (partial-item wrong-slice bug fixed), and a virtualized `Table` widget.
+- Both certified green together (workspace + comparisons suites, clippy, nightly fmt,
+  e2e 5×, markdownlint). **Pending follow-ups**: coordinator betamax visual pass (flagship
+  launch moved; scrollbar geometry + partial items changed); B2 Part 3 = log-follower
+  adopts `Table` + a 1M-row demo (Table's "consumed once" proof — deferred at landing
+  because Wave A owned `comparisons/rabbitui`).
 
 Known deferred items (tracked in design-note deltas): buffer-level layer compositing (ADR 0003
 amendment pending), block-level early commit for streaming, virtualized transcript, per-terminal
