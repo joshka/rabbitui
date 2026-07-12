@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use rabbitui_core::accessibility::SemanticRole;
 use rabbitui_core::geometry::Position;
 use rabbitui_core::input::{InputEvent, Key, MouseButton, MouseKind};
-use rabbitui_core::layout::Constraint;
+use rabbitui_core::layout::{Constraint, split_lengths};
 use rabbitui_core::outcome::Outcome;
 use rabbitui_core::theme::Role;
 use rabbitui_core::widget::{HandleContext, Handled, RenderContext, Widget};
@@ -457,9 +457,11 @@ impl<S: TableSource> Widget for Table<S> {
         let body_height_usize = usize::from(body_height);
         state.scroll_into_view(body_height_usize, len);
 
-        // Column widths recomputed each frame from the area width.
+        // Column widths recomputed each frame from the area width, via the shared
+        // slice-based constraint solver in core (the same exact-share arithmetic
+        // split_columns uses).
         let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.constraint).collect();
-        let widths = column_widths(size.width, &constraints);
+        let widths = split_lengths(size.width, &constraints);
 
         // Header: row 0, always painted (even when empty), never scrolls. Uses the
         // full column width (no gutter).
@@ -574,56 +576,6 @@ impl<S: TableSource> Widget for Table<S> {
             _ => Handled::No,
         }
     }
-}
-
-/// Resolves per-column widths along a row of `total` cells.
-///
-/// The slice-based equivalent of `rabbitui_core::layout`'s `split_lengths` (the
-/// source of this algorithm): [`Constraint::Length`] columns are satisfied first,
-/// in order, clipped as space runs out; the remainder divides among
-/// [`Constraint::Fill`] columns by cumulative exact shares so the columns tile
-/// `total` with no gap and no overflow. `split_lengths` is const-generic over
-/// arrays; a table needs runtime-length columns, so the arithmetic is replicated
-/// here on slices (a coordinator follow-up may lift a slice variant into
-/// `layout.rs`).
-fn column_widths(total: u16, constraints: &[Constraint]) -> Vec<u16> {
-    let mut lengths = vec![0u16; constraints.len()];
-    let mut remaining = total;
-
-    // Pass 1: fixed lengths, clipped in order as space runs out.
-    for (length, constraint) in lengths.iter_mut().zip(constraints) {
-        if let Constraint::Length(want) = constraint {
-            *length = (*want).min(remaining);
-            remaining -= *length;
-        }
-    }
-
-    // Pass 2: divide the remainder among fills by cumulative exact shares.
-    let total_weight: u32 = constraints
-        .iter()
-        .map(|c| {
-            if let Constraint::Fill(w) = c {
-                u32::from(*w)
-            } else {
-                0
-            }
-        })
-        .sum();
-    if total_weight == 0 {
-        return lengths;
-    }
-    let mut cum_weight: u32 = 0;
-    let mut previous_boundary: u16 = 0;
-    for (length, constraint) in lengths.iter_mut().zip(constraints) {
-        if let Constraint::Fill(weight) = constraint {
-            cum_weight += u32::from(*weight);
-            let boundary = ((u32::from(remaining) * cum_weight + total_weight / 2) / total_weight)
-                .min(u32::from(remaining)) as u16;
-            *length = boundary - previous_boundary;
-            previous_boundary = boundary;
-        }
-    }
-    lengths
 }
 
 /// Handles a mouse event for the table: a left press selects the clicked body
