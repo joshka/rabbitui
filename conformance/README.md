@@ -2,8 +2,8 @@
 
 A public conformance harness for the **two-region inline-mode rendering
 discipline** specified in [`../docs/inline-mode-spec.md`](../docs/inline-mode-spec.md).
-It answers one question, honestly and per-terminal: *does a renderer's emitted
-byte stream produce the observable behavior the inline-mode contract requires?*
+It answers one question, honestly and per-terminal: _does a renderer's emitted
+byte stream produce the observable behavior the inline-mode contract requires?_
 
 The corpus doubles as the evidence base for the terminal-gap analysis — the
 same fixtures that a renderer is checked against are the minimal repros a
@@ -30,7 +30,7 @@ buffer-equality snapshot sees neither:
    0009 layer 3); this crate grows from it in spirit and is kept self-contained.
 
 2. **Visual, on real hardware (author-driven, out of scope for this crate).**
-   The *same* corpus bytes are driven through real terminal emulators under
+   The _same_ corpus bytes are driven through real terminal emulators under
    [betamax](https://crates.io/crates/betamax) tapes, and a human reviews the
    result. This is the only channel that can judge behaviors an emulator model
    abstracts away — e.g. the accepted one-stray-line artifact a floating region
@@ -70,7 +70,7 @@ snapshot lives at [`results-matrix.md`](./results-matrix.md).
 
 ### Matrix format
 
-The honest unit of a conformance claim is *(corpus-id × terminal) → status*
+The honest unit of a conformance claim is _(corpus-id × terminal) → status_
 (spec §10.2): several identifiers can pass on one emulator and fail on another,
 so a single boolean would lie. The matrix is a markdown table, one row per
 corpus id, one column per terminal, plus an `Asserts on` column echoing the
@@ -130,7 +130,7 @@ channel`:
 | `WIDE-GRAPHEME-CONTINUATION` | screen       | checked (width agreement / cursor advance) |
 
 `INLINE-TAIL-BOUNDED` is the one identifier a data-only fixture cannot decide:
-boundedness is a property of the *renderer's* clamping decision when handed
+boundedness is a property of the _renderer's_ clamping decision when handed
 over-tall content, not of a fixed byte sequence. It is carried as an explicit
 visual-only skip; the in-repo `rabbitui/tests/inline_vt.rs` layer-3 tests
 exercise that decision against the real `InlineEngine`.

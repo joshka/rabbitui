@@ -54,11 +54,11 @@ entry points, EVAL-1 the basic declare-a-widget path, EVAL-5 the effects-are-mes
 
 The following were inferred or simplified; verify before relying on them externally.
 
-1. **`Command::cancel_group` turbofish.** The skill notes it "may need a turbofish where the message type
-   cannot be inferred" (`Command::<Msg>::cancel_group("agent")`). This matches `examples/agent.rs`
-   (which uses the turbofish) versus `examples/fetch.rs` (which does not, because the surrounding
-   `update.spawn` fixes the type). The guidance is correct but the phrasing "may need" is a
-   heuristic, not a compiler rule — worth a glance.
+1. **`Command::cancel_group` turbofish.** The skill notes it "may need a turbofish where the
+   message type cannot be inferred" (`Command::<Msg>::cancel_group("agent")`). This matches
+   `examples/agent.rs` (which uses the turbofish) versus `examples/fetch.rs` (which does not,
+   because the surrounding `update.spawn` fixes the type). The guidance is correct but the
+   phrasing "may need" is a heuristic, not a compiler rule — worth a glance.
 
 2. **`SelectionList::new` accepted argument types.** The skill states `Vec<String>` and `&[&str]`
    both work via `Into<ListSource>` / the `ListSource` trait. `examples/todo.rs` passes
