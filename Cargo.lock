@@ -1076,6 +1076,7 @@ dependencies = [
  "futures-core",
  "pulldown-cmark",
  "qwertty",
+ "rabbitui",
  "rabbitui-core",
  "rabbitui-testing",
  "rabbitui-widgets",

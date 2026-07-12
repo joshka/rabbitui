@@ -6,91 +6,27 @@
 //! passed every existing test and only showed on hardware
 //! (`docs/design/fakedevice-e2e-harness.md`). These tests run the loop over a
 //! [`qwertty::FakeDevice`] socketpair and assert on the bytes it emits, parsed by
-//! [`VtScreen`], so those classes become CI-catchable.
+//! a `VtScreen`, so those classes become CI-catchable.
 //!
-//! ## Why a pump, not a spawn
-//!
-//! The loop keeps a `StateStore` (a `Box<dyn Any>` per widget) live across every
-//! `.await`, so its future is `!Send` and cannot go on `tokio::spawn`. Instead the
-//! [`Harness`] owns the pinned future and *pumps* it on a current-thread runtime:
-//! each step polls the app once (biased) against a short timer, then drains the
-//! socket into the screen. Assertions wait for a rendered marker to appear (with a
-//! cap) rather than sleeping a fixed amount — deterministic without a real clock.
+//! The pump machinery itself is the promoted [`rabbitui::harness::Harness`] (behind
+//! the `harness` feature, enabled here via the crate's self dev-dep) — its module
+//! doc carries the "why a pump, not a spawn" explanation and an example. These
+//! tests only supply the app and the assertions.
 
 use std::future::Future;
 use std::ops::ControlFlow;
-use std::pin::Pin;
-use std::time::Duration;
 
-use qwertty::{FakeDevice, FakeTerminal};
 use rabbitui::app::{Event, Update};
 use rabbitui::effect::Command;
+use rabbitui::harness::Harness;
 use rabbitui::{App, from_fn};
 use rabbitui_core::frame::Frame;
 use rabbitui_core::id::key;
 use rabbitui_core::input::Key;
-use rabbitui_testing::vt::VtScreen;
 use rabbitui_widgets::Text;
 
-/// Drives an app's run loop over a fake device on the current thread.
-struct Harness<F: Future<Output = rabbitui::app::Result<()>>> {
-    app: Pin<Box<F>>,
-    terminal: FakeTerminal,
-    screen: VtScreen,
-    /// The loop's result once it has exited; `None` while it is still running.
-    done: Option<rabbitui::app::Result<()>>,
-}
-
-impl<F: Future<Output = rabbitui::app::Result<()>>> Harness<F> {
-    /// Advances the app by one step: poll it once (unless already exited), then
-    /// drain whatever it wrote into the screen.
-    async fn pump_once(&mut self) {
-        if self.done.is_none() {
-            tokio::select! {
-                biased;
-                result = self.app.as_mut() => self.done = Some(result),
-                () = tokio::time::sleep(Duration::from_millis(2)) => {}
-            }
-        } else {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-        let bytes = self.terminal.output().expect("read fake terminal output");
-        if !bytes.is_empty() {
-            self.screen.feed(&bytes);
-        }
-    }
-
-    /// Pumps until the rendered screen contains `needle`, or a ~1s cap elapses.
-    async fn wait_for(&mut self, needle: &str) -> bool {
-        for _ in 0..500 {
-            if self.screen.contents().contains(needle) {
-                return true;
-            }
-            self.pump_once().await;
-        }
-        self.screen.contents().contains(needle)
-    }
-
-    /// Feeds raw input bytes the app will read as terminal input.
-    fn feed(&mut self, bytes: &[u8]) {
-        self.terminal
-            .feed_input(bytes)
-            .expect("feed fake terminal input");
-    }
-
-    /// Pumps until the loop exits, returning its result (or panicking on a cap).
-    async fn join(mut self) -> rabbitui::app::Result<()> {
-        for _ in 0..500 {
-            if let Some(result) = self.done.take() {
-                return result;
-            }
-            self.pump_once().await;
-        }
-        panic!("app loop did not exit within the cap");
-    }
-}
-
-/// Builds a harness over an 80x24 fake device (the `FakeDevice` default size).
+/// Builds a harness over an 80x24 fake device (the `FakeDevice` default size)
+/// driving a closure app.
 fn harness<S, U, V>(
     state: S,
     update: U,
@@ -101,32 +37,22 @@ where
     U: FnMut(&mut S, Update<'_>) -> ControlFlow<()> + 'static,
     V: Fn(&S, &mut Frame<'_>) + 'static,
 {
-    let (device, terminal) = FakeDevice::open().expect("open fake device");
-    let app = from_fn(state, update, view);
-    Harness {
-        app: Box::pin(app.run_over_device(device)),
-        terminal,
-        screen: VtScreen::new(80, 24),
-        done: None,
-    }
+    Harness::launch_with(
+        |device| from_fn(state, update, view).run_over_device(device),
+        80,
+        24,
+    )
 }
 
 /// Builds a harness over a trait-shaped [`App`] (a struct implementing the trait
 /// directly), for tests that exercise the defaulted lifecycle hooks
-/// ([`App::init`], [`App::global`]) that closure apps cannot override. Reuses the
-/// exact same `FakeDevice` setup and pump/wait/join machinery as [`harness`].
+/// ([`App::init`], [`App::global`]) that closure apps cannot override.
 fn harness_app<A, M>(app: A) -> Harness<impl Future<Output = rabbitui::app::Result<()>>>
 where
     A: App<M> + 'static,
     M: Send + 'static,
 {
-    let (device, terminal) = FakeDevice::open().expect("open fake device");
-    Harness {
-        app: Box::pin(app.run_over_device(device)),
-        terminal,
-        screen: VtScreen::new(80, 24),
-        done: None,
-    }
+    Harness::launch_with(|device| app.run_over_device(device), 80, 24)
 }
 
 /// State for the marker app: how many `Started` and input events it has seen.
