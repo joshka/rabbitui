@@ -17,6 +17,8 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 | 7   | global chords at every return | done   | pattern: check globals at top of `update` (adopted)    |
 | 8   | `frame.split` naming sugar    | done   | `Frame::split_rows` / `Frame::split_columns`           |
 
+Findings 9–11 (the `Table` adoption, 2026-07-11) are open; see the section below.
+
 ## Findings (ranked — 1–4 are the substantive framework fixes; 5–8 are papercuts)
 
 1. **No startup/init command hook.** `App::run` never calls `update` until the first
@@ -79,6 +81,63 @@ gave, from an independent app. Ranked; the top three bite any second real app im
 8. **`rows()`/`columns()` split the whole frame only; sub-areas use
    `split_rows`/`split_columns(area, …)`.** Minor naming friction (rows = horizontal
    bands). A `frame.split(area, …)` sugar would read more consistently.
+
+## Table adoption (2026-07-11) — findings 9–11
+
+Swapping the log-follower's `SelectionList` of pre-formatted rows for a columnar
+`Table` (seq / level / target / message over `table_rows_with` on the app's
+`visible()` slice) surfaced three more edges. The adoption itself was clean — the
+API reads exactly like `SelectionList` (same `empty_text`, same `select`, same
+`Outcome::Activated`, same `widget_state().selected()`), so a user who knew one
+knew the other. These are the gaps that remained.
+
+**9. A widget command needs a _nameable_ source type, but the lazy sources are
+unnameable.** Reading the selection and resetting it after a filter go through
+`update.widget_state::<W>(path)` / `update.widget::<W>(path, …)`, which are generic
+over the whole widget `W`. But the source the view actually declares is
+`Table<TableFromFn<{closure}>>` — the closure type is unnameable, so `W` cannot be
+written down. The app names a _phantom_ source it never uses —
+`Table<Vec<Vec<String>>>` — and it works only because every `Table<S>` shares one
+`TableState` and the lookup keys on `W::State` (`peek::<W::State>` /
+`downcast::<W::State>`), not on `W`. This is inherited from `SelectionList` (the
+old code named `SelectionList<Vec<String>>` over a `FromFn` source for the same
+reason), so it is not new — but the `Table` adoption makes it sharper, because the
+"obvious" `W` to write (`Table<_>` inference, or the real source type) is exactly
+the one that won't compile. Nothing in the type system tells a reader the source
+parameter is a phantom, and a wrong choice fails with a `TableSource`-bound error
+that points nowhere near the real cause. **Want:** a state-typed accessor that
+skips the widget's generic source — `update.widget_state_as::<TableState>(path)` /
+`widget_as::<TableState>(path, …)` — or a documented `Table` type alias for "any
+source, for command typing." Cheapest honest fix: a one-line rustdoc on
+`widget`/`widget_state` naming this pattern (pick any concrete source; the state is
+what is keyed).
+
+**10. No per-row or per-cell styling — semantic color can't ride the lazy seam.**
+`Table` paints every body row in one uniform role: `Role::Text`, or
+`Role::Highlight`/`Role::Accent` for the selection. A log viewer's primary
+scannability cue is _level color_ — ERROR in danger red, WARN in warning yellow —
+and the app already owns `Level::role()`, but there is no way to hand it to the
+widget. The `level` column renders in the same grey as everything else.
+`SelectionList` has the identical limitation (the old app never colored its rows
+either, so this is _not a regression_), but the columnar layout makes the gap
+conspicuous: a reader expects a typed `level` column to carry its level's color.
+The fix must preserve virtualization — the style has to be pulled lazily per
+painted cell, exactly like the text. **Want:** an optional per-row style on
+`TableSource` (`fn row_role(&self, row: usize) -> Option<Role> { None }`, called
+only for painted rows) or a per-cell variant, so semantic coloring flows through
+the same on-demand seam as `cell()` and a million-row source still costs one
+screenful. This is the strongest candidate of the three to feed into framework
+work — level color is the single feature a real log table is judged on.
+
+**11. `SemanticRole::Table` is still absent (B2's flag, confirmed).** `Table`
+declares `SemanticRole::List` because `rabbitui-core` has no `Table` variant (B2
+completion note flagged this). It did not block the adoption — a table _is_ a
+selectable set of rows for a11y purposes — but a screen reader announcing a
+columnar grid as a flat list loses the column structure. **Want:** a
+`SemanticRole::Table` (rows × columns) in `rabbitui-core`; `Table` adopts it. Out
+of this lane; noted for the coordinator. (B2 also flagged two private
+`truncate_to_width` twins and a slice-based `split_lengths` — both internal to
+`rabbitui-widgets`; neither bit the app.)
 
 ## Also noted
 
