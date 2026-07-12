@@ -373,7 +373,10 @@ in the README).
 
 Owned-viewport inline mode (opt-in, tui2 shapes), per-terminal wheel normalization,
 hardware-cursor via facts, `WidthPolicy` seam, kitty-shaped KeyEvent adaptation, macOS
-`/dev/tty` upstreaming, `run_blocking` sync driver (§5), reverse ratatui bridge (§4).
+`/dev/tty` upstreaming, `run_blocking` sync driver (§5), reverse ratatui bridge (§4),
+signed/virtual render geometry (`docs/design/render-space.md` — widget-local clipping is
+already done and a win over ratatui; the offset+mask partial-visibility model lands with
+Wave B2; full signed geometry deferred with named triggers).
 
 ## Appendix A — why a framework over ratatui (the evidence)
 

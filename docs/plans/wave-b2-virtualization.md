@@ -83,6 +83,26 @@ Bench (extend `rabbitui-core/benches/core.rs`): 1M-item source, one frame render
 `scroll_by` — assert structurally (measure-callback invocation count is O(window), e.g.
 ≤ 64 for a 24-row viewport) rather than by wall-clock.
 
+### Partial-item rendering (added 2026-07-11 — read `docs/design/render-space.md` first)
+
+Today's `ScrollScope::item` clips a top-partial item by shrinking its area, so the widget
+paints its rows `0..visible` where rows `hidden..height` belong — the **wrong slice**
+(invisible with uniform 1-row items, which are skipped; bites variable-height
+immediately). The adjudicated mechanism is the offset+mask `RenderContext`:
+
+- `RenderContext` gains a `hidden_top: u16` (default 0): the context's logical height is
+  the item's full height; writes translate by `-hidden_top` and rows outside the visible
+  window drop. Public widget API stays `u16`-local and unchanged — a widget renders its
+  whole self and need not know it is clipped.
+- The window-fill pass constructs partial items with `hidden_top = anchor_offset` (top)
+  and lets the existing bottom truncation stand.
+- Facts keep carrying the **clipped visible** rect (hit-testing/focus act on what is on
+  screen); `hidden_top` is a render concern only.
+- Clipping slices by display columns/rows via the shared width oracle — a mask that
+  bisects a wide grapheme drops the whole cell.
+- Test to add alongside core test 2: a top-partial multi-row item shows its _bottom_
+  rows (assert exact row text of the sliced item).
+
 ## Part 2 — `Table` in `rabbitui-widgets/src/table.rs`
 
 Uniform row height (v1; tables are rows of cells — variable-height rows are out of scope).
