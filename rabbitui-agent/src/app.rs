@@ -63,7 +63,7 @@ pub struct Awaiting {
     /// execution can flip them Pending → Running → Done/Error.
     pub cell_indices: Vec<usize>,
     /// How many continuation round-trips this turn has already made, so the loop
-    /// is capped at [`MAX_CONTINUATIONS`].
+    /// is capped at `MAX_CONTINUATIONS`.
     pub continuations: usize,
 }
 
@@ -443,7 +443,7 @@ pub fn deny_pending(app: &mut Agent) -> Vec<ToolOutcome> {
 /// Folds resolved tool outcomes into state and returns the continuation request:
 /// pushes one user message of all `tool_result` blocks to history, clears
 /// `awaiting`, opens a fresh streaming turn, and returns the request to re-send
-/// — or `None` once [`MAX_CONTINUATIONS`] is exhausted (the loop is capped).
+/// — or `None` once `MAX_CONTINUATIONS` is exhausted (the loop is capped).
 pub fn continue_with_results(app: &mut Agent, outcomes: Vec<ToolOutcome>) -> Option<ChatRequest> {
     let continuations = app
         .awaiting

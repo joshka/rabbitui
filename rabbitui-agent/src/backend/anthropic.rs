@@ -1,7 +1,7 @@
 //! The real Anthropic Messages backend.
 //!
 //! Turns a [`ChatRequest`] into a streaming POST to `/v1/messages`, feeds the
-//! response bytes through the [`SseDecoder`](super::sse::SseDecoder), and forwards
+//! response bytes through the [`SseDecoder`], and forwards
 //! the decoded [`StreamEvent`]s. The wire shape does not leak past this module —
 //! the app sees only `StreamEvent`s, exactly as it does from the replay backend.
 //!

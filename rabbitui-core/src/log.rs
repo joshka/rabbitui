@@ -125,7 +125,7 @@ impl LogRecord {
 /// A bounded, shareable ring buffer of [`LogRecord`]s.
 ///
 /// Cloning is cheap (an `Arc` bump) and every clone views the same ring, so the
-/// runtime holds one clone for the [`Collector`] to write through while the view
+/// runtime holds one clone for the `Collector` to write through while the view
 /// holds another to paint the overlay. A push past the capacity evicts the
 /// oldest record.
 ///

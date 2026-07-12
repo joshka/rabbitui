@@ -1,4 +1,4 @@
-//! A help overlay generated from a [`Keymap`](rabbitui_core::keymap::Keymap):
+//! A help overlay generated from a [`Keymap`]:
 //! two aligned columns (chord, action label) in a titled [`Panel`], meant to sit
 //! in a [`Frame::layer`](rabbitui_core::frame::Frame::layer).
 //!
