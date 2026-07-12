@@ -20,3 +20,8 @@ ignores:
   # to our markdown style). Never hand-edit the mirror; refresh it from the
   # drop-box. Excluded so their emphasis/table style does not fail our lint.
   - docs/substrate/substrate-status.md
+  # A frozen historical audit with ~485-char-wide capability tables whose cells
+  # contain em-dashes; the aligned-table rule cannot reconcile em-dash display
+  # width at that scale and the tables are not worth reflowing. Excluded as a
+  # point-in-time record, not a living doc.
+  - docs/design/middle-piece-audit.md

@@ -150,7 +150,7 @@ Deviations made during the slice-3 implementation, with rationale:
 
 - **`RenderContext::new` gained a `focused: bool` parameter** (was `(buffer, area)`, now
   `(buffer, area, focused)`). The spec says "Frame gains access to a focus snapshot so
-  `RenderContext::is_focused` works" but fixes no signature; threading the verdict in at construction is
+  `RenderContext::is_focused` works" but fixes no signature; threading the verdict in at build is
   the least-surprising shape and keeps `RenderContext` self-contained. `Frame::widget` computes
   `focus == Some(id)` and passes it.
 

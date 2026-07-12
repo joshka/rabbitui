@@ -28,7 +28,7 @@ pattern; test that an effect panic restores the terminal and delivers EffectFail
 
 ## 2. Suspend / $EDITOR handoff
 
-**Position:** API is `Command::suspend(f)` where `f: FnOnce() -> T` runs with the terminal restored to
+**Position:** API is `Command::suspend(f)` where `f: FnOnce() -> T` runs with the terminal reset to
 cooked mode + primary screen (engine writes its leave frame, raw mode off), then re-enters and
 schedules a full repaint, delivering `T` as a message. Implementation **waits on qwertty
 R-SES-5/6 (RestoreHandle)** — write the API sketch and a `docs/design/` note now; wire it when

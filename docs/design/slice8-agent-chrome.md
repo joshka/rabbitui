@@ -97,7 +97,7 @@ once a full app leaned on it. These feed ADR corrections before slice 9.
 
 1. **`Attributes` is a write-only bitset — nested inline markdown needs removal.** The markdown renderer
    must clear `BOLD` when a `Strong` span ends while a surrounding heading keeps its own `BOLD`. But
-   `Attributes` exposes only `|`/`|=` and `contains`; there is no `remove`/`&`/`!`. Both the example and
+   `Attributes` exposes only `|`/`|=` and `contains`; there is no `remove`/`&`/`!`. The example and
    the integration test had to reconstruct the complement by iterating the known flags — a smell
    that recurs for any nested-styling consumer. **Correction for slice 9:** give `Attributes` `remove`,
    `BitAnd`, and `Not` (or a `toggle`), the minimal closure of a real bitset. Low-risk, additive.

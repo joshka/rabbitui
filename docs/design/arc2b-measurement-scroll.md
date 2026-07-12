@@ -157,7 +157,7 @@ above:
   leading space). `Text::content()` now returns `&Content` (was `&str`); callers use
   `.to_plain_string()`.
 
-- **Attributes ops.** `insert`, `remove` (both `const`), `BitAnd`, `BitAndAssign`, `Not` (masked to a new
+- **Attributes ops.** `insert`, `remove` (both `const`), `BitAnd`, `BitAndAssign`, `Not` (to a new
   `Attributes::ALL` so a complement never yields an undefined flag). The flagship's hand-rolled `remove`
   (rebuild-from-known-flags) is retired for `Attributes::remove`.
 
